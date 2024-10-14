@@ -70,14 +70,14 @@
 
 % The list of authors, and the short list which is used in the headers.
 % If you need two or more lines of authors, add an extra line using \newauthor
-\author[K. T. Smith et al.]{
-Keith T. Smith,$^{1}$\thanks{E-mail: publications@ras.ac.uk (KTS)}
+\author[Adam McMaster et al.]{
+Adam McMaster,$^{1}$\thanks{E-mail: a.mcmaster@soton.ac.uk}
 A. N. Other,$^{2}$
 Third Author$^{2,3}$
 and Fourth Author$^{3}$
 \\
 % List of institutions
-$^{1}$Royal Astronomical Society, Burlington House, Piccadilly, London W1J 0BQ, UK\\
+$^{1}$University of Southampton...\\
 $^{2}$Department, Institution, Street Address, City Postal Code, Country\\
 $^{3}$Another Department, Different Institution, Street Address, City Postal Code, Country
 }
@@ -139,6 +139,24 @@ So in this paper we should:
 At the end we can hopefully say what RV accuracy we need, what observing cadence we need, and determine which systems we can confirm with Lomb-Scargle and which would need a full radvel fit.
 
 \section{Results}
+
+\subsection{Pristine RV curves}
+
+Generated RV curves with no added noise and assuming one measurement per day.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{plots//pristine//0.1//0.0//20.970135067533768/unfolded.png}
+    \caption{A simulated RV curve for a self-lensing system with $a = 0.1$ AU, $b = 0.0$, and $M_\text{tot} = 20.97 \text{M}_\odot$, show's a year's worth of daily RV measurements.}
+    \label{fig:pristine-rv-unfolded}
+\end{figure}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{plots//pristine//0.1//0.0//20.970135067533768/folded.png}
+    \caption{The RV curve from Figure~\ref{fig:pristine-rv-unfolded} folded at its orbital period.}
+    \label{fig:pristine-rv-folded}
+\end{figure}
 
 \section{Discussion}
 
