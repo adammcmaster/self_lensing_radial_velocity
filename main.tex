@@ -129,7 +129,7 @@ There must be packages out there for recovering single lined spectroscopic binar
 So in this paper we should:
 
 \begin{enumerate}
-    \item Generate a library of pristine RV curves for a range of SL systems. \textbf{Which systems to generate? A grid of possible values, or use Greg's results?} I'd lean towards now using Greg's results and just fully covering the parameter space.
+    \item Generate a library of pristine RV curves for a range of SL systems. \textbf{Which systems to generate? A grid of possible values, or use Greg's results?} I'd lean towards not using Greg's results and just fully covering the parameter space.
     \item Sample the pristine systems and add noise to simulate various observing cadences with various RV accuracies.
     \item Run Lomb-Scargle on each RV curve and see if the correct period comes out.
     \item Feed all of those RV curves into a well known package for fitting SB1 orbits. Record whether the correct orbital period was recovered. \texttt{radvel} looks ideal: \url{https://radvel.readthedocs.io/en/latest/quickstartcli.html}
@@ -147,7 +147,7 @@ Generated RV curves with no added noise and assuming one measurement per day.
 \begin{figure}
     \centering
     \includegraphics[width=\linewidth]{plots//pristine//0.1//0.0//20.970135067533768/unfolded.png}
-    \caption{A simulated RV curve for a self-lensing system with $a = 0.1$ AU, $b = 0.0$, and $M_\text{tot} = 20.97 \text{M}_\odot$, show's a year's worth of daily RV measurements.}
+    \caption{A simulated RV curve for a self-lensing system with $a = 0.1$ AU, $b = 0.0$, and $M_\text{tot} = 20.97 \text{M}_\odot$, shows a year's worth of daily RV measurements.}
     \label{fig:pristine-rv-unfolded}
 \end{figure}
 
