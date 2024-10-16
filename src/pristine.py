@@ -5,15 +5,24 @@ from astropy import units
 
 from pathlib import Path
 
-from self_lensing import SelfLensingSystem
+from self_lensing import SelfLensingSystem, LensingEvent
 
-DATA_PATH = Path("../data/pristine_timeseries")
+DATA_PATH = Path(__file__).parent / Path("../data/pristine_timeseries")
 DATA_PATH.mkdir(exist_ok=True, parents=True)
 
 PARAMS = {
-    "a_sample": numpy.linspace(0.1, 200, 1000),
-    "b_sample": range(0, 10),
-    "macc_sample": numpy.linspace(0.1, 20, 2000),
+    "a_sample": numpy.concatenate(
+        [
+            numpy.linspace(0.1, 5, 10),
+            numpy.linspace(5, 50, 10),
+            numpy.linspace(50, 200, 10),
+        ]
+    ),
+    "macc_sample": numpy.linspace(0.1, 20, 10),
+    "e_sample": numpy.linspace(0, 1, 10),
+    "periapsis_phase_sample": numpy.linspace(0, 2 * numpy.pi, 10),
+    # We just fix impact param as it doesn't make enough difference to change it
+    "b": 0 * units.dimensionless_unscaled,
     # We assume a Sun-like star. This shouldn't really matter for RV calculations
     "Mcomp": 1 * units.M_sun,
     "Rcomp": 1 * units.R_sun,
@@ -24,16 +33,29 @@ PARAMS = {
 }
 
 PARAMS["total"] = (
-    len(PARAMS["a_sample"]) * len(PARAMS["b_sample"]) * len(PARAMS["macc_sample"]),
+    len(PARAMS["a_sample"])
+    * len(PARAMS["e_sample"])
+    * len(PARAMS["periapsis_phase_sample"])
+    * len(PARAMS["macc_sample"])
 )
 
 
-def gen_sls(a, b, macc):
+def gen_sls(a, e, periapsis_phase, macc):
     return SelfLensingSystem(
         a=a * units.au,
-        b=b * units.dimensionless_unscaled,
+        b=PARAMS["b"],
         Macc=macc * units.M_sun,
+        e=e * units.dimensionless_unscaled,
+        periapsis_phase=periapsis_phase * units.rad,
         Mcomp=PARAMS["Mcomp"],
         Rcomp=PARAMS["Rcomp"],
         Teff=PARAMS["Teff"],
     )
+
+
+def calc_rv(a, e, periapsis_phase, macc):
+    sls = gen_sls(a, e, periapsis_phase, macc)
+    le = LensingEvent(sls, PARAMS["start_time"])
+
+    rv = le.rv_range(PARAMS["start_time"], PARAMS["end_time"])
+    return numpy.concatenate([[a, e, periapsis_phase, macc], rv.value])

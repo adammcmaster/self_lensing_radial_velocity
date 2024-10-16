@@ -53,34 +53,12 @@ class SelfLensingSystem(object):
         "Rcomp": units.R_sun,
         "Mcomp": units.M_sun,
         "Teff": units.K,
+        "e": units.dimensionless_unscaled,
+        "periapsis_phase": units.rad,
     }
     DEFAULT_TEFF = 5000 * units.K
-    fit_init = {
-        "a": 5,
-        "b": 3,
-        "Macc": 10,
-        "Rcomp": 1,
-        "Mcomp": 1,
-        "Teff": 5000,
-    }
-    fit_limits = {
-        "a": (0.01, 2000),
-        "b": (0, 10),
-        "Macc": (0.1, 50),
-        "Rcomp": (0.1, 1000),
-        "Mcomp": (0.1, 200),
-        "Teff": (100, 100000),
-    }
-    param_order = [
-        "a",
-        "b",
-        "Macc",
-        "Mcomp",
-        "Rcomp",
-        "Teff",
-        "baseline",
-        "peak_time",
-    ]
+    DEFAULT_PERIAPSIS = 0 * units.rad
+    DEFAULT_E = 0 * units.dimensionless_unscaled
 
     @units.quantity_input
     def __init__(
@@ -91,6 +69,8 @@ class SelfLensingSystem(object):
         Mcomp: units.kg,
         Rcomp: units.m,
         Teff: units.K = DEFAULT_TEFF,
+        e: units.dimensionless_unscaled = DEFAULT_E,
+        periapsis_phase: units.rad = DEFAULT_PERIAPSIS,
     ):
         self.b = b
         self.a = a.to(self.param_units["a"])
@@ -98,47 +78,8 @@ class SelfLensingSystem(object):
         self.Rcomp = Rcomp.to(self.param_units["Rcomp"])
         self.Mcomp = Mcomp.to(self.param_units["Mcomp"])
         self.Teff = Teff.to(self.param_units["Teff"])
-
-    def update_props_floats(self, a, b, Macc, Mcomp, Rcomp, Teff):
-        self.a = a * self.param_units["a"]
-        self.b = b * self.param_units["b"]
-        self.Macc = Macc * self.param_units["Macc"]
-        self.Mcomp = Mcomp * self.param_units["Mcomp"]
-        self.Rcomp = Rcomp * self.param_units["Rcomp"]
-        self.Teff = Teff * self.param_units["Teff"]
-
-    @classmethod
-    def from_dict(cls, params):
-        return cls(
-            a=params["a"] * cls.param_units["a"],
-            b=params["b"] * cls.param_units["b"],
-            Macc=params["Macc"] * cls.param_units["Macc"],
-            Rcomp=params["Rcomp"] * cls.param_units["Rcomp"],
-            Mcomp=params["Mcomp"] * cls.param_units["Mcomp"],
-            Teff=params["Teff"] * cls.param_units["Teff"],
-        )
-
-    @property
-    def params(self):
-        return {
-            "a": self.a,
-            "b": self.b,
-            "Macc": self.Macc,
-            "Rcomp": self.Rcomp,
-            "Mcomp": self.Mcomp,
-            "Teff": self.Teff,
-        }
-
-    @property
-    def param_values(self):
-        return {
-            "a": self.a.to(self.param_units["a"]).value,
-            "b": self.b.value,
-            "Macc": self.Macc.to(self.param_units["Macc"]).value,
-            "Rcomp": self.Rcomp.to(self.param_units["Rcomp"]).value,
-            "Mcomp": self.Mcomp.to(self.param_units["Mcomp"]).value,
-            "Teff": self.Teff.to(self.param_units["Teff"]).value,
-        }
+        self.e = e
+        self.periapsis_phase = periapsis_phase.to(self.param_units["periapsis_phase"])
 
     @property
     def a_acc(self):
@@ -180,15 +121,15 @@ class SelfLensingSystem(object):
 
     def rv(self, phase):
         """
-        Radial velocity. Assumes a circular orbit.
+        Radial velocity. Applies phase angle to orbital velocity.
         """
-        return self.v_comp * numpy.sin(phase) * self.sin_i
+        return self.v_comp(phase) * numpy.sin(phase) * self.sin_i
 
     def rv_deriv(self, phase):
         """
         Derivative of radial velocity.
         """
-        return self.v_comp * numpy.cos(phase) * self.sin_i
+        return self.v_comp(phase) * numpy.cos(phase) * self.sin_i
 
     @property
     def sin_i(self):
@@ -226,21 +167,21 @@ class SelfLensingSystem(object):
         time = time % self.porb
         return (((time / self.porb).decompose() * 2 * numpy.pi)) * units.rad
 
-    def v(self, a) -> units.m / units.s:
+    def v(self, a, phase) -> units.m / units.s:
         """
-        Orbital velocity. Assumes a circular orbit.
+        Orbital velocity.
         """
-        v = 2 * numpy.pi * a / self.porb
+        r = (a * (1 - self.e**2)) / (
+            1 + self.e * numpy.cos(phase - self.periapsis_phase)
+        )
+        v = numpy.sqrt((constants.G * self.Mtot) * (2 / r - 1 / a))
         return v.to(units.m / units.s)
 
-    @property
-    def v_tot(self) -> units.m / units.s:
-        return self.v(self.a)
+    def v_tot(self, phase) -> units.m / units.s:
+        return self.v(self.a, phase)
 
-    @property
-    def v_acc(self) -> units.m / units.s:
-        return self.v(self.a_acc)
+    def v_acc(self, phase) -> units.m / units.s:
+        return self.v(self.a_acc, phase)
 
-    @property
-    def v_comp(self) -> units.m / units.s:
-        return self.v(self.a_comp)
+    def v_comp(self, phase) -> units.m / units.s:
+        return self.v(self.a_comp, phase)
