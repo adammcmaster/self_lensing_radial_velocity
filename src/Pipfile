@@ -9,6 +9,7 @@ numpy = "*"
 seaborn = "*"
 radvel = "*"
 tqdm = "*"
+fastparquet = "*"
 
 [dev-packages]
 

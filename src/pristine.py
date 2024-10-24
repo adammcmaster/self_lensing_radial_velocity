@@ -1,4 +1,5 @@
 import numpy
+import pandas
 
 from astropy.time import Time
 from astropy import units
@@ -10,6 +11,8 @@ from self_lensing import SelfLensingSystem, LensingEvent
 DATA_PATH = Path(__file__).parent / Path("../data/pristine_timeseries")
 DATA_PATH.mkdir(exist_ok=True, parents=True)
 
+TIMESERIES_TABLE_PATH = DATA_PATH / "pristine_timeseries.parquet.gz"
+
 PARAMS = {
     "a_sample": numpy.concatenate(
         [
@@ -19,7 +22,7 @@ PARAMS = {
         ]
     ),
     "macc_sample": numpy.linspace(0.1, 20, 10),
-    "e_sample": numpy.linspace(0, 1, 10),
+    "e_sample": numpy.linspace(0, 0.9, 10),
     "periapsis_phase_sample": numpy.linspace(0, 2 * numpy.pi, 10),
     # We just fix impact param as it doesn't make enough difference to change it
     "b": 0 * units.dimensionless_unscaled,
@@ -58,4 +61,17 @@ def calc_rv(a, e, periapsis_phase, macc):
     le = LensingEvent(sls, PARAMS["start_time"])
 
     rv = le.rv_range(PARAMS["start_time"], PARAMS["end_time"])
-    return numpy.concatenate([[a, e, periapsis_phase, macc], rv.value])
+    return {
+        "a": a,
+        "e": e,
+        "periapsis_phase": periapsis_phase,
+        "Macc": macc,
+        "Mcomp": PARAMS["Mcomp"].value,
+        "Rcomp": PARAMS["Rcomp"].value,
+        "b": PARAMS["b"].value,
+        "rv": rv.value.tolist(),
+    }
+
+
+def load_pristine_timeseries():
+    return pandas.read_parquet(TIMESERIES_TABLE_PATH)
