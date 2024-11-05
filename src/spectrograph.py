@@ -29,6 +29,14 @@ class Spectrograph(object):
         )
 
 
+class ARCES(Spectrograph):
+    NAME = "APO ARCES"
+    RV_ACCURACY = 0.5 * units.km / units.s
+
+
+Spectrograph.all.append(ARCES)
+
+
 class ESPRESSO(Spectrograph):
     NAME = "ESO ESPRESSO"
     RV_ACCURACY = 0.097 * units.m / units.s
