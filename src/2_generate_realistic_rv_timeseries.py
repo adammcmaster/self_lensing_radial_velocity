@@ -34,9 +34,11 @@ if __name__ == "__main__":
                 pristine_sample *= units.m / units.s
 
                 for spectrograph in Spectrograph.all:
-                    noisy_sample = Spectrograph.add_rv_noise(pristine_sample)
+                    noisy_sample = spectrograph.add_rv_noise(pristine_sample)
+                    noisy_err = spectrograph.total_error(unit=pristine_sample.unit)
                     new_ts = pandas.Series(ts)
                     new_ts["rv"] = list(noisy_sample.value)
+                    new_ts["rv_err"] = noisy_err
                     new_ts["times"] = pristine_idx
                     new_ts["RV accuracy"] = spectrograph.RV_ACCURACY.to(
                         units.m / units.s

@@ -22,6 +22,12 @@ class Spectrograph(object):
             + numpy.random.normal(0, cls.RV_ACCURACY.to(rv.unit).value, len_rv)
         ) * rv.unit
 
+    @classmethod
+    def total_error(cls, unit=units.m / units.s):
+        return numpy.sqrt(
+            cls.STELLAR_NOISE.to(unit).value ** 2 + cls.RV_ACCURACY.to(unit).value ** 2
+        )
+
 
 class ESPRESSO(Spectrograph):
     NAME = "ESO ESPRESSO"
