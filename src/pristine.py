@@ -11,7 +11,7 @@ from self_lensing import SelfLensingSystem, LensingEvent, gen_sls, DEFAULTS
 DATA_PATH = Path(__file__).parent / Path("../data/pristine_timeseries")
 DATA_PATH.mkdir(exist_ok=True, parents=True)
 
-TIMESERIES_TABLE_PATH = DATA_PATH / "pristine_timeseries.parquet.gz"
+TIMESERIES_TABLE_PATH = DATA_PATH / "pristine_timeseries.parquet"
 
 PARAMS = {
     "a_sample": numpy.concatenate(

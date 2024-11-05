@@ -35,4 +35,4 @@ if __name__ == "__main__":
                 for f in futures:
                     results.append(f.result())
             results = pandas.DataFrame(results)
-            results.to_parquet(TIMESERIES_TABLE_PATH, compression="gzip")
+            results.to_parquet(TIMESERIES_TABLE_PATH)

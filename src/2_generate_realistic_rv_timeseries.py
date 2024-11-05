@@ -47,4 +47,4 @@ if __name__ == "__main__":
                     pbar.update(1)
 
     results = pandas.DataFrame(results)
-    results.to_parquet(TIMESERIES_TABLE_PATH, compression="gzip")
+    results.to_parquet(TIMESERIES_TABLE_PATH)
