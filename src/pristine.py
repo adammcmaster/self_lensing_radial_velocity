@@ -44,6 +44,7 @@ def calc_rv(a, e, periapsis_phase, macc):
         "e": e,
         "periapsis_phase": periapsis_phase,
         "Macc": macc,
+        "Porb": sls.porb.value,
         "Mcomp": DEFAULTS["Mcomp"].value,
         "Rcomp": DEFAULTS["Rcomp"].value,
         "b": DEFAULTS["b"].value,
