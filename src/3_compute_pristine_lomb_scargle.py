@@ -15,6 +15,7 @@ if __name__ == "__main__":
             {
                 "pristine_idx": ts.name,
                 "top_period": top_period,
+                "Porb": ts["Porb"],
             }
         )
     results = pandas.DataFrame(results)

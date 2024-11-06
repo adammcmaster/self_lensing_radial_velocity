@@ -9,6 +9,7 @@ DATA_PATH = Path(__file__).parent / Path("../data/realistic_timeseries")
 DATA_PATH.mkdir(exist_ok=True, parents=True)
 
 TIMESERIES_TABLE_PATH = DATA_PATH / "realistic_timeseries.parquet"
+LOMBSCARGLE_TABLE_PATH = DATA_PATH / "realistic_lombscargle.parquet"
 
 
 def load_realistic_timeseries():

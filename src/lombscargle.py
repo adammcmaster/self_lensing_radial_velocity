@@ -12,9 +12,5 @@ def get_top_period(rv, times=default_times):
     frequency, power = LombScargle(times, rv).autopower(
         maximum_frequency=maximum_frequency, minimum_frequency=minimum_frequency
     )
-
     period = 1 / frequency
-    sort_idx = numpy.argsort(power)
-    power = numpy.take(power, sort_idx)
-    period = numpy.take(period, sort_idx)
     return period[numpy.argmax(power)]
