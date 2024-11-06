@@ -12,6 +12,7 @@ DATA_PATH = Path(__file__).parent / Path("../data/pristine_timeseries")
 DATA_PATH.mkdir(exist_ok=True, parents=True)
 
 TIMESERIES_TABLE_PATH = DATA_PATH / "pristine_timeseries.parquet"
+LOMBSCARGLE_TABLE_PATH = DATA_PATH / "pristine_lombscargle.parquet"
 
 PARAMS = {
     "a_sample": numpy.concatenate(
