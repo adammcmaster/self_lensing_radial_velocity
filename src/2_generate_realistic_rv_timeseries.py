@@ -8,8 +8,6 @@ import pandas
 from astropy import units
 from tqdm import tqdm
 
-from pathlib import Path
-
 from pristine import load_pristine_timeseries
 from spectrograph import Spectrograph
 
