@@ -55,3 +55,7 @@ def calc_rv(a, e, periapsis_phase, macc):
 
 def load_pristine_timeseries():
     return pandas.read_parquet(TIMESERIES_TABLE_PATH)
+
+
+def load_pristine_lombscargle():
+    return pandas.read_parquet(LOMBSCARGLE_TABLE_PATH)

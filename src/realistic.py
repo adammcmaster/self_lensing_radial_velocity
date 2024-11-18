@@ -14,3 +14,7 @@ LOMBSCARGLE_TABLE_PATH = DATA_PATH / "realistic_lombscargle.parquet"
 
 def load_realistic_timeseries():
     return pandas.read_parquet(TIMESERIES_TABLE_PATH)
+
+
+def load_realistic_lombscargle():
+    return pandas.read_parquet(LOMBSCARGLE_TABLE_PATH)
