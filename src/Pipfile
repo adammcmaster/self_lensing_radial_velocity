@@ -7,9 +7,9 @@ name = "pypi"
 astropy = "*"
 numpy = "*"
 seaborn = "*"
-radvel = "*"
 tqdm = "*"
 fastparquet = "*"
+emcee = "*"
 
 [dev-packages]
 
