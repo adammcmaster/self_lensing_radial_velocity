@@ -8,8 +8,8 @@ PARAMS = {"cadences": numpy.arange(1, 100, 10)}
 DATA_PATH = Path(__file__).parent / Path("../data/realistic_timeseries")
 DATA_PATH.mkdir(exist_ok=True, parents=True)
 
-TIMESERIES_TABLE_PATH = DATA_PATH / "realistic_timeseries.parquet"
-LOMBSCARGLE_TABLE_PATH = DATA_PATH / "realistic_lombscargle.parquet"
+TIMESERIES_TABLE_PATH = DATA_PATH / "realistic_rv_timeseries.parquet"
+LOMBSCARGLE_TABLE_PATH = DATA_PATH / "realistic_rv_lombscargle.parquet"
 
 
 def load_realistic_timeseries():

@@ -10,6 +10,7 @@ seaborn = "*"
 tqdm = "*"
 fastparquet = "*"
 emcee = "*"
+selflensing = {git = "https://github.com/COBALT-lensing/py-self-lensing.git"}
 
 [dev-packages]
 

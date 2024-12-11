@@ -1,18 +1,17 @@
 import numpy
 import pandas
 
-from astropy.time import Time
-from astropy import units
-
 from pathlib import Path
 
-from self_lensing import SelfLensingSystem, LensingEvent, gen_sls, DEFAULTS
+from selflensing.models import LensingEvent
+
+from utils import gen_sls, DEFAULTS
 
 DATA_PATH = Path(__file__).parent / Path("../data/pristine_timeseries")
 DATA_PATH.mkdir(exist_ok=True, parents=True)
 
-TIMESERIES_TABLE_PATH = DATA_PATH / "pristine_timeseries.parquet"
-LOMBSCARGLE_TABLE_PATH = DATA_PATH / "pristine_lombscargle.parquet"
+TIMESERIES_TABLE_PATH = DATA_PATH / "pristine_rv_timeseries.parquet"
+LOMBSCARGLE_TABLE_PATH = DATA_PATH / "pristine_rv_lombscargle.parquet"
 
 PARAMS = {
     "a_sample": numpy.concatenate(
