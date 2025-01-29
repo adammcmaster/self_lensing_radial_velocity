@@ -37,7 +37,7 @@ if __name__ == "__main__":
                     new_ts = pandas.Series(ts)
                     new_ts["rv"] = list(noisy_sample.value)
                     new_ts["rv_err"] = noisy_err
-                    new_ts["times"] = pristine_idx
+                    new_ts["rv_times"] = ts["rv_times"].take(pristine_idx)
                     new_ts["RV accuracy"] = spectrograph.RV_ACCURACY.to(
                         units.m / units.s
                     ).value

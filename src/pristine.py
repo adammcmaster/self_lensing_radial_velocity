@@ -1,16 +1,18 @@
 import numpy
 import pandas
 
+from astropy import units
 from pathlib import Path
 
-from selflensing.models import LensingEvent
+from selflensing.generators import RVGenerator, LightcurveGenerator
+from selflensing.models import SelfLensingSystem
 
-from utils import gen_sls, DEFAULTS
+from utils import DEFAULTS
 
-DATA_PATH = Path(__file__).parent / Path("../data/pristine_timeseries")
+DATA_PATH = Path(__file__).parent / Path("../data/")
 DATA_PATH.mkdir(exist_ok=True, parents=True)
 
-TIMESERIES_TABLE_PATH = DATA_PATH / "pristine_rv_timeseries.parquet"
+TIMESERIES_TABLE_PATH = DATA_PATH / "pristine_timeseries.parquet"
 LOMBSCARGLE_TABLE_PATH = DATA_PATH / "pristine_rv_lombscargle.parquet"
 
 PARAMS = {
@@ -35,10 +37,29 @@ PARAMS["total"] = (
 
 
 def calc_rv(a, e, periapsis_phase, macc):
-    sls = gen_sls(a, e, periapsis_phase, macc)
-    le = LensingEvent(sls, DEFAULTS["start_time"])
+    sls = SelfLensingSystem(
+        a=a * units.au,
+        b=DEFAULTS["b"],
+        Macc=macc * units.M_sun,
+        e=e * units.dimensionless_unscaled,
+        periapsis_phase=periapsis_phase * units.rad,
+        Mcomp=DEFAULTS["Mcomp"],
+        Rcomp=DEFAULTS["Rcomp"],
+        Teff=DEFAULTS["Teff"],
+    )
+    rvg = RVGenerator(
+        sls,
+        start_time=DEFAULTS["rv_start_time"],
+        end_time=DEFAULTS["rv_end_time"],
+        peak_time=DEFAULTS["peak_time"],
+    )
+    lcg = LightcurveGenerator(
+        sls,
+        start_time=DEFAULTS["lc_start_time"],
+        end_time=DEFAULTS["lc_end_time"],
+        peak_time=DEFAULTS["peak_time"],
+    )
 
-    rv = le.rv_range(DEFAULTS["start_time"], DEFAULTS["end_time"])
     return {
         "a": a,
         "e": e,
@@ -48,7 +69,11 @@ def calc_rv(a, e, periapsis_phase, macc):
         "Mcomp": DEFAULTS["Mcomp"].value,
         "Rcomp": DEFAULTS["Rcomp"].value,
         "b": DEFAULTS["b"].value,
-        "rv": rv.value.tolist(),
+        "rv": rvg.rv.value.tolist(),
+        "rv_times": list(rvg.times.jd),
+        "lc": list(lcg.flux_array),
+        "lc_times": list(lcg.times.jd),
+        "peak_time": DEFAULTS["peak_time"].jd,
     }
 
 
