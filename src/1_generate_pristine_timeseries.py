@@ -10,6 +10,7 @@ import pandas
 from tqdm import tqdm
 
 from pristine import TIMESERIES_TABLE_PATH, PARAMS, calc_rv
+from utils import PROC_LIMIT
 
 
 if __name__ == "__main__":
@@ -21,7 +22,7 @@ if __name__ == "__main__":
                 for e in PARAMS["e_sample"]:
                     for periapsis_phase in PARAMS["periapsis_phase_sample"]:
                         for macc in PARAMS["macc_sample"]:
-                            if len(futures) >= 10:
+                            if len(futures) >= PROC_LIMIT:
                                 completed, futures = concurrent.futures.wait(
                                     futures,
                                     return_when=concurrent.futures.FIRST_COMPLETED,

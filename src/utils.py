@@ -25,3 +25,5 @@ default_rv_times = list(
 default_lc_times = list(
     range(int((DEFAULTS["lc_end_time"] - DEFAULTS["lc_start_time"]).value))
 )
+
+PROC_LIMIT = 100
