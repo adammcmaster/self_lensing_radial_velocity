@@ -73,7 +73,7 @@ def calc_rv(a, e, periapsis_phase, macc):
         "b": DEFAULTS["b"].value,
         "rv": rvg.rv.value.tolist(),
         "rv_times": list(rvg.times.jd),
-        "lc": list(lcg.flux_array),
+        "lc": list(lcg.flux_array.value),
         "lc_times": list(lcg.times.jd),
         "peak_time": DEFAULTS["peak_time"].jd,
     }
