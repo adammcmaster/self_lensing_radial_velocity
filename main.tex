@@ -66,7 +66,7 @@
 
 % Title of the paper, and the short title which is used in the headers.
 % Keep the title short and informative.
-\title{Radial velocities of self-lensing systems}
+\title{Detecting the self-lensing black hole population}
 
 % The list of authors, and the short list which is used in the headers.
 % If you need two or more lines of authors, add an extra line using \newauthor
@@ -114,29 +114,52 @@ keyword1 -- keyword2 -- keyword3
 
 \section{Introduction}
 
-\section{Methods}
-
-Aiming to figure out what RV accuracy and observing cadence is required to confirm which self-lensing systems, in terms of their physical properties.
-
-For short period systems, we can just observe them a bunch of times, recover their orbital period with a periodogram, and fold the RV curve. For these systems we need to know how frequently we'd need to observe them over, say, 1 year to be able to recover the period.
-
-For longer periods we won't see any complete orbits so we'd need to know which systems it would be possible to fit as a function of length of observing campaign.
-
-Ideally we want this to work whether or not we know the orbital period beforehand, so we can have a single pipeline that recovers binary systems regardless.
-
-There must be packages out there for recovering single lined spectroscopic binaries. That's all we need to do. No need to reinvent the wheel.
-
-So in this paper we should:
-
+Paper aims:
 \begin{enumerate}
-    \item Generate a library of pristine RV curves for a range of SL systems. \textbf{Which systems to generate? A grid of possible values, or use Greg's results?} I'd lean towards not using Greg's results and just fully covering the parameter space.
-    \item Sample the pristine systems and add noise to simulate various observing cadences with various RV accuracies.
-    \item Run Lomb-Scargle on each RV curve and see if the correct period comes out.
-    \item Feed all of those RV curves into a well known package for fitting SB1 orbits. Record whether the correct orbital period was recovered. \texttt{radvel} looks ideal: \url{https://radvel.readthedocs.io/en/latest/quickstartcli.html}
-    \item Plot the orbital period correctness as a function of $M_\text{total}$, $P_\text{orb}$, RV accuracy, and observing cadence. If we can somehow visualise that in an understandable way on one plot, then great.
+    \item Produce a library of ``pristine'' simulated self-lensing light curves and RV curves, covering all plausible physical parameter space.
+    \item Simulate observing those systems under a range of observing schedules (a small number of reprenstative schedules, not fully compresenhive as it'll be too much) and with a variety of instrument accuracies.
+    \item Fit simulated observations and determine which parameters can and can not be recovered as a function of instrument accuracies, for each observing schedule.
+    \item Combine these results with previous population synthesis results to determine how many such systems could be discovered by each instrument/strategy.
 \end{enumerate}
 
-At the end we can hopefully say what RV accuracy we need, what observing cadence we need, and determine which systems we can confirm with Lomb-Scargle and which would need a full radvel fit.
+The main distinguishing feature of self-lensing vs microlensing is the periodicity of the lensing flares. To claim photometric discovery of a self-lensing system, ideally we would aim to detect this periodicity. 
+
+\section{Methods}
+
+\subsection{``Pristine'' simulations}
+
+Describe py-self-lensing code and maths behind LC and RV
+
+We compute photometric light curves and RV curves with no noise for a grid of parameter values.  We assume the stellar companion is Sun-like (1 M$_\odot$, 1 R$_\odot$, 5500 K). Other params are sampled linearly spaced as follows:
+
+\begin{itemize}
+    \item $a$ (semi-major axis): 10 samples between 0.1 and 5 AU, 10 samples between 5 and 50 AU, 10 samples between 50 and 200 AU.
+    \item $M_\text{BH}$: 10 samples between 5 and 50 M$_\odot$.
+    \item $e$ (eccentricity): 10 samples between 0 and 0.9.
+    \item $\omega$ (periapsis phase angle; 0 meaning closest approach at peak of lensing): 10 samples between 0 and $2\pi$.
+\end{itemize}
+
+We exclude from above any combination of $a$ and $M_\text{BH}$ where the Roche lobe radius at periapsis would be smaller than or equal to 1~R$_\odot$, as such systems would be guaranteed to be X-ray binaries.
+
+Three photometric effects are included when generating the light curves: self-lensing, ellipsoidal variations, and Doppler boosting. At small values of $a$ the light curve is dominated by ellipsoidal variations and Doppler boosting (though lensing is often visible too); at large $a$ lensing is dominant, with ellipsoidal variation and Doppler boosting tending to zero as $a$ increases.
+
+\subsection{Simulated realistic observations}
+
+Observing strategy. Instrument accuracies.
+
+Assumptions: We first identify lensing candidates in photometry some time after the event, and then obtain RV after that. For simplicity we assume that there is a gap of one year between first photometric lensing event and the RV being obtained.
+
+We simulate varying lengths of photometric light curve, varying lengths of RV curves, varying observing cadences for both LC and RV. Done by sampling the pristine simulations at different frequencies.
+
+For a sufficiently close binary, a self-lensing system would be indistinguishable from a binary undergoing ellipsoidal variations with no self-lensing effect, since the lensing magnification would so small as to be undetectable. Indeed the only physical difference is the angle of inclination; there is no inherent difference between the two classes of system. In this work we assume all systems are edge-on.
+
+\subsection{Fitting of simulated observations}
+
+We detect potential periodicity with Lomb-Scargle. All periods up to 90\% of observing baseline with powers above 99\% FAL are considered and used to apply a Gaussian prior in MCMC. Fitted periods longer than 90\% of observing baseline are allowed with no Gaussian prior, with a maximum of double the observing baseline. 
+
+In other words, if fitting a period shorter than 90\% of baseline we're strict about it fitting close to one of the Lomb-Scargle periods; if it's that short we enforce that we should see one or more full orbits in the photometry. We then enforce an overall limit on orbital period of twice the baseline. These measures are both designed to force the fitted parameters into a range where we can be confident in them based on the length of the photometic basline. E.g. if we only have a year of photometry, we shouldn't claim to be able to see a SL system with a 5 year orbit. For reliability we should get more photometry to make that claim. And conversely if we have a year of photometry and the orbital period is a month, it should show up in the Lomb-Scargle results.
+
+\subsection{Combining with pop synthesis}
 
 \section{Results}
 
@@ -144,34 +167,34 @@ At the end we can hopefully say what RV accuracy we need, what observing cadence
 
 Generated RV curves with no added noise and assuming one measurement per day.
 
-\begin{figure}
-    \centering
-    \includegraphics[width=\linewidth]{plots/pristine/0.1/0.1111111111111111/3.490658503988659/18.788888888888888/unfolded.png}
-    \caption{A simulated RV curve for a self-lensing system with $a = 0.1$ AU, $e = 0.1$, and $M_\text{tot} = 18.7 \text{M}_\odot$, shows a year's worth of daily RV measurements.}
-    \label{fig:pristine-rv-unfolded}
-\end{figure}
+% \begin{figure}
+%     \centering
+%     \includegraphics[width=\linewidth]{plots/pristine/0.1/0.1111111111111111/3.490658503988659/18.788888888888888/unfolded.png}
+%     \caption{A simulated RV curve for a self-lensing system with $a = 0.1$ AU, $e = 0.1$, and $M_\text{tot} = 18.7 \text{M}_\odot$, shows a year's worth of daily RV measurements.}
+%     \label{fig:pristine-rv-unfolded}
+% \end{figure}
 
-\begin{figure}
-    \centering
-    \includegraphics[width=\linewidth]{plots/pristine/0.1/0.1111111111111111/3.490658503988659/18.788888888888888/folded.png}
-    \caption{The RV curve from Figure~\ref{fig:pristine-rv-unfolded} folded at its orbital period.}
-    \label{fig:pristine-rv-folded}
-\end{figure}
+% \begin{figure}
+%     \centering
+%     \includegraphics[width=\linewidth]{plots/pristine/0.1/0.1111111111111111/3.490658503988659/18.788888888888888/folded.png}
+%     \caption{The RV curve from Figure~\ref{fig:pristine-rv-unfolded} folded at its orbital period.}
+%     \label{fig:pristine-rv-folded}
+% \end{figure}
 
 
-\begin{figure}
-    \centering
-    \includegraphics[width=\linewidth]{plots/pristine/0.1/0.8888888888888888/0.0/12.155555555555553/unfolded.png}
-    \caption{A simulated RV curve for a self-lensing system with $a = 0.1$ AU, $e = 0.89$, and $M_\text{tot} = 12.16 \text{M}_\odot$, shows a year's worth of daily RV measurements.}
-    \label{fig:pristine-rv-eccentric-unfolded}
-\end{figure}
+% \begin{figure}
+%     \centering
+%     \includegraphics[width=\linewidth]{plots/pristine/0.1/0.8888888888888888/0.0/12.155555555555553/unfolded.png}
+%     \caption{A simulated RV curve for a self-lensing system with $a = 0.1$ AU, $e = 0.89$, and $M_\text{tot} = 12.16 \text{M}_\odot$, shows a year's worth of daily RV measurements.}
+%     \label{fig:pristine-rv-eccentric-unfolded}
+% \end{figure}
 
-\begin{figure}
-    \centering
-    \includegraphics[width=\linewidth]{plots/pristine/0.1/0.8888888888888888/0.0/12.155555555555553/folded.png}
-    \caption{The RV curve from Figure~\ref{fig:pristine-rv-eccentric-unfolded} folded at its orbital period.}
-    \label{fig:pristine-rv-eccentric-folded}
-\end{figure}
+% \begin{figure}
+%     \centering
+%     \includegraphics[width=\linewidth]{plots/pristine/0.1/0.8888888888888888/0.0/12.155555555555553/folded.png}
+%     \caption{The RV curve from Figure~\ref{fig:pristine-rv-eccentric-unfolded} folded at its orbital period.}
+%     \label{fig:pristine-rv-eccentric-folded}
+% \end{figure}
 
 
 \section{Discussion}
