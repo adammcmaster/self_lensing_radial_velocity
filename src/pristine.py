@@ -47,6 +47,8 @@ def calc_rv(a, e, periapsis_phase, macc):
         Rcomp=DEFAULTS["Rcomp"],
         Teff=DEFAULTS["Teff"],
     )
+    if sls.r_roche <= sls.Rcomp:
+        return
     rvg = RVGenerator(
         sls,
         start_time=DEFAULTS["rv_start_time"],

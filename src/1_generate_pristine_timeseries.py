@@ -33,6 +33,8 @@ if __name__ == "__main__":
                             )
                             pbar.update(1)
                 for f in futures:
-                    results.append(f.result())
+                    res = f.result()
+                    if res is not None:
+                        results.append(f.result())
             results = pandas.DataFrame(results)
             results.to_parquet(TIMESERIES_TABLE_PATH)
