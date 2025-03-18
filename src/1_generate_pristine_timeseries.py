@@ -28,7 +28,9 @@ if __name__ == "__main__":
                                     return_when=concurrent.futures.FIRST_COMPLETED,
                                 )
                                 for f in completed:
-                                    results.append(f.result())
+                                    res = f.result()
+                                    if res is not None:
+                                        results.append(res)
                             futures.add(
                                 executor.submit(calc_rv, a, e, periapsis_phase, macc)
                             )
