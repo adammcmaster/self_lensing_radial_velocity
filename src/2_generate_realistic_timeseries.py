@@ -43,7 +43,7 @@ if __name__ == "__main__":
     total = len(PARAMS["cadences"]) * len(pristine) * len(Spectrograph.all)
 
     with tqdm(total=total) as pbar:
-        with concurrent.futures.ProcessPoolExecutor() as executor:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=20) as executor:
             futures = set()
             for cadence in PARAMS["cadences"]:
                 for i, ts in pristine.iterrows():
