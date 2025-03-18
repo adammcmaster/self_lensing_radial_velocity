@@ -38,6 +38,6 @@ if __name__ == "__main__":
                 for f in futures:
                     res = f.result()
                     if res is not None:
-                        results.append(f.result())
+                        results.append(res)
             results = pandas.DataFrame(results)
             results.to_parquet(TIMESERIES_TABLE_PATH)
