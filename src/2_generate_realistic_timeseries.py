@@ -22,19 +22,19 @@ def sample_timeseries(ts, step):
     idx = numpy.arange(0, len(ts), step)
     return idx.tolist(), numpy.array(ts).take(idx).tolist()
 
-def gen_ts(i, ts, spectrograph):
+
+def gen_ts(i, ts, cadence, pristine_sample, pristine_idx, spectrograph):
     noisy_sample = spectrograph.add_rv_noise(pristine_sample)
     noisy_err = spectrograph.total_error(unit=pristine_sample.unit)
     new_ts = pandas.Series(ts)
     new_ts["rv"] = list(noisy_sample.value)
     new_ts["rv_err"] = noisy_err
     new_ts["rv_times"] = numpy.array(ts["rv_times"]).take(pristine_idx)
-    new_ts["RV accuracy"] = spectrograph.RV_ACCURACY.to(
-        units.m / units.s
-    ).value
+    new_ts["RV accuracy"] = spectrograph.RV_ACCURACY.to(units.m / units.s).value
     new_ts["cadence"] = cadence
     new_ts["pristine idx"] = i
     return new_ts
+
 
 if __name__ == "__main__":
     pristine = load_pristine_timeseries()
@@ -61,7 +61,15 @@ if __name__ == "__main__":
                                 if res is not None:
                                     results.append(res)
                         futures.add(
-                            executor.submit(gen_ts, i, ts, spectrograph)
+                            executor.submit(
+                                gen_ts,
+                                i,
+                                ts,
+                                cadence,
+                                pristine_sample,
+                                pristine_idx,
+                                spectrograph,
+                            )
                         )
                         pbar.update(1)
             for f in futures:
