@@ -13,7 +13,7 @@ DEFAULTS = {
     "Teff": 5500 * units.K,
     # Pick an arbitrary start and end time
     "rv_start_time": Time("2025-01-01"),
-    "rv_end_time": Time("2026-01-01"),
+    "rv_end_time": Time("2030-01-01"),
     "lc_start_time": Time("2024-01-01"),
     "lc_end_time": Time("2025-01-01"),
     "peak_time": Time("2024-06-01"),
