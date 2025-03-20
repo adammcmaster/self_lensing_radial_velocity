@@ -3,7 +3,17 @@ import pandas
 
 from pathlib import Path
 
-PARAMS = {"cadences": numpy.arange(1, 100, 10)}
+
+PARAMS = {
+    "cadences": numpy.arange(1, 300, 30),
+    "campaign_baselines": 365 * numpy.array([1, 3, 5]),
+    "rv_accuracies": numpy.concatenate(
+        [
+            numpy.linspace(0.1, 5, 5),
+            numpy.linspace(5, 6000, 5),
+        ]
+    ),
+}
 
 DATA_PATH = Path(__file__).parent / Path("../data/")
 DATA_PATH.mkdir(exist_ok=True, parents=True)
