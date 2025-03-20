@@ -18,14 +18,14 @@ LOMBSCARGLE_TABLE_PATH = DATA_PATH / "pristine_rv_lombscargle.parquet"
 PARAMS = {
     "a_sample": numpy.concatenate(
         [
-            numpy.linspace(0.1, 5, 10),
-            numpy.linspace(5, 50, 10),
-            numpy.linspace(50, 200, 10),
+            numpy.linspace(0.1, 5, 5),
+            numpy.linspace(5, 50, 5),
+            numpy.linspace(50, 200, 5),
         ]
     ),
-    "macc_sample": numpy.linspace(0.1, 20, 10),
-    "e_sample": numpy.linspace(0, 0.9, 10),
-    "periapsis_phase_sample": numpy.linspace(0, 2 * numpy.pi, 10),
+    "macc_sample": numpy.linspace(5, 20, 5),
+    "e_sample": numpy.linspace(0, 0.9, 5),
+    "periapsis_phase_sample": numpy.linspace(0, 2 * numpy.pi, 5),
 }
 
 PARAMS["total"] = (
