@@ -986,7 +986,7 @@
         },
         "selflensing": {
             "git": "ssh://git@github.com/COBALT-lensing/py-self-lensing.git",
-            "ref": "8038e6cecc25b80f647600601438184e7443c88f"
+            "ref": "e4784f06f5d2d852be115b0d99342df920d32b24"
         },
         "six": {
             "hashes": [
