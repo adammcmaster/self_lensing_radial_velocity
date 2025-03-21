@@ -55,7 +55,7 @@ if __name__ == "__main__":
     )
 
     with tqdm(total=total) as pbar:
-        with concurrent.futures.ProcessPoolExecutor(max_workers=20) as executor:
+        with concurrent.futures.ProcessPoolExecutor() as executor:
             futures = set()
             for baseline in PARAMS["campaign_baselines"]:
                 for cadence in PARAMS["cadences"]:

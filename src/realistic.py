@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 PARAMS = {
-    "cadences": numpy.arange(1, 300, 30),
+    "cadences": [1, 30, 60, 120, 150, 300],
     "campaign_baselines": 365 * numpy.array([1, 3, 5]),
     "rv_accuracies": numpy.concatenate(
         [
