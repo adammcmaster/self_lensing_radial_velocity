@@ -13,7 +13,6 @@ DATA_PATH = Path(__file__).parent / Path("../data/")
 DATA_PATH.mkdir(exist_ok=True, parents=True)
 
 TIMESERIES_TABLE_PATH = DATA_PATH / "pristine_timeseries.parquet"
-LOMBSCARGLE_TABLE_PATH = DATA_PATH / "pristine_rv_lombscargle.parquet"
 
 PARAMS = {
     "a_sample": numpy.concatenate(
@@ -81,7 +80,3 @@ def calc_rv(a, e, periapsis_phase, macc):
 
 def load_pristine_timeseries():
     return pandas.read_parquet(TIMESERIES_TABLE_PATH)
-
-
-def load_pristine_lombscargle():
-    return pandas.read_parquet(LOMBSCARGLE_TABLE_PATH)
