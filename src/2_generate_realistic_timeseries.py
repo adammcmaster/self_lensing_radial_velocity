@@ -33,6 +33,7 @@ def gen_ts(i, ts, cadence, pristine_sample, pristine_idx, rv_accuracy, baseline)
         unit=pristine_sample.unit, accuracy=rv_accuracy * (units.m / units.s)
     )
     new_ts = pandas.Series(ts)
+    # new_ts["lc"] += numpy.random.normal(0, PARAMS["lc_noise"], len(new_ts["lc"]))
     new_ts["rv"] = list(noisy_sample.value)
     new_ts["rv_err"] = noisy_err
     new_ts["rv_times"] = list(numpy.array(ts["rv_times"]).take(pristine_idx))
