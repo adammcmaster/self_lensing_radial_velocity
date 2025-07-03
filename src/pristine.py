@@ -19,11 +19,11 @@ PARAMS = {
     "a_sample": numpy.concatenate(
         [
             numpy.linspace(0.1, 5, 15),
-            # numpy.linspace(5, 50, 5),
-            # numpy.linspace(50, 200, 5),
+            numpy.linspace(5, 50, 15),
+            numpy.linspace(50, 200, 15),
         ]
     ),
-    "macc_sample": numpy.linspace(5, 20, 15),
+    "macc_sample": numpy.linspace(5, 30, 25),
     "e_sample": numpy.array([0]),  # numpy.linspace(0, 0.9, 5),
     "periapsis_phase_sample": numpy.array([0]),  # numpy.linspace(0, 2 * numpy.pi, 5),
 }
