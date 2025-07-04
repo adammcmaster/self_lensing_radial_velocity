@@ -19,8 +19,8 @@ PARAMS = {
 DATA_PATH = Path(__file__).parent / Path("../data/")
 DATA_PATH.mkdir(exist_ok=True, parents=True)
 
-TIMESERIES_TABLE_PATH = DATA_PATH / "realistic_timeseries.parquet"
+TIMESERIES_TABLE_PATH = DATA_PATH / "realistic_timeseries.pkl"
 
 
 def load_realistic_timeseries():
-    return pandas.read_parquet(TIMESERIES_TABLE_PATH)
+    return pandas.read_pickle(TIMESERIES_TABLE_PATH)

@@ -96,4 +96,4 @@ if __name__ == "__main__":
 
     results = pandas.DataFrame(results)
     results.reset_index(inplace=True, drop=True)
-    results.to_parquet(TIMESERIES_TABLE_PATH)
+    results.to_pickle(TIMESERIES_TABLE_PATH)
