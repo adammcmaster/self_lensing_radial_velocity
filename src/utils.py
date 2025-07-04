@@ -1,8 +1,6 @@
 from astropy import units
 from astropy.time import Time
 
-from selflensing.models import SelfLensingSystem
-
 
 DEFAULTS = {
     # We just fix impact param as it doesn't make enough difference to change it
@@ -19,11 +17,20 @@ DEFAULTS = {
     "peak_time": Time("2024-06-01"),
 }
 
-default_rv_times = list(
-    range(int((DEFAULTS["rv_end_time"] - DEFAULTS["rv_start_time"]).value))
+
+def generate_time_range(start_time, end_time):
+    """
+    Generate a list of astropy Time objects, one per day, from start_time to end_time (inclusive).
+    """
+    n_days = int((end_time - start_time).to("day").value) + 1
+    return Time([start_time + i * units.day for i in range(n_days)])
+
+
+default_rv_times = generate_time_range(
+    DEFAULTS["rv_start_time"], DEFAULTS["rv_end_time"]
 )
-default_lc_times = list(
-    range(int((DEFAULTS["lc_end_time"] - DEFAULTS["lc_start_time"]).value))
+default_lc_times = generate_time_range(
+    DEFAULTS["lc_start_time"], DEFAULTS["lc_end_time"]
 )
 
 PROC_LIMIT = 100
