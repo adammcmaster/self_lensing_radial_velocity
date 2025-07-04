@@ -53,18 +53,12 @@ def fit(a):
 
 if __name__ == "__main__":
     rts = load_realistic_timeseries()
-    rts = rts[rts["Porb"] <= PARAMS["campaign_baselines"][-1]].sample(1000)
+    # rts = rts[rts["Porb"] <= PARAMS["campaign_baselines"][-1]].sample(1000)
+    rts = rts.sample(2000)
     results = []
 
-    total = len(rts)
-
-    # with tqdm(total=total, desc="Total") as pbar:
     with Pool() as pool:
-        results = pool.map(fit, tqdm(rts.iterrows(), total=total))
-        # for i, ts in rts.iterrows():
-
-        #     results.append(new_ts)
-        #     pbar.update(1)
+        results = pool.map(fit, tqdm(rts.iterrows(), total=len(rts)))
 
     results = pandas.DataFrame(results)
     results.reset_index(inplace=True, drop=True)
