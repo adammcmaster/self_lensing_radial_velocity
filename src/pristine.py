@@ -7,7 +7,7 @@ from pathlib import Path
 from selflensing.generators import RVGenerator, LightcurveGenerator
 from selflensing.models import SelfLensingSystem
 
-from utils import DEFAULTS
+from utils import DEFAULTS, default_rv_times, default_lc_times
 
 DATA_PATH = Path(__file__).parent / Path("../data/")
 DATA_PATH.mkdir(exist_ok=True, parents=True)
@@ -50,14 +50,12 @@ def calc_rv(a, e, periapsis_phase, macc):
         return
     rvg = RVGenerator(
         sls,
-        start_time=DEFAULTS["rv_start_time"],
-        end_time=DEFAULTS["rv_end_time"],
+        times=default_rv_times,
         peak_time=DEFAULTS["peak_time"],
     )
     lcg = LightcurveGenerator(
         sls,
-        start_time=DEFAULTS["lc_start_time"],
-        end_time=DEFAULTS["lc_end_time"],
+        times=default_lc_times,
         peak_time=DEFAULTS["peak_time"],
     )
 
