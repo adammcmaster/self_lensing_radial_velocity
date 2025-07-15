@@ -4,18 +4,15 @@ This takes the pristine RV timeseries, samples them at various observing cadence
 
 import numpy
 import pandas
-
-import concurrent.futures
+import random
 
 from astropy import units
-from tqdm import tqdm
+from tqdm.contrib.concurrent import process_map
 
 from pristine import load_pristine_timeseries
 from spectrograph import Spectrograph
 
 from realistic import PARAMS, TIMESERIES_TABLE_PATH
-
-from utils import PROC_LIMIT
 
 
 def sample_timeseries(ts, step, max_len):
@@ -25,7 +22,10 @@ def sample_timeseries(ts, step, max_len):
     return idx.tolist(), numpy.array(ts).take(idx).tolist()
 
 
-def gen_ts(i, ts, cadence, pristine_sample, pristine_idx, rv_accuracy, baseline):
+def gen_ts(params):
+    i, ts, cadence, rv_accuracy, baseline = params
+    pristine_idx, pristine_sample = sample_timeseries(ts["rv"], cadence, baseline)
+    pristine_sample *= units.m / units.s
     noisy_sample = Spectrograph.add_rv_noise(
         pristine_sample, rv_accuracy * (units.m / units.s)
     )
@@ -45,55 +45,27 @@ def gen_ts(i, ts, cadence, pristine_sample, pristine_idx, rv_accuracy, baseline)
 
 
 if __name__ == "__main__":
+    NUM_SAMPLES = 100000
     pristine = load_pristine_timeseries()
 
-    results = []
-    total = (
-        len(PARAMS["cadences"])
-        * len(PARAMS["campaign_baselines"])
-        * len(pristine)
-        * len(PARAMS["rv_accuracies"])
-    )
+    params = []
 
-    with tqdm(total=total) as pbar:
-        with concurrent.futures.ProcessPoolExecutor() as executor:
-            futures = set()
-            for baseline in PARAMS["campaign_baselines"]:
-                for cadence in PARAMS["cadences"]:
-                    for i, ts in pristine.iterrows():
-                        pristine_idx, pristine_sample = sample_timeseries(
-                            ts["rv"], cadence, baseline
+    for baseline in PARAMS["campaign_baselines"]:
+        for cadence in PARAMS["cadences"]:
+            for i, ts in pristine.iterrows():
+                for rv_accuracy in PARAMS["rv_accuracies"]:
+                    params.append(
+                        (
+                            i,
+                            ts,
+                            cadence,
+                            rv_accuracy,
+                            baseline,
                         )
-                        pristine_sample *= units.m / units.s
-
-                        for rv_accuracy in PARAMS["rv_accuracies"]:
-                            if len(futures) >= PROC_LIMIT:
-                                completed, futures = concurrent.futures.wait(
-                                    futures,
-                                    return_when=concurrent.futures.FIRST_COMPLETED,
-                                )
-                                for f in completed:
-                                    res = f.result()
-                                    if res is not None:
-                                        results.append(res)
-                            futures.add(
-                                executor.submit(
-                                    gen_ts,
-                                    i,
-                                    ts,
-                                    cadence,
-                                    pristine_sample,
-                                    pristine_idx,
-                                    rv_accuracy,
-                                    baseline,
-                                )
-                            )
-                            pbar.update(1)
-            for f in futures:
-                res = f.result()
-                if res is not None:
-                    results.append(res)
-
+                    )
+    if len(params) > NUM_SAMPLES:
+        params = random.sample(params, NUM_SAMPLES)
+    results = process_map(gen_ts, params)
     results = pandas.DataFrame(results)
     results.reset_index(inplace=True, drop=True)
     results.to_pickle(TIMESERIES_TABLE_PATH)

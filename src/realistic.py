@@ -5,15 +5,17 @@ from pathlib import Path
 
 
 PARAMS = {
-    "cadences": [1, 30, 60, 120, 150, 300],
+    "cadences": [30, 150, 300],
     "campaign_baselines": 365 * numpy.array([1, 3, 5]),
     "rv_accuracies": numpy.concatenate(
         [
-            numpy.linspace(0.1, 5, 5),
-            numpy.linspace(5, 6000, 5),
+            numpy.linspace(0.1, 1, 10),
+            numpy.linspace(1, 10, 10),
+            numpy.linspace(10, 100, 10),
+            numpy.linspace(100, 1000, 10),
         ]
     ),
-    "lc_noise": 1,
+    # "lc_noise": 1,
 }
 
 DATA_PATH = Path(__file__).parent / Path("../data/")

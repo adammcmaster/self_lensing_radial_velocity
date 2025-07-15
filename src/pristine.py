@@ -17,11 +17,12 @@ TIMESERIES_TABLE_PATH = DATA_PATH / "pristine_timeseries.parquet"
 PARAMS = {
     "a_sample": numpy.concatenate(
         [
-            numpy.linspace(0.1, 5, 15),
-            numpy.linspace(5, 50, 15),
-            numpy.linspace(50, 200, 15),
+            numpy.linspace(0.1, 1, 15),
+            numpy.linspace(1, 10, 15),
+            numpy.linspace(10, 100, 15),
         ]
     ),
+    "b_sample": numpy.linspace(0, 10, 50),
     "macc_sample": numpy.linspace(5, 30, 25),
     "e_sample": numpy.array([0]),  # numpy.linspace(0, 0.9, 5),
     "periapsis_phase_sample": numpy.array([0]),  # numpy.linspace(0, 2 * numpy.pi, 5),
@@ -29,16 +30,18 @@ PARAMS = {
 
 PARAMS["total"] = (
     len(PARAMS["a_sample"])
+    * len(PARAMS["b_sample"])
     * len(PARAMS["e_sample"])
     * len(PARAMS["periapsis_phase_sample"])
     * len(PARAMS["macc_sample"])
 )
 
 
-def calc_rv(a, e, periapsis_phase, macc):
+def calc_rv(params):
+    a, b, e, periapsis_phase, macc = params
     sls = SelfLensingSystem(
         a=a * units.au,
-        b=DEFAULTS["b"],
+        b=b * units.dimensionless_unscaled,
         Macc=macc * units.M_sun,
         e=e * units.dimensionless_unscaled,
         periapsis_phase=periapsis_phase * units.rad,
@@ -53,11 +56,25 @@ def calc_rv(a, e, periapsis_phase, macc):
         times=default_rv_times,
         peak_time=DEFAULTS["peak_time"],
     )
-    lcg = LightcurveGenerator(
-        sls,
-        times=default_lc_times,
-        peak_time=DEFAULTS["peak_time"],
-    )
+    # print(
+    #     "sls.rE=",
+    #     sls.rE(),
+    #     "sls.b_source=",
+    #     sls.b_source,
+    #     "b=",
+    #     b,
+    #     "sls.b=",
+    #     sls.b,
+    #     "sls.sin_i=",
+    #     sls.sin_i,
+    #     "sls.psi=",
+    #     sls.psi,
+    # )
+    # lcg = LightcurveGenerator(
+    #     sls,
+    #     times=default_lc_times,
+    #     peak_time=DEFAULTS["peak_time"],
+    # )
 
     return {
         "a": a,
@@ -67,11 +84,11 @@ def calc_rv(a, e, periapsis_phase, macc):
         "Porb": sls.porb.value,
         "Mcomp": DEFAULTS["Mcomp"].value,
         "Rcomp": DEFAULTS["Rcomp"].value,
-        "b": DEFAULTS["b"].value,
+        "b": b,
         "rv": rvg.rv.value.tolist(),
         "rv_times": list(rvg.times.jd),
-        "lc": list(lcg.flux_array.value),
-        "lc_times": list(lcg.times.jd),
+        # "lc": list(lcg.flux_array.value),
+        # "lc_times": list(lcg.times.jd),
         "peak_time": DEFAULTS["peak_time"].jd,
     }
 

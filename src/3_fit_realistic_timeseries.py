@@ -6,13 +6,12 @@ import pandas
 
 from astropy import units
 from astropy.time import Time
-from tqdm import tqdm
 
-from multiprocessing import Pool
+from tqdm.contrib.concurrent import process_map
 
 from selflensing.fitting import self_lensing_system_from_fit
 
-from realistic import load_realistic_timeseries, PARAMS
+from realistic import load_realistic_timeseries
 from utils import DEFAULTS
 from fitting import TIMESERIES_TABLE_PATH
 
@@ -44,6 +43,7 @@ def fit(a):
     new_ts = pandas.Series(ts)
     new_ts["realistic_idx"] = i
     new_ts["fitted_a"] = sls.a.value
+    new_ts["fitted_b"] = sls.b.value
     new_ts["fitted_Macc"] = sls.Macc.value
     new_ts["fitted_e"] = sls.e.value
     new_ts["fitted_periapsis_phase"] = sls.periapsis_phase.value
@@ -53,12 +53,9 @@ def fit(a):
 
 if __name__ == "__main__":
     rts = load_realistic_timeseries()
-    # rts = rts[rts["Porb"] <= PARAMS["campaign_baselines"][-1]].sample(1000)
-    rts = rts.sample(2000)
-    results = []
+    rts = rts.sample(5000)
 
-    with Pool() as pool:
-        results = pool.map(fit, tqdm(rts.iterrows(), total=len(rts)))
+    results = process_map(fit, rts.iterrows(), total=len(rts))
 
     results = pandas.DataFrame(results)
     results.reset_index(inplace=True, drop=True)

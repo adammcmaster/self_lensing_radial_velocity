@@ -32,5 +32,3 @@ default_rv_times = generate_time_range(
 default_lc_times = generate_time_range(
     DEFAULTS["lc_start_time"], DEFAULTS["lc_end_time"]
 )
-
-PROC_LIMIT = 100
