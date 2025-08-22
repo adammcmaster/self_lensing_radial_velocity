@@ -34,6 +34,7 @@ def fit(a):
         Mcomp=DEFAULTS["Mcomp"],
         Rcomp=DEFAULTS["Rcomp"],
         Teff=DEFAULTS["Teff"],
+        false_alarm_probability=0.5,
         nsteps=1000,
         nwalkers=20,
         burn=300,
