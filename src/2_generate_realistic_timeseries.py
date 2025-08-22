@@ -5,6 +5,7 @@ This takes the pristine RV timeseries, samples them at various observing cadence
 import numpy
 import pandas
 import random
+import warnings
 
 from astropy import units
 from tqdm.contrib.concurrent import process_map
@@ -14,6 +15,10 @@ from pristine import load_pristine_timeseries, generate_pristine_timeseries
 from spectrograph import Spectrograph
 
 from realistic import PARAMS, TIMESERIES_TABLE_PATH
+
+
+warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", module="erfa.core")
 
 
 def sample_timeseries(ts, step, max_len):
