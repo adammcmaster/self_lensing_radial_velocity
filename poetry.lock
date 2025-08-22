@@ -173,6 +173,26 @@ test = ["Pillow", "contourpy[test-no-images]", "matplotlib"]
 test-no-images = ["pytest", "pytest-cov", "pytest-rerunfailures", "pytest-xdist", "wurlitzer"]
 
 [[package]]
+name = "corner"
+version = "2.2.3"
+description = "Make some beautiful corner plots"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "corner-2.2.3-py3-none-any.whl", hash = "sha256:39674b223482456c3a78234dc7bdefd21188a2d47bb8cd468104a0501f6659ec"},
+    {file = "corner-2.2.3.tar.gz", hash = "sha256:471b7b63395d8f1dee176bb779348ade38d56abd23404a48802a593607745e1c"},
+]
+
+[package.dependencies]
+matplotlib = ">=2.1"
+
+[package.extras]
+arviz = ["arviz (>=0.9)"]
+docs = ["arviz (>=0.9)", "ipython", "myst-nb", "pandoc", "sphinx (>=1.7.5)", "sphinx-book-theme"]
+test = ["arviz (>=0.9)", "pytest", "scipy"]
+
+[[package]]
 name = "cramjam"
 version = "2.11.0"
 description = "Thin Python bindings to de/compression algorithms in Rust"
@@ -1522,4 +1542,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13"
-content-hash = "43254c6e2093fa8999b3c203353d46f3ffa79da62408f1b8701d361096dc51a3"
+content-hash = "ae8a9c0f457613e04b8959859c2573f709e68d00d86eda4ac692c42141a81ee2"
