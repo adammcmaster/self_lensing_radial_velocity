@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from astropy import units
 from astropy.time import Time
 
