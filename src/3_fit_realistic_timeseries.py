@@ -19,7 +19,6 @@ from selflensing.fitting import self_lensing_system_from_fit
 from fitting import TIMESERIES_TABLE_PATH, plot_fit, plot_emcee_diagnostics
 from realistic import load_realistic_timeseries
 from utils import DEFAULTS, DATA_PATH
-import logging
 
 
 warnings.filterwarnings("ignore")
@@ -27,7 +26,6 @@ warnings.filterwarnings("ignore", module="erfa.core")
 
 
 def fit(a):
-    # logging.basicConfig(level=logging.DEBUG)
     i, ts = a
     sls, sampler = self_lensing_system_from_fit(
         rv_times=Time(ts["rv_times"], format="jd"),
