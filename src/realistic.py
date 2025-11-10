@@ -8,15 +8,6 @@ PARAMS = {
     "cadences": [30, 150, 300],
     "campaign_baselines": 365 * numpy.array([1, 3, 5]),
     "rv_accuracies": numpy.logspace(-1, 3, 50),
-    # "rv_accuracies": numpy.concatenate(
-    #     [
-    #         numpy.linspace(0.1, 1, 10),
-    #         numpy.linspace(1, 10, 10),
-    #         numpy.linspace(10, 100, 10),
-    #         numpy.linspace(100, 1000, 10),
-    #     ]
-    # ),
-    # "lc_noise": 0.1,
 }
 
 TIMESERIES_TABLE_PATH = DATA_PATH / "realistic_timeseries.gz"

@@ -19,13 +19,6 @@ TIMESERIES_TABLE_PATH = DATA_PATH / "pristine_timeseries.gz"
 
 PARAMS = {
     "a_sample": numpy.logspace(-1, 2, 50),
-    # "a_sample": numpy.concatenate(
-    #     [
-    #         numpy.linspace(0.1, 1, 15),
-    #         numpy.linspace(1, 10, 15),
-    #         numpy.linspace(10, 100, 15),
-    #     ]
-    # ),
     "b_sample": numpy.linspace(0, 10, 50),
     "macc_sample": numpy.linspace(5, 30, 25),
     "e_sample": numpy.array([0]),  # numpy.linspace(0, 0.9, 5),
