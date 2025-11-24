@@ -19,7 +19,7 @@ TIMESERIES_TABLE_PATH = DATA_PATH / "fitted_timeseries.gz"
 def plot_fit(row):
     sls = SelfLensingSystem(
         a=row["fitted_a"] * units.au,
-        b=row["fitted_b"],
+        i=row["fitted_i"] * units.rad,
         Macc=row["fitted_Macc"] * units.M_sun,
         e=row["fitted_e"] * units.dimensionless_unscaled,
         periapsis_phase=row["fitted_periapsis_phase"] * units.rad,
@@ -135,7 +135,9 @@ def plot_fit(row):
         f"$M_\\text{{BH}}$={row['Macc']:.2f} M$_\\odot$ ({row['fitted_Macc']:.2f} M$_\\odot$)\n"
         f"$P_\\text{{orb}}$={row['Porb']:.2f} d ({row['fitted_porb']:.2f} d)\n"
         f"$\\tau_\\text{{eff}}$={row['tau_eff']:.2f} d ({row['fitted_tau_eff']:.2f} d)\n"
+        f"$i$={row['i']:.2f} ({row['fitted_i']:.2f})\n"
         f"$b$={row['b']:.2f} ({row['fitted_b']:.2f})\n"
+        f"$b_\\text{{max}}$={row['b_max']:.2f} ({row['fitted_b_max']:.2f})\n"
         f"$e$={row['e']:.2f} ({row['fitted_e']:.2f})\n"
         f"$\\varphi$={row['periapsis_phase']:.2f} rad ({row['fitted_periapsis_phase']:.2f} rad)\n"
         f"Baseline={row['baseline']:.2f} d\n"

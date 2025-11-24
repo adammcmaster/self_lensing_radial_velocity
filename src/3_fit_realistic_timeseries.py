@@ -50,6 +50,8 @@ def fit(a):
     new_ts["realistic_idx"] = i
     new_ts["fitted_a"] = sls.a.value
     new_ts["fitted_b"] = sls.b.value
+    new_ts["fitted_b_max"] = sls.b_max.value
+    new_ts["fitted_i"] = sls.i.value
     new_ts["fitted_Macc"] = sls.Macc.value
     new_ts["fitted_e"] = sls.e.value
     new_ts["fitted_periapsis_phase"] = sls.periapsis_phase.value
@@ -73,7 +75,7 @@ def save_plots(a):
     out_path.mkdir(exist_ok=True, parents=True)
 
     fit_fig = plot_fit(ts)
-    params = ["a", "b", "Macc", "e", "periapsis_phase"]
+    params = ["a", "i", "Macc", "e", "periapsis_phase"]
     walker_fig, corner_fig = plot_emcee_diagnostics(
         sampler,
         param_names=params,
@@ -97,7 +99,11 @@ if __name__ == "__main__":
 
     for chunk in tqdm(chunks, desc="All chunks"):
         new_results = process_map(
-            fit, chunk.iterrows(), total=len(chunk), desc="Current chunk"
+            fit,
+            chunk.iterrows(),
+            total=len(chunk),
+            desc="Current chunk",
+            max_workers=15,
         )
         results += [r[0] for r in new_results]
         pandas.DataFrame(results).reset_index(drop=True).to_pickle(

@@ -19,7 +19,7 @@ TIMESERIES_TABLE_PATH = DATA_PATH / "pristine_timeseries.gz"
 
 PARAMS = {
     "a_sample": numpy.logspace(-1, 2, 50),
-    "b_sample": numpy.linspace(0, 10, 50),
+    "i_sample": numpy.geomspace(0.5 * numpy.pi, 1.4, 50),
     "macc_sample": numpy.linspace(5, 30, 25),
     "e_sample": numpy.array([0]),  # numpy.linspace(0, 0.9, 5),
     "periapsis_phase_sample": numpy.array([0]),  # numpy.linspace(0, 2 * numpy.pi, 5),
@@ -27,7 +27,7 @@ PARAMS = {
 
 PARAMS["total"] = (
     len(PARAMS["a_sample"])
-    * len(PARAMS["b_sample"])
+    * len(PARAMS["i_sample"])
     * len(PARAMS["e_sample"])
     * len(PARAMS["periapsis_phase_sample"])
     * len(PARAMS["macc_sample"])
@@ -35,10 +35,10 @@ PARAMS["total"] = (
 
 
 def calc_rv(params):
-    a, b, e, periapsis_phase, macc = params
+    a, i, e, periapsis_phase, macc = params
     sls = SelfLensingSystem(
         a=a * units.au,
-        b=b * units.dimensionless_unscaled,
+        i=i * units.rad,
         Macc=macc * units.M_sun,
         e=e * units.dimensionless_unscaled,
         periapsis_phase=periapsis_phase * units.rad,
@@ -46,7 +46,7 @@ def calc_rv(params):
         Rcomp=DEFAULTS["Rcomp"],
         Teff=DEFAULTS["Teff"],
     )
-    if numpy.isnan(sls.tau_eff):
+    if sls.b > sls.b_max or numpy.isnan(sls.tau_eff):
         # b is too large to cause lensing
         return None
 
@@ -131,7 +131,9 @@ def calc_rv(params):
         "tau_eff": sls.tau_eff.value,
         "Mcomp": DEFAULTS["Mcomp"].value,
         "Rcomp": DEFAULTS["Rcomp"].value,
-        "b": b,
+        "b": sls.b.value,
+        "b_max": sls.b_max.value,
+        "i": sls.i.value,
         "rv": rvg.rv.value.tolist(),
         "rv_times": list(rvg.times.jd),
         "lc": list(lcg.flux_array.value),
@@ -143,11 +145,11 @@ def calc_rv(params):
 def generate_pristine_timeseries(desc=None):
     params = []
     for a in PARAMS["a_sample"]:
-        for b in PARAMS["b_sample"]:
+        for i in PARAMS["i_sample"]:
             for e in PARAMS["e_sample"]:
                 for periapsis_phase in PARAMS["periapsis_phase_sample"]:
                     for macc in PARAMS["macc_sample"]:
-                        params.append((a, b, e, periapsis_phase, macc))
+                        params.append((a, i, e, periapsis_phase, macc))
 
     results = process_map(calc_rv, params, desc=desc)
     results = [r for r in results if r is not None]
