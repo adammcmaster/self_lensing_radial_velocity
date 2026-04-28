@@ -5,6 +5,12 @@ This fits a sample of the realistic timeseries and records the fitted parameters
 import warnings
 import os
 
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 import numpy
 import pandas
 
@@ -15,6 +21,7 @@ from tqdm.contrib.concurrent import process_map
 from tqdm import tqdm
 
 from selflensing.fitting import self_lensing_system_from_fit
+from selflensing.models import SelfLensingSystem
 
 from fitting import TIMESERIES_TABLE_PATH, plot_fit, plot_emcee_diagnostics
 from realistic import load_realistic_timeseries, load_realistic_timeseries_curve
@@ -24,10 +31,29 @@ from utils import DEFAULTS, DATA_PATH
 warnings.filterwarnings("ignore")
 warnings.filterwarnings("ignore", module="erfa.core")
 
+FIT_MAX_WORKERS = int(os.environ.get("SLRV_FIT_MAX_WORKERS", 8))
+FIT_SAMPLE_SIZE = int(os.environ.get("SLRV_FIT_SAMPLE_SIZE", 5000))
+FIT_CHUNK_SIZE = int(os.environ.get("SLRV_FIT_CHUNK_SIZE", 2 * FIT_MAX_WORKERS))
+PLOT_MAX_WORKERS = int(os.environ.get("SLRV_PLOT_MAX_WORKERS", 8))
+
+
+def truth_self_lensing_system(ts):
+    return SelfLensingSystem(
+        a=ts["a"] * units.au,
+        i=ts["i"] * units.rad,
+        Macc=ts["Macc"] * units.M_sun,
+        e=ts["e"] * units.dimensionless_unscaled,
+        periapsis_phase=ts["periapsis_phase"] * units.rad,
+        Mcomp=ts["Mcomp"] * units.M_sun,
+        Rcomp=ts["Rcomp"] * units.R_sun,
+        Teff=ts["Teff"] * units.K,
+    )
+
 
 def fit(a):
     i, ts = a
     curve = load_realistic_timeseries_curve(ts)
+    truth_sls = truth_self_lensing_system(ts)
     sls, sampler = self_lensing_system_from_fit(
         rv_times=Time(curve["rv_times"], format="jd"),
         observed_rv=curve["rv"] * units.m / units.s,
@@ -39,7 +65,7 @@ def fit(a):
         Mcomp=DEFAULTS["Mcomp"],
         Rcomp=DEFAULTS["Rcomp"],
         Teff=DEFAULTS["Teff"],
-        tau_eff=ts["tau_eff"] * units.day,
+        # tau_eff=ts["tau_eff"] * units.day,
         false_alarm_probability=0.5,
         nsteps=2000,
         nwalkers=20,
@@ -49,6 +75,7 @@ def fit(a):
     )
     new_ts = pandas.Series(ts)
     new_ts["realistic_idx"] = i
+    new_ts["b_max"] = truth_sls.b_max.value
     new_ts["fitted_a"] = sls.a.value
     new_ts["fitted_b"] = sls.b.value
     new_ts["fitted_b_max"] = sls.b_max.value
@@ -75,6 +102,8 @@ def save_plots(a):
     plot_ts["lc_times"] = curve["lc_times"]
     plot_ts["lc"] = curve["lc"]
     plot_ts["lc_err"] = curve["lc_err"]
+    if "b_max" not in plot_ts or pandas.isna(plot_ts["b_max"]):
+        plot_ts["b_max"] = truth_self_lensing_system(plot_ts).b_max.value
 
     out_path = (
         FIG_PATH
@@ -99,10 +128,12 @@ def save_plots(a):
 
 if __name__ == "__main__":
     rts = load_realistic_timeseries()
-    rts = rts.sample(5000)
+    sample_size = min(FIT_SAMPLE_SIZE, len(rts))
+    rts = rts.sample(sample_size)
 
-    chunk_size = 50
-    chunks = [rts.iloc[i : i + chunk_size] for i in range(0, len(rts), chunk_size)]
+    chunks = [
+        rts.iloc[i : i + FIT_CHUNK_SIZE] for i in range(0, len(rts), FIT_CHUNK_SIZE)
+    ]
 
     results = []
 
@@ -112,11 +143,16 @@ if __name__ == "__main__":
             chunk.iterrows(),
             total=len(chunk),
             desc="Current chunk",
-            max_workers=15,
+            max_workers=FIT_MAX_WORKERS,
         )
         results += [r[0] for r in new_results]
         pandas.DataFrame(results).reset_index(drop=True).to_pickle(
             f"{TIMESERIES_TABLE_PATH}.new.gz"
         )
         os.replace(f"{TIMESERIES_TABLE_PATH}.new.gz", TIMESERIES_TABLE_PATH)
-        process_map(save_plots, new_results, desc="Saving plots")
+        process_map(
+            save_plots,
+            new_results,
+            desc="Saving plots",
+            max_workers=PLOT_MAX_WORKERS,
+        )
