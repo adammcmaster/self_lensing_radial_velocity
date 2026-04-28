@@ -3,7 +3,6 @@ This takes the pristine RV timeseries, samples them at various observing cadence
 """
 
 import numpy
-import pandas
 import random
 import warnings
 
@@ -11,10 +10,25 @@ from astropy import units
 from tqdm.contrib.concurrent import process_map
 from tqdm import tqdm
 
-from pristine import load_pristine_timeseries, generate_pristine_timeseries
+from pristine import (
+    generate_pristine_timeseries,
+    load_pristine_lightcurve,
+    load_pristine_rv_curve,
+    load_pristine_timeseries,
+)
 from spectrograph import Spectrograph
 
-from realistic import PARAMS, TIMESERIES_TABLE_PATH
+from realistic import (
+    PARAMS,
+    existing_realistic_keys,
+    metadata_row_from_params,
+    metadata_row_from_realistic_path,
+    realistic_id_from_params,
+    realistic_key_from_values,
+    realistic_path_from_params,
+    update_realistic_metadata,
+    write_realistic_timeseries,
+)
 
 
 warnings.filterwarnings("ignore")
@@ -27,13 +41,22 @@ def sample_timeseries(ts, step, max_len):
     if max_len > len(ts):
         max_len = len(ts)
     idx = numpy.arange(0, max_len, step)
-    # print(ts)
     return idx.tolist(), numpy.array(ts).take(idx).tolist()
 
 
 def gen_ts(params):
     i, cadence, rv_accuracy, baseline, ts = params
-    pristine_idx, pristine_sample = sample_timeseries(ts["rv"], cadence, baseline)
+    realistic_id = realistic_id_from_params(ts, cadence, rv_accuracy, baseline)
+    realistic_path = realistic_path_from_params(ts, cadence, rv_accuracy, baseline)
+    if realistic_path.exists():
+        return metadata_row_from_realistic_path(realistic_path)
+
+    pristine_rv = load_pristine_rv_curve(ts)
+    pristine_lc = load_pristine_lightcurve(ts)
+
+    sample_idx, pristine_sample = sample_timeseries(
+        pristine_rv["rv"], cadence, baseline
+    )
     pristine_sample *= units.m / units.s
     noisy_sample = Spectrograph.add_rv_noise(
         pristine_sample, rv_accuracy * (units.m / units.s)
@@ -41,37 +64,40 @@ def gen_ts(params):
     noisy_err = Spectrograph.total_error(
         unit=pristine_sample.unit, accuracy=rv_accuracy * (units.m / units.s)
     )
-    new_ts = pandas.Series(ts)
+    lc = pristine_lc["lc"]
 
-    # lc_cadence = new_ts["tau_eff"] // 2
-    # if lc_cadence < 1:
-    #     lc_cadence = 1
-    # lc_len = new_ts["Porb"] * 2
-    # if lc_len < 10 * lc_cadence:
-    #     lc_len = 10 * lc_cadence
-    # if lc_len > 365:
-    #     lc_len = 365
-    # lc_idx, lc_sample = sample_timeseries(new_ts["lc"], lc_cadence, lc_len)
-    # new_ts["lc"] = lc_sample
-    # Add Gaussian noise with sigma=5% of magnification
-    lc_noise = numpy.abs(numpy.median(new_ts["lc"][:5] - numpy.max(new_ts["lc"]))) / 20
-    new_ts["lc"] += numpy.random.normal(0, lc_noise, len(new_ts["lc"]))
-    new_ts["lc_err"] = lc_noise
-    # new_ts["lc_times"] = list(numpy.array(ts["lc_times"]).take(lc_idx))
+    lc_noise = numpy.abs(numpy.median(lc[:5] - numpy.max(lc))) / 20
+    noisy_lc = lc + numpy.random.normal(0, lc_noise, len(lc))
+    rv_times = numpy.array(pristine_rv["rv_times"]).take(sample_idx)
 
-    new_ts["rv"] = list(noisy_sample.value)
-    new_ts["rv_err"] = noisy_err
-    new_ts["rv_times"] = list(numpy.array(ts["rv_times"]).take(pristine_idx))
-    new_ts["RV accuracy"] = rv_accuracy
-    new_ts["cadence"] = cadence
-    new_ts["baseline"] = baseline
-    new_ts["pristine idx"] = i
-    return new_ts
+    row = metadata_row_from_params(
+        realistic_id=realistic_id,
+        realistic_path=realistic_path,
+        pristine_idx=i,
+        pristine=ts,
+        rv_accuracy=rv_accuracy,
+        cadence=cadence,
+        baseline=baseline,
+        rv_err=noisy_err,
+        lc_err=lc_noise,
+    )
+    write_realistic_timeseries(
+        row=row,
+        rv_times=rv_times,
+        rv=noisy_sample.to_value(units.m / units.s),
+        rv_err=noisy_err,
+        lc_times=pristine_lc["lc_times"],
+        lc=noisy_lc,
+        lc_err=lc_noise,
+    )
+    return row
 
 
 if __name__ == "__main__":
     NUM_SAMPLES = 100000
-    pristine = generate_pristine_timeseries(desc="[1/4] Generating timeseries")
+    generate_pristine_timeseries(desc="[1/4] Generating timeseries")
+    pristine = load_pristine_timeseries()
+    existing_keys = existing_realistic_keys()
 
     params = []
 
@@ -79,15 +105,21 @@ if __name__ == "__main__":
         for baseline in PARAMS["campaign_baselines"]:
             for cadence in PARAMS["cadences"]:
                 for rv_accuracy in PARAMS["rv_accuracies"]:
-                    params.append(
-                        (
-                            i,
-                            # ts,
-                            cadence,
-                            rv_accuracy,
-                            baseline,
-                        )
+                    key = realistic_key_from_values(
+                        pristine.iloc[i]["simulation_id"],
+                        cadence,
+                        rv_accuracy,
+                        baseline,
                     )
+                    if key not in existing_keys:
+                        params.append(
+                            (
+                                i,
+                                cadence,
+                                rv_accuracy,
+                                baseline,
+                            )
+                        )
     if len(params) > NUM_SAMPLES:
         params = random.sample(params, NUM_SAMPLES)
     params = [
@@ -95,7 +127,8 @@ if __name__ == "__main__":
         for p in tqdm(params, desc="[3/4] Adding timeseries to params")
     ]
     del pristine
-    results = process_map(gen_ts, params, desc="[4/4] Sampling timeseries")
-    results = pandas.DataFrame(results)
-    results.reset_index(inplace=True, drop=True)
-    results.to_pickle(TIMESERIES_TABLE_PATH)
+    if not params:
+        update_realistic_metadata([])
+    else:
+        results = process_map(gen_ts, params, desc="[4/4] Sampling timeseries")
+        update_realistic_metadata(results)

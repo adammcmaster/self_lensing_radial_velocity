@@ -17,7 +17,7 @@ from tqdm import tqdm
 from selflensing.fitting import self_lensing_system_from_fit
 
 from fitting import TIMESERIES_TABLE_PATH, plot_fit, plot_emcee_diagnostics
-from realistic import load_realistic_timeseries
+from realistic import load_realistic_timeseries, load_realistic_timeseries_curve
 from utils import DEFAULTS, DATA_PATH
 
 
@@ -27,13 +27,14 @@ warnings.filterwarnings("ignore", module="erfa.core")
 
 def fit(a):
     i, ts = a
+    curve = load_realistic_timeseries_curve(ts)
     sls, sampler = self_lensing_system_from_fit(
-        rv_times=Time(ts["rv_times"], format="jd"),
-        observed_rv=ts["rv"] * units.m / units.s,
-        observed_rv_err=ts["rv_err"] * units.m / units.s,
-        lc_times=Time(ts["lc_times"], format="jd"),
-        observed_lc=ts["lc"] * units.dimensionless_unscaled,
-        observed_lc_err=ts["lc_err"] * units.dimensionless_unscaled,
+        rv_times=Time(curve["rv_times"], format="jd"),
+        observed_rv=curve["rv"] * units.m / units.s,
+        observed_rv_err=curve["rv_err"] * units.m / units.s,
+        lc_times=Time(curve["lc_times"], format="jd"),
+        observed_lc=curve["lc"] * units.dimensionless_unscaled,
+        observed_lc_err=curve["lc_err"] * units.dimensionless_unscaled,
         peak_time=Time(ts["peak_time"], format="jd"),
         Mcomp=DEFAULTS["Mcomp"],
         Rcomp=DEFAULTS["Rcomp"],
@@ -66,6 +67,14 @@ FIG_PATH.mkdir(exist_ok=True, parents=True)
 
 def save_plots(a):
     ts, sampler = a
+    curve = load_realistic_timeseries_curve(ts)
+    plot_ts = pandas.Series(ts)
+    plot_ts["rv_times"] = curve["rv_times"]
+    plot_ts["rv"] = curve["rv"]
+    plot_ts["rv_err"] = curve["rv_err"]
+    plot_ts["lc_times"] = curve["lc_times"]
+    plot_ts["lc"] = curve["lc"]
+    plot_ts["lc_err"] = curve["lc_err"]
 
     out_path = (
         FIG_PATH
@@ -74,7 +83,7 @@ def save_plots(a):
     )
     out_path.mkdir(exist_ok=True, parents=True)
 
-    fit_fig = plot_fit(ts)
+    fit_fig = plot_fit(plot_ts)
     params = ["a", "i", "Macc", "e", "periapsis_phase"]
     walker_fig, corner_fig = plot_emcee_diagnostics(
         sampler,
