@@ -75,8 +75,8 @@ MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "spawn")
 FIT_NSTEPS = int(os.environ.get("SLRV_FIT_NSTEPS", 2000))
 FIT_NWALKERS = int(os.environ.get("SLRV_FIT_NWALKERS", 1024))
 FIT_BURN = int(os.environ.get("SLRV_FIT_BURN", 200))
-FIT_E_MIN = float(os.environ.get("SLRV_FIT_E_MIN", 0.0))
-FIT_E_MAX = float(os.environ.get("SLRV_FIT_E_MAX", 0.01))
+FIT_E_MIN = os.environ.get("SLRV_FIT_E_MIN")
+FIT_E_MAX = os.environ.get("SLRV_FIT_E_MAX")
 FIT_USE_LC = os.environ.get("SLRV_FIT_USE_LC", "1").lower() in (
     "1",
     "true",
@@ -101,8 +101,14 @@ REQUIRE_GPU = os.environ.get("SLRV_REQUIRE_GPU", "").lower() in (
 
 
 def configure_fit_parameter_limits():
-    DEFAULT_LIMITS["e"] = (FIT_E_MIN, FIT_E_MAX)
-    logger.debug("Configured fit eccentricity limits to [%s, %s]", FIT_E_MIN, FIT_E_MAX)
+    if FIT_E_MIN is None and FIT_E_MAX is None:
+        logger.debug("Using upstream fit eccentricity limits: %s", DEFAULT_LIMITS["e"])
+        return
+
+    e_min = DEFAULT_LIMITS["e"][0] if FIT_E_MIN is None else float(FIT_E_MIN)
+    e_max = DEFAULT_LIMITS["e"][1] if FIT_E_MAX is None else float(FIT_E_MAX)
+    DEFAULT_LIMITS["e"] = (e_min, e_max)
+    logger.debug("Configured fit eccentricity limits to [%s, %s]", e_min, e_max)
 
 
 configure_fit_parameter_limits()
@@ -406,7 +412,7 @@ if __name__ == "__main__":
         FIT_BURN,
         MP_START_METHOD,
     )
-    logger.debug("Fit eccentricity limits: e_min=%s e_max=%s", FIT_E_MIN, FIT_E_MAX)
+    logger.debug("Fit eccentricity limits: %s", DEFAULT_LIMITS["e"])
     logger.debug("Fit likelihood settings: FIT_USE_LC=%s", FIT_USE_LC)
     logger.debug("Fit device setting: FIT_DEVICE=%s", FIT_DEVICE)
     logger.debug("Fit lensing method: FIT_LENSING_METHOD=%s", FIT_LENSING_METHOD)

@@ -31,7 +31,6 @@ PHOTOMETRY_SIMULATION_PATH = Path.home() / "Code/lc-filter/data/simulations/1.0/
 PRISTINE_RV_PATH = DATA_PATH / "pristine_rv"
 PRISTINE_RV_PATH.mkdir(exist_ok=True, parents=True)
 PRISTINE_METADATA_PATH = PRISTINE_RV_PATH / "metadata.csv"
-MAX_PRISTINE_ECCENTRICITY = 0.01
 PRISTINE_MAX_WORKERS = int(
     os.environ.get("SLRV_PRISTINE_MAX_WORKERS", min(8, os.cpu_count() or 1))
 )
@@ -112,19 +111,6 @@ def photometry_simulation_paths(path=PHOTOMETRY_SIMULATION_PATH):
     paths = sorted(Path(path).glob("*.fits.gz"))
     logger.debug("Found %d photometry simulation paths in %s", len(paths), path)
     return paths
-
-
-def is_low_eccentricity_photometry_simulation(path):
-    with fits.open(path) as hdul:
-        e = hdul[1].header.get("E")
-    is_low_eccentricity = e is not None and float(e) < MAX_PRISTINE_ECCENTRICITY
-    logger.debug(
-        "Photometry simulation %s has E=%s; low_eccentricity=%s",
-        path,
-        e,
-        is_low_eccentricity,
-    )
-    return is_low_eccentricity
 
 
 def pristine_rv_paths(path=PRISTINE_RV_PATH):
@@ -370,18 +356,6 @@ def generate_pristine_timeseries(desc=None, photometry_path=PHOTOMETRY_SIMULATIO
         raise FileNotFoundError(
             f"No photometric simulations found in {photometry_path}"
         )
-    all_paths = [
-        path for path in all_paths if is_low_eccentricity_photometry_simulation(path)
-    ]
-    logger.debug(
-        "Filtered photometric simulations down to %d low-eccentricity e<%.3g paths",
-        len(all_paths),
-        MAX_PRISTINE_ECCENTRICITY,
-    )
-    if not all_paths:
-        raise FileNotFoundError(
-            f"No low-eccentricity e<{MAX_PRISTINE_ECCENTRICITY} photometric simulations found in {photometry_path}"
-        )
 
     paths = [path for path in all_paths if not (PRISTINE_RV_PATH / path.name).exists()]
     logger.debug(
@@ -426,12 +400,5 @@ def load_pristine_timeseries():
     if missing_paths or len(table) != len(rv_paths):
         _write_metadata_cache(table)
 
-    table = table[table["e"].astype(float) < MAX_PRISTINE_ECCENTRICITY].copy()
-    table.reset_index(drop=True, inplace=True)
-    logger.debug(
-        "Filtered pristine metadata down to %d low-eccentricity e<%.3g rows",
-        len(table),
-        MAX_PRISTINE_ECCENTRICITY,
-    )
     logger.debug("Returning %d pristine metadata rows", len(table))
     return table
