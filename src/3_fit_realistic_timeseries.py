@@ -224,6 +224,30 @@ def truth_self_lensing_system(ts):
     return sls
 
 
+def lightcurve_fit_window(curve, ts):
+    peak_time = float(ts["peak_time"])
+    tau_eff = float(ts["tau_eff"])
+    if not numpy.isfinite(tau_eff) or tau_eff <= 0:
+        raise ValueError(
+            f"Cannot clip light curve for realistic_id={ts.get('realistic_id', None)} "
+            f"because tau_eff={tau_eff!r}"
+        )
+
+    lc_times = numpy.asarray(curve["lc_times"], dtype=float)
+    mask = (lc_times >= peak_time - tau_eff) & (lc_times <= peak_time + tau_eff)
+    if not numpy.any(mask):
+        raise ValueError(
+            f"Light-curve fit window is empty for realistic_id={ts.get('realistic_id', None)} "
+            f"peak_time={peak_time!r} tau_eff={tau_eff!r}"
+        )
+
+    return {
+        "lc_times": lc_times[mask],
+        "lc": numpy.asarray(curve["lc"], dtype=float)[mask],
+        "lc_err": numpy.asarray(curve["lc_err"], dtype=float)[mask],
+    }
+
+
 def fit(a):
     i, ts = a
     logger.debug(
@@ -234,23 +258,25 @@ def fit(a):
     )
     curve = load_realistic_timeseries_curve(ts)
     truth_sls = truth_self_lensing_system(ts)
+    fit_lc = lightcurve_fit_window(curve, ts) if FIT_USE_LC else None
     logger.debug(
-        "Fit inputs row index=%s: %d RV samples, %d LC samples",
+        "Fit inputs row index=%s: %d RV samples, %d LC samples%s",
         i,
         len(curve["rv"]),
         len(curve["lc"]),
+        f" clipped to {len(fit_lc['lc'])}" if fit_lc is not None else "",
     )
     logger.debug("Calling self_lensing_system_from_fit for row index=%s", i)
     sls, sampler = self_lensing_system_from_fit(
         rv_times=Time(curve["rv_times"], format="jd"),
         observed_rv=curve["rv"] * units.m / units.s,
         observed_rv_err=curve["rv_err"] * units.m / units.s,
-        lc_times=Time(curve["lc_times"], format="jd") if FIT_USE_LC else None,
+        lc_times=Time(fit_lc["lc_times"], format="jd") if FIT_USE_LC else None,
         observed_lc=(
-            curve["lc"] * units.dimensionless_unscaled if FIT_USE_LC else None
+            fit_lc["lc"] * units.dimensionless_unscaled if FIT_USE_LC else None
         ),
         observed_lc_err=(
-            curve["lc_err"] * units.dimensionless_unscaled if FIT_USE_LC else None
+            fit_lc["lc_err"] * units.dimensionless_unscaled if FIT_USE_LC else None
         ),
         peak_time=Time(ts["peak_time"], format="jd"),
         Mcomp=DEFAULTS["Mcomp"],
