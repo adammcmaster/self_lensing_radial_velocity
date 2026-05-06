@@ -44,11 +44,14 @@ def plot_fit(row):
         sls, times=Time(row["lc_times"], format="jd"), peak_time=peak_time
     )
 
-    fig, ((rv_axis, lc_axis), (rv_resid_axis, lc_resid_axis)) = pyplot.subplots(
-        2, 2, figsize=(14, 6), sharex="col", gridspec_kw={"height_ratios": (4, 1)}
+    fig, (rv_axis, rv_resid_axis, lc_axis, lc_resid_axis) = pyplot.subplots(
+        4,
+        1,
+        figsize=(14, 10),
+        gridspec_kw={"height_ratios": (4, 1, 4, 1)},
     )
 
-    # Left subplot: RV
+    # Top subplot: RV
     seaborn.scatterplot(
         x=row["rv_times"], y=row["rv"], color="blue", ax=rv_axis
     )  # Simulated data
@@ -71,7 +74,7 @@ def plot_fit(row):
     rv_axis.set_xlabel("RV Times")
     rv_axis.set_ylabel("RV")
 
-    # Right subplot: Lightcurve
+    # Lower subplot: Lightcurve
     seaborn.scatterplot(
         x=row["lc_times"], y=row["lc"], color="green", ax=lc_axis
     )  # Simulated data
@@ -103,26 +106,35 @@ def plot_fit(row):
 
     inset = lc_axis.inset_axes([0.7, 0.7, 0.25, 0.25])
     lc_times = numpy.array(row["lc_times"])
-    WIDTH = 10  # How many crossing times to show either side of the peak
-    inset_lc_mask = (lc_times >= (row["peak_time"] - row["tau_eff"] * WIDTH)) & (
-        lc_times <= (row["peak_time"] + row["tau_eff"] * WIDTH)
+    lc = numpy.array(row["lc"])
+    model_lc = numpy.array(lcg.flux_array)
+    fit_window_start = row["peak_time"] - row["tau_eff"]
+    fit_window_end = row["peak_time"] + row["tau_eff"]
+    inset_lc_mask = (lc_times >= fit_window_start) & (
+        lc_times <= fit_window_end
     )
     seaborn.scatterplot(
-        x=lc_times[inset_lc_mask], y=row["lc"][inset_lc_mask], color="green", ax=inset
+        x=lc_times[inset_lc_mask],
+        y=lc[inset_lc_mask],
+        color="green",
+        ax=inset,
     )  # Simulated data
     seaborn.lineplot(
-        {"times": lc_times[inset_lc_mask], "lc": lcg.flux_array[inset_lc_mask]},
+        {"times": lc_times[inset_lc_mask], "lc": model_lc[inset_lc_mask]},
         x="times",
         y="lc",
         color="red",
         ax=inset,
     )  # Model
+    inset.axvline(fit_window_start, color="black", linestyle="--", linewidth=0.8)
+    inset.axvline(fit_window_end, color="black", linestyle="--", linewidth=0.8)
+    inset.set_xlim(fit_window_start, fit_window_end)
     inset.set_xlabel("")
     inset.set_ylabel("")
 
     # Calculate residuals
     rv_residuals = numpy.array(row["rv"]) - numpy.array(rvg.rv)
-    lc_residuals = numpy.array(row["lc"]) - numpy.array(lcg.flux_array)
+    lc_residuals = lc - model_lc
 
     # Plot RV residuals
     seaborn.scatterplot(
@@ -155,9 +167,8 @@ def plot_fit(row):
     )
     # Place the text to the right of the subplots
     # Add extra whitespace to the right so the text doesn't overlap the plots
-    pyplot.subplots_adjust(right=0.79, hspace=0.0)
+    pyplot.subplots_adjust(right=0.79, hspace=0.08)
     fig.text(0.8, 0.5, textstr, ha="left", va="center", fontsize=14, wrap=True)
-    pyplot.subplots_adjust(hspace=0.0)
     return fig
 
 
