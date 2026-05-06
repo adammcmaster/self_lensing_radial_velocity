@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 import uuid
 
@@ -7,6 +8,8 @@ from astropy.io import fits
 from astropy.table import Table
 
 from utils import DATA_PATH
+
+logger = logging.getLogger(__name__)
 
 
 PARAMS = {
@@ -48,10 +51,19 @@ METADATA_COLUMNS = (
 
 
 def realistic_paths(path=REALISTIC_PATH):
-    return sorted(Path(path).glob("*.fits.gz"))
+    paths = sorted(Path(path).glob("*.fits.gz"))
+    logger.debug("Found %d realistic timeseries paths in %s", len(paths), path)
+    return paths
 
 
 def realistic_key_from_values(pristine_id, cadence, rv_accuracy, baseline):
+    logger.debug(
+        "Building realistic key for pristine_id=%s cadence=%s rv_accuracy=%s baseline=%s",
+        pristine_id,
+        cadence,
+        rv_accuracy,
+        baseline,
+    )
     return (
         str(pristine_id),
         int(cadence),
@@ -76,20 +88,27 @@ def realistic_id_from_params(pristine, cadence, rv_accuracy, baseline):
         rv_accuracy,
         baseline,
     )
-    return str(uuid.uuid5(REALISTIC_ID_NAMESPACE, "|".join(map(str, key))))
+    realistic_id = str(uuid.uuid5(REALISTIC_ID_NAMESPACE, "|".join(map(str, key))))
+    logger.debug("Generated realistic_id=%s for key=%s", realistic_id, key)
+    return realistic_id
 
 
 def realistic_path_from_params(pristine, cadence, rv_accuracy, baseline):
     realistic_id = realistic_id_from_params(pristine, cadence, rv_accuracy, baseline)
-    return REALISTIC_PATH / f"{realistic_id}.fits.gz"
+    path = REALISTIC_PATH / f"{realistic_id}.fits.gz"
+    logger.debug("Resolved realistic path %s", path)
+    return path
 
 
 def existing_realistic_keys(table=None):
     if table is None:
         table = load_realistic_timeseries()
     if table.empty:
+        logger.debug("No existing realistic keys because metadata table is empty")
         return set()
-    return {realistic_key(row) for _, row in table.iterrows()}
+    keys = {realistic_key(row) for _, row in table.iterrows()}
+    logger.debug("Loaded %d existing realistic keys", len(keys))
+    return keys
 
 
 def _empty_metadata_table():
@@ -98,19 +117,25 @@ def _empty_metadata_table():
 
 def _read_metadata_cache(path=REALISTIC_METADATA_PATH):
     if not path.exists():
+        logger.debug("Realistic metadata cache does not exist at %s", path)
         return _empty_metadata_table()
-    return pandas.read_csv(path)
+    table = pandas.read_csv(path)
+    logger.debug("Read %d realistic metadata rows from %s", len(table), path)
+    return table
 
 
 def _write_metadata_cache(table, path=REALISTIC_METADATA_PATH):
     path.parent.mkdir(exist_ok=True, parents=True)
+    logger.debug("Writing %d realistic metadata rows to %s", len(table), path)
     table.to_csv(path, index=False)
 
 
 def _normalise_metadata_table(table):
     if table.empty:
+        logger.debug("Normalising empty realistic metadata table")
         return _empty_metadata_table()
 
+    before = len(table)
     table = table.reindex(columns=METADATA_COLUMNS)
     table["realistic_path"] = table["realistic_path"].map(
         lambda p: str(Path(p).resolve())
@@ -118,10 +143,12 @@ def _normalise_metadata_table(table):
     table.drop_duplicates(subset="realistic_path", keep="last", inplace=True)
     table.sort_values("realistic_path", inplace=True)
     table.reset_index(drop=True, inplace=True)
+    logger.debug("Normalised realistic metadata table from %d to %d rows", before, len(table))
     return table
 
 
 def _metadata_from_header(header, path):
+    logger.debug("Loading realistic metadata from FITS header at %s", path)
     return {
         "realistic_id": header["REAL_ID"],
         "realistic_path": str(path.resolve()),
@@ -151,6 +178,7 @@ def _metadata_from_header(header, path):
 
 def metadata_row_from_realistic_path(path):
     path = Path(path)
+    logger.debug("Loading realistic metadata row from %s", path)
     with fits.open(path) as hdul:
         return _metadata_from_header(hdul[1].header, path)
 
@@ -166,6 +194,15 @@ def metadata_row_from_params(
     rv_err,
     lc_err,
 ):
+    logger.debug(
+        "Creating realistic metadata row id=%s path=%s pristine_idx=%s cadence=%s baseline=%s rv_accuracy=%s",
+        realistic_id,
+        realistic_path,
+        pristine_idx,
+        cadence,
+        baseline,
+        rv_accuracy,
+    )
     return {
         "realistic_id": realistic_id,
         "realistic_path": str(Path(realistic_path).resolve()),
@@ -231,8 +268,15 @@ def write_realistic_timeseries(
 ):
     path = Path(row["realistic_path"])
     if path.exists():
+        logger.debug("Skipping existing realistic timeseries at %s", path)
         return
 
+    logger.debug(
+        "Writing realistic timeseries to %s with %d RV samples and %d LC samples",
+        path,
+        len(rv),
+        len(lc),
+    )
     path.parent.mkdir(exist_ok=True, parents=True)
 
     rv_table = Table()
@@ -269,9 +313,15 @@ def load_realistic_timeseries_curve(row_or_path):
     else:
         path = row_or_path
 
+    logger.debug("Loading realistic timeseries curve from %s", path)
     with fits.open(path) as hdul:
         rv_data = hdul["RV"].data
         lc_data = hdul["LC"].data
+        logger.debug(
+            "Loaded realistic curve with %d RV samples and %d LC samples",
+            len(rv_data),
+            len(lc_data),
+        )
         return {
             "rv_times": numpy.asarray(rv_data["time"], dtype=float),
             "rv": numpy.asarray(rv_data["rv"], dtype=float),
@@ -284,8 +334,10 @@ def load_realistic_timeseries_curve(row_or_path):
 
 def update_realistic_metadata(rows):
     if not rows:
+        logger.debug("No new realistic metadata rows supplied; reloading metadata")
         return load_realistic_timeseries()
 
+    logger.debug("Updating realistic metadata with %d new rows", len(rows))
     cached = _normalise_metadata_table(_read_metadata_cache())
     new_table = pandas.DataFrame(rows)
     if cached.empty:
@@ -300,6 +352,7 @@ def update_realistic_metadata(rows):
 
 def load_realistic_timeseries():
     realistic_path_set = {str(path) for path in realistic_paths()}
+    logger.debug("Loading realistic metadata for %d FITS files", len(realistic_path_set))
     cached = _normalise_metadata_table(_read_metadata_cache())
     if not cached.empty:
         cached = cached[cached["realistic_path"].isin(realistic_path_set)].copy()
@@ -308,6 +361,7 @@ def load_realistic_timeseries():
     missing_paths = [
         path for path in realistic_path_set if path not in cached_paths
     ]
+    logger.debug("Realistic metadata cache is missing %d paths", len(missing_paths))
 
     if missing_paths:
         new_rows = [metadata_row_from_realistic_path(path) for path in missing_paths]
@@ -321,4 +375,5 @@ def load_realistic_timeseries():
     if missing_paths or len(table) != len(realistic_path_set):
         _write_metadata_cache(table)
 
+    logger.debug("Returning %d realistic metadata rows", len(table))
     return table

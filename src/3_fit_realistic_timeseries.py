@@ -2,6 +2,7 @@
 This fits a sample of the realistic timeseries and records the fitted parameters.
 """
 
+import logging
 import warnings
 import os
 
@@ -25,7 +26,9 @@ from selflensing.models import SelfLensingSystem
 
 from fitting import TIMESERIES_TABLE_PATH, plot_fit, plot_emcee_diagnostics
 from realistic import load_realistic_timeseries, load_realistic_timeseries_curve
-from utils import DEFAULTS, DATA_PATH
+from utils import DEFAULTS, DATA_PATH, configure_logging
+
+logger = logging.getLogger(__name__)
 
 warnings.filterwarnings("ignore")
 warnings.filterwarnings("ignore", module="erfa.core")
@@ -38,12 +41,16 @@ PLOT_MAX_WORKERS = int(os.environ.get("SLRV_PLOT_MAX_WORKERS", 8))
 
 def load_fitted_timeseries():
     if not TIMESERIES_TABLE_PATH.exists():
+        logger.debug("Fitted timeseries table does not exist at %s", TIMESERIES_TABLE_PATH)
         return pandas.DataFrame()
-    return pandas.read_pickle(TIMESERIES_TABLE_PATH)
+    table = pandas.read_pickle(TIMESERIES_TABLE_PATH)
+    logger.debug("Loaded %d fitted timeseries rows from %s", len(table), TIMESERIES_TABLE_PATH)
+    return table
 
 
 def fitted_key_sets(results):
     if results.empty:
+        logger.debug("No fitted keys because fitted results table is empty")
         return set(), set()
     realistic_ids = set()
     realistic_indices = set()
@@ -55,14 +62,23 @@ def fitted_key_sets(results):
         else:
             legacy_results = results
         realistic_indices = set(legacy_results["realistic_idx"].dropna().astype(str))
+    logger.debug(
+        "Prepared fitted key sets with %d ids and %d legacy indices",
+        len(realistic_ids),
+        len(realistic_indices),
+    )
     return realistic_ids, realistic_indices
 
 
 def is_already_fitted(row, realistic_ids, realistic_indices):
     if "realistic_id" in row and not pandas.isna(row["realistic_id"]):
         if str(row["realistic_id"]) in realistic_ids:
+            logger.debug("Skipping already fitted realistic_id=%s", row["realistic_id"])
             return True
-    return str(row.name) in realistic_indices
+    already_fitted = str(row.name) in realistic_indices
+    if already_fitted:
+        logger.debug("Skipping already fitted legacy realistic_idx=%s", row.name)
+    return already_fitted
 
 
 def result_checkpoint_key(row):
@@ -75,7 +91,9 @@ def result_checkpoint_key(row):
 
 def save_results(results):
     if not results:
+        logger.debug("No fit results to save")
         return
+    logger.debug("Saving %d fit result rows to %s", len(results), TIMESERIES_TABLE_PATH)
     table = pandas.DataFrame(results).reset_index(drop=True)
     if "realistic_id" in table.columns or "realistic_idx" in table.columns:
         table["_fit_key"] = table.apply(result_checkpoint_key, axis=1)
@@ -83,9 +101,15 @@ def save_results(results):
         table.drop(columns="_fit_key", inplace=True)
     table.reset_index(drop=True).to_pickle(f"{TIMESERIES_TABLE_PATH}.new.gz")
     os.replace(f"{TIMESERIES_TABLE_PATH}.new.gz", TIMESERIES_TABLE_PATH)
+    logger.debug("Saved fit results atomically to %s", TIMESERIES_TABLE_PATH)
 
 
 def truth_self_lensing_system(ts):
+    logger.debug(
+        "Building truth SelfLensingSystem for realistic_idx=%s realistic_id=%s",
+        ts.get("realistic_idx", getattr(ts, "name", None)),
+        ts.get("realistic_id", None),
+    )
     return SelfLensingSystem(
         a=ts["a"] * units.au,
         i=ts["i"] * units.rad,
@@ -100,8 +124,20 @@ def truth_self_lensing_system(ts):
 
 def fit(a):
     i, ts = a
+    logger.debug(
+        "Starting fit for row index=%s realistic_id=%s path=%s",
+        i,
+        ts.get("realistic_id", None),
+        ts.get("realistic_path", None),
+    )
     curve = load_realistic_timeseries_curve(ts)
     truth_sls = truth_self_lensing_system(ts)
+    logger.debug(
+        "Fit inputs row index=%s: %d RV samples, %d LC samples",
+        i,
+        len(curve["rv"]),
+        len(curve["lc"]),
+    )
     sls, sampler = self_lensing_system_from_fit(
         rv_times=Time(curve["rv_times"], format="jd"),
         observed_rv=curve["rv"] * units.m / units.s,
@@ -133,6 +169,13 @@ def fit(a):
     new_ts["fitted_periapsis_phase"] = sls.periapsis_phase.value
     new_ts["fitted_porb"] = sls.porb.value
     new_ts["fitted_tau_eff"] = sls.tau_eff.value
+    logger.debug(
+        "Finished fit for row index=%s: fitted_a=%.6g fitted_Macc=%.6g fitted_e=%.6g",
+        i,
+        new_ts["fitted_a"],
+        new_ts["fitted_Macc"],
+        new_ts["fitted_e"],
+    )
     return new_ts, sampler
 
 
@@ -142,6 +185,11 @@ FIG_PATH.mkdir(exist_ok=True, parents=True)
 
 def save_plots(a):
     ts, sampler = a
+    logger.debug(
+        "Saving plots for realistic_idx=%s realistic_id=%s",
+        ts.get("realistic_idx", None),
+        ts.get("realistic_id", None),
+    )
     curve = load_realistic_timeseries_curve(ts)
     plot_ts = pandas.Series(ts)
     plot_ts["rv_times"] = curve["rv_times"]
@@ -159,6 +207,7 @@ def save_plots(a):
         / str(ts["realistic_idx"])
     )
     out_path.mkdir(exist_ok=True, parents=True)
+    logger.debug("Writing fit diagnostic plots to %s", out_path)
 
     fit_fig = plot_fit(plot_ts)
     params = ["a", "i", "Macc", "e", "periapsis_phase"]
@@ -172,12 +221,26 @@ def save_plots(a):
     fit_fig.savefig(out_path / "fit.png")
     walker_fig.savefig(out_path / "walkers.png")
     corner_fig.savefig(out_path / "corner.png")
+    logger.debug("Saved fit diagnostic plots to %s", out_path)
 
 
 if __name__ == "__main__":
+    configure_logging()
+    logger.debug(
+        "Starting fitting script with FIT_MAX_WORKERS=%d FIT_SAMPLE_SIZE=%d FIT_CHUNK_SIZE=%d PLOT_MAX_WORKERS=%d",
+        FIT_MAX_WORKERS,
+        FIT_SAMPLE_SIZE,
+        FIT_CHUNK_SIZE,
+        PLOT_MAX_WORKERS,
+    )
     rts = load_realistic_timeseries()
     existing_results = load_fitted_timeseries()
     fitted_ids, fitted_indices = fitted_key_sets(existing_results)
+    logger.debug(
+        "Loaded %d realistic rows and %d existing fitted rows",
+        len(rts),
+        len(existing_results),
+    )
 
     if fitted_ids or fitted_indices:
         rts = rts[
@@ -186,16 +249,20 @@ if __name__ == "__main__":
                 axis=1,
             )
         ].copy()
+        logger.debug("Filtered realistic rows down to %d unfitted rows", len(rts))
 
     sample_size = min(FIT_SAMPLE_SIZE, len(rts))
     if sample_size == 0:
+        logger.debug("No realistic rows left to fit; exiting")
         raise SystemExit
 
     rts = rts.sample(sample_size)
+    logger.debug("Sampled %d realistic rows for fitting", len(rts))
 
     chunks = [
         rts.iloc[i : i + FIT_CHUNK_SIZE] for i in range(0, len(rts), FIT_CHUNK_SIZE)
     ]
+    logger.debug("Split sampled rows into %d chunks", len(chunks))
 
     results = (
         [row for _, row in existing_results.iterrows()]
@@ -204,6 +271,7 @@ if __name__ == "__main__":
     )
 
     for chunk in tqdm(chunks, desc="All chunks"):
+        logger.debug("Fitting chunk with %d rows", len(chunk))
         new_results = process_map(
             fit,
             chunk.iterrows(),
@@ -212,6 +280,7 @@ if __name__ == "__main__":
             max_workers=FIT_MAX_WORKERS,
         )
         results += [r[0] for r in new_results]
+        logger.debug("Chunk produced %d fit results; cumulative results=%d", len(new_results), len(results))
         save_results(results)
         process_map(
             save_plots,
@@ -219,3 +288,4 @@ if __name__ == "__main__":
             desc="Saving plots",
             max_workers=PLOT_MAX_WORKERS,
         )
+    logger.debug("Finished fitting script")

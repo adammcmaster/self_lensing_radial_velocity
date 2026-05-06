@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 import warnings
 
@@ -15,6 +16,8 @@ from selflensing.generators import RVGenerator
 from selflensing.models import SelfLensingSystem
 
 from utils import DATA_PATH, default_rv_times
+
+logger = logging.getLogger(__name__)
 
 PHOTOMETRY_SIMULATION_PATH = Path.home() / "Code/lc-filter/data/simulations/1.0/lensing"
 PRISTINE_RV_PATH = DATA_PATH / "pristine_rv"
@@ -72,25 +75,41 @@ METADATA_COLUMNS = (
 
 
 def photometry_simulation_paths(path=PHOTOMETRY_SIMULATION_PATH):
-    return sorted(Path(path).glob("*.fits.gz"))
+    paths = sorted(Path(path).glob("*.fits.gz"))
+    logger.debug("Found %d photometry simulation paths in %s", len(paths), path)
+    return paths
 
 
 def pristine_rv_paths(path=PRISTINE_RV_PATH):
-    return sorted(Path(path).glob("*.fits.gz"))
+    paths = sorted(Path(path).glob("*.fits.gz"))
+    logger.debug("Found %d pristine RV paths in %s", len(paths), path)
+    return paths
 
 
 def _metadata_from_header(header):
-    return {key: header[key] for key in PARAMETER_KEYS if key in header}
+    metadata = {key: header[key] for key in PARAMETER_KEYS if key in header}
+    logger.debug("Loaded %d metadata values from FITS header", len(metadata))
+    return metadata
 
 
 def _jd_from_fits_time(time_column):
     time = numpy.asarray(time_column)
     if time.ndim == 2:
+        logger.debug("Converting 2D FITS time column with shape %s to JD", time.shape)
         return time.sum(axis=1)
+    logger.debug("Converting 1D FITS time column with shape %s to float JD", time.shape)
     return time.astype(float)
 
 
 def _self_lensing_system_from_metadata(metadata):
+    logger.debug(
+        "Building SelfLensingSystem from metadata: A=%s, I=%s, MBH=%s, E=%s, PERI=%s",
+        metadata.get("A"),
+        metadata.get("I"),
+        metadata.get("MBH"),
+        metadata.get("E"),
+        metadata.get("PERI"),
+    )
     return SelfLensingSystem(
         a=metadata["A"] * units.au,
         i=metadata["I"] * units.rad,
@@ -105,8 +124,10 @@ def _self_lensing_system_from_metadata(metadata):
 
 def _write_rv_curve(path, metadata, rvg, source_path):
     if path.exists():
+        logger.debug("Skipping existing pristine RV curve at %s", path)
         return
 
+    logger.debug("Writing pristine RV curve to %s from %s", path, source_path)
     table = Table()
     table["time"] = rvg.times.jd
     table["time"].unit = "d"
@@ -126,8 +147,11 @@ def _write_rv_curve(path, metadata, rvg, source_path):
 def _photometry_path_from_rv_header(header):
     source = header.get("SOURCE")
     if source is None:
+        logger.debug("RV FITS header has no SOURCE value")
         return None
-    return PHOTOMETRY_SIMULATION_PATH / source
+    path = PHOTOMETRY_SIMULATION_PATH / source
+    logger.debug("Resolved photometry source %s to %s", source, path)
+    return path
 
 
 def _metadata_row(metadata, rv_path, photometry_path=None):
@@ -161,6 +185,7 @@ def _metadata_row(metadata, rv_path, photometry_path=None):
 
 def metadata_row_from_rv_path(rv_path):
     rv_path = Path(rv_path)
+    logger.debug("Loading pristine metadata row from %s", rv_path)
     with fits.open(rv_path) as hdul:
         header = hdul[1].header
         metadata = _metadata_from_header(header)
@@ -174,24 +199,31 @@ def _empty_metadata_table():
 
 def _read_metadata_cache(path=PRISTINE_METADATA_PATH):
     if not path.exists():
+        logger.debug("Pristine metadata cache does not exist at %s", path)
         return _empty_metadata_table()
-    return pandas.read_csv(path)
+    table = pandas.read_csv(path)
+    logger.debug("Read %d pristine metadata rows from %s", len(table), path)
+    return table
 
 
 def _write_metadata_cache(table, path=PRISTINE_METADATA_PATH):
     path.parent.mkdir(exist_ok=True, parents=True)
+    logger.debug("Writing %d pristine metadata rows to %s", len(table), path)
     table.to_csv(path, index=False)
 
 
 def _normalise_metadata_table(table):
     if table.empty:
+        logger.debug("Normalising empty pristine metadata table")
         return _empty_metadata_table()
 
+    before = len(table)
     table = table.reindex(columns=METADATA_COLUMNS)
     table["rv_path"] = table["rv_path"].map(lambda p: str(Path(p)))
     table.drop_duplicates(subset="rv_path", keep="last", inplace=True)
     table.sort_values("rv_path", inplace=True)
     table.reset_index(drop=True, inplace=True)
+    logger.debug("Normalised pristine metadata table from %d to %d rows", before, len(table))
     return table
 
 
@@ -202,8 +234,10 @@ def load_pristine_rv_curve(row_or_path):
         if isinstance(row_or_path, pandas.Series)
         else row_or_path
     )
+    logger.debug("Loading pristine RV curve from %s", rv_path)
     with fits.open(rv_path) as hdul:
         data = hdul[1].data
+        logger.debug("Loaded pristine RV curve with %d samples", len(data))
         return {
             "rv_times": numpy.asarray(data["time"], dtype=float),
             "rv": numpy.asarray(data["rv"], dtype=float),
@@ -214,18 +248,29 @@ def load_pristine_lightcurve(row_or_path):
     """Load the source photometric light curve for one pristine RV curve."""
     if isinstance(row_or_path, pandas.Series):
         photometry_path = row_or_path["photometry_path"]
+        logger.debug("Loading pristine lightcurve from metadata path %s", photometry_path)
     else:
+        logger.debug("Resolving pristine lightcurve path from RV file %s", row_or_path)
         with fits.open(row_or_path) as hdul:
             photometry_path = _photometry_path_from_rv_header(hdul[1].header)
 
     if photometry_path is None:
+        logger.debug("Cannot load pristine lightcurve because no photometry path is recorded")
         raise ValueError("No source photometry path is recorded for this RV file")
 
+    logger.debug("Opening pristine photometry FITS at %s", photometry_path)
     with fits.open(photometry_path) as hdul:
         data = hdul[1].data
         # Shift flux to mean=0
         flux = numpy.asarray(data["flux"], dtype=float)
+        original_mean = numpy.mean(flux)
         flux -= numpy.mean(flux)
+        logger.debug(
+            "Loaded lightcurve with %d samples and shifted flux mean from %.6g to %.6g",
+            len(flux),
+            original_mean,
+            numpy.mean(flux),
+        )
         return {
             "lc_times": _jd_from_fits_time(data["time"]),
             "lc": flux,
@@ -236,7 +281,9 @@ def load_pristine_lightcurve(row_or_path):
 def calc_rv(photometry_path, save_curve=True):
     photometry_path = Path(photometry_path)
     rv_path = PRISTINE_RV_PATH / photometry_path.name
+    logger.debug("Calculating pristine RV for %s; save_curve=%s", photometry_path, save_curve)
     if save_curve and rv_path.exists():
+        logger.debug("Pristine RV already exists at %s; loading metadata", rv_path)
         return metadata_row_from_rv_path(rv_path)
 
     with fits.open(photometry_path) as hdul:
@@ -254,6 +301,7 @@ def calc_rv(photometry_path, save_curve=True):
     if save_curve:
         _write_rv_curve(rv_path, metadata, rvg, photometry_path)
 
+    logger.debug("Finished pristine RV calculation for %s", photometry_path)
     return _metadata_row(metadata, rv_path, photometry_path)
 
 
@@ -262,6 +310,7 @@ def write_pristine_rv_curve(photometry_path):
 
 
 def generate_pristine_timeseries(desc=None, photometry_path=PHOTOMETRY_SIMULATION_PATH):
+    logger.debug("Generating pristine timeseries from %s", photometry_path)
     all_paths = photometry_simulation_paths(photometry_path)
     if not all_paths:
         raise FileNotFoundError(
@@ -269,7 +318,13 @@ def generate_pristine_timeseries(desc=None, photometry_path=PHOTOMETRY_SIMULATIO
         )
 
     paths = [path for path in all_paths if not (PRISTINE_RV_PATH / path.name).exists()]
+    logger.debug(
+        "Pristine generation has %d total source paths and %d missing RV curves",
+        len(all_paths),
+        len(paths),
+    )
     if not paths:
+        logger.debug("No pristine RV curves need to be generated")
         return
 
     process_map(
@@ -283,6 +338,7 @@ def load_pristine_timeseries():
     """Return metadata and paths for pristine RV files, without loading curve arrays."""
     rv_paths = [str(path) for path in pristine_rv_paths()]
     rv_path_set = set(rv_paths)
+    logger.debug("Loading pristine timeseries metadata for %d RV files", len(rv_paths))
 
     cached = _normalise_metadata_table(_read_metadata_cache())
     if not cached.empty:
@@ -290,6 +346,7 @@ def load_pristine_timeseries():
 
     cached_paths = set(cached["rv_path"]) if not cached.empty else set()
     missing_paths = [path for path in rv_paths if path not in cached_paths]
+    logger.debug("Pristine metadata cache is missing %d paths", len(missing_paths))
 
     if missing_paths:
         new_rows = [metadata_row_from_rv_path(path) for path in missing_paths]
@@ -303,4 +360,5 @@ def load_pristine_timeseries():
     if missing_paths or len(table) != len(rv_paths):
         _write_metadata_cache(table)
 
+    logger.debug("Returning %d pristine metadata rows", len(table))
     return table

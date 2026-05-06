@@ -1,6 +1,10 @@
+import logging
+
 import numpy
 
 import astropy.units as units
+
+logger = logging.getLogger(__name__)
 
 
 class Spectrograph(object):
@@ -15,6 +19,13 @@ class Spectrograph(object):
         if accuracy is None:
             accuracy = cls.RV_ACCURACY
         len_rv = len(rv)
+        logger.debug(
+            "Adding RV noise with %s: len=%d stellar_noise=%s accuracy=%s",
+            cls.__name__,
+            len_rv,
+            cls.STELLAR_NOISE,
+            accuracy,
+        )
         return (
             rv.value
             # Stellar variations
@@ -27,9 +38,17 @@ class Spectrograph(object):
     def total_error(cls, unit=units.m / units.s, accuracy=None):
         if accuracy is None:
             accuracy = cls.RV_ACCURACY
-        return numpy.sqrt(
+        error = numpy.sqrt(
             cls.STELLAR_NOISE.to(unit).value ** 2 + accuracy.to(unit).value ** 2
         )
+        logger.debug(
+            "Computed total RV error with %s: unit=%s accuracy=%s error=%s",
+            cls.__name__,
+            unit,
+            accuracy,
+            error,
+        )
+        return error
 
 
 class ARCES(Spectrograph):

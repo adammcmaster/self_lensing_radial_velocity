@@ -1,3 +1,5 @@
+import logging
+
 from astropy import units
 from astropy.time import Time
 
@@ -12,11 +14,18 @@ from selflensing.models import SelfLensingSystem
 
 from utils import DEFAULTS, DATA_PATH
 
+logger = logging.getLogger(__name__)
+
 
 TIMESERIES_TABLE_PATH = DATA_PATH / "fitted_timeseries.gz"
 
 
 def plot_fit(row):
+    logger.debug(
+        "Plotting fit for realistic_idx=%s realistic_id=%s",
+        row.get("realistic_idx"),
+        row.get("realistic_id"),
+    )
     sls = SelfLensingSystem(
         a=row["fitted_a"] * units.au,
         i=row["fitted_i"] * units.rad,
@@ -165,6 +174,7 @@ def plot_emcee_diagnostics(sampler, param_names=None, axes_scale="linear", truth
     """
 
     samples = sampler.get_chain()
+    logger.debug("Plotting emcee diagnostics for sampler chain shape=%s", samples.shape)
     ndim = samples.shape[2]
 
     fig_walkers, axes = pyplot.subplots(ndim, 1, figsize=(10, 2.5 * ndim), sharex=True)
