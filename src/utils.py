@@ -22,6 +22,7 @@ def configure_logging():
     logging.getLogger().setLevel(logging.WARNING)
     for logger_name in (
         "__main__",
+        "__mp_main__",
         "utils",
         "pristine",
         "realistic",

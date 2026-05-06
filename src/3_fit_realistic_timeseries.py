@@ -3,14 +3,17 @@ This fits a sample of the realistic timeseries and records the fitted parameters
 """
 
 import logging
+import multiprocessing
 import warnings
 import os
+from concurrent.futures import ProcessPoolExecutor
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
 import numpy
 import pandas
@@ -18,7 +21,6 @@ import pandas
 from astropy import units
 from astropy.time import Time
 
-from tqdm.contrib.concurrent import process_map
 from tqdm import tqdm
 
 from selflensing.fitting import self_lensing_system_from_fit
@@ -37,6 +39,43 @@ FIT_MAX_WORKERS = int(os.environ.get("SLRV_FIT_MAX_WORKERS", 8))
 FIT_SAMPLE_SIZE = int(os.environ.get("SLRV_FIT_SAMPLE_SIZE", 5000))
 FIT_CHUNK_SIZE = int(os.environ.get("SLRV_FIT_CHUNK_SIZE", 2 * FIT_MAX_WORKERS))
 PLOT_MAX_WORKERS = int(os.environ.get("SLRV_PLOT_MAX_WORKERS", 8))
+MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "spawn")
+FIT_NSTEPS = int(os.environ.get("SLRV_FIT_NSTEPS", 2000))
+FIT_NWALKERS = int(os.environ.get("SLRV_FIT_NWALKERS", 20))
+FIT_BURN = int(os.environ.get("SLRV_FIT_BURN", 500))
+FIT_USE_LC = os.environ.get("SLRV_FIT_USE_LC", "1").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
+
+def process_map(fn, iterable, total=None, desc=None, max_workers=None, chunksize=1):
+    """Run a tqdm-wrapped process map with an explicit multiprocessing context."""
+    items = list(iterable)
+    if total is None:
+        total = len(items)
+    if not items:
+        return []
+
+    context = multiprocessing.get_context(MP_START_METHOD)
+    logger.debug(
+        "Starting process map desc=%s items=%d max_workers=%s chunksize=%d mp_start_method=%s",
+        desc,
+        len(items),
+        max_workers,
+        chunksize,
+        MP_START_METHOD,
+    )
+    with ProcessPoolExecutor(max_workers=max_workers, mp_context=context) as executor:
+        return list(
+            tqdm(
+                executor.map(fn, items, chunksize=chunksize),
+                total=total,
+                desc=desc,
+            )
+        )
 
 
 def load_fitted_timeseries():
@@ -110,7 +149,7 @@ def truth_self_lensing_system(ts):
         ts.get("realistic_idx", getattr(ts, "name", None)),
         ts.get("realistic_id", None),
     )
-    return SelfLensingSystem(
+    sls = SelfLensingSystem(
         a=ts["a"] * units.au,
         i=ts["i"] * units.rad,
         Macc=ts["Macc"] * units.M_sun,
@@ -120,6 +159,12 @@ def truth_self_lensing_system(ts):
         Rcomp=ts["Rcomp"] * units.R_sun,
         Teff=ts["Teff"] * units.K,
     )
+    logger.debug(
+        "Built truth SelfLensingSystem for realistic_idx=%s realistic_id=%s",
+        ts.get("realistic_idx", getattr(ts, "name", None)),
+        ts.get("realistic_id", None),
+    )
+    return sls
 
 
 def fit(a):
@@ -138,22 +183,27 @@ def fit(a):
         len(curve["rv"]),
         len(curve["lc"]),
     )
+    logger.debug("Calling self_lensing_system_from_fit for row index=%s", i)
     sls, sampler = self_lensing_system_from_fit(
         rv_times=Time(curve["rv_times"], format="jd"),
         observed_rv=curve["rv"] * units.m / units.s,
         observed_rv_err=curve["rv_err"] * units.m / units.s,
-        lc_times=Time(curve["lc_times"], format="jd"),
-        observed_lc=curve["lc"] * units.dimensionless_unscaled,
-        observed_lc_err=curve["lc_err"] * units.dimensionless_unscaled,
+        lc_times=Time(curve["lc_times"], format="jd") if FIT_USE_LC else None,
+        observed_lc=(
+            curve["lc"] * units.dimensionless_unscaled if FIT_USE_LC else None
+        ),
+        observed_lc_err=(
+            curve["lc_err"] * units.dimensionless_unscaled if FIT_USE_LC else None
+        ),
         peak_time=Time(ts["peak_time"], format="jd"),
         Mcomp=DEFAULTS["Mcomp"],
         Rcomp=DEFAULTS["Rcomp"],
         Teff=DEFAULTS["Teff"],
-        # tau_eff=ts["tau_eff"] * units.day,
+        tau_eff=ts["tau_eff"] * units.day,
         false_alarm_probability=0.5,
-        nsteps=2000,
-        nwalkers=20,
-        burn=500,
+        nsteps=FIT_NSTEPS,
+        nwalkers=FIT_NWALKERS,
+        burn=FIT_BURN,
         pool=False,
         progress=False,
     )
@@ -233,6 +283,14 @@ if __name__ == "__main__":
         FIT_CHUNK_SIZE,
         PLOT_MAX_WORKERS,
     )
+    logger.debug(
+        "MCMC settings: FIT_NSTEPS=%d FIT_NWALKERS=%d FIT_BURN=%d MP_START_METHOD=%s",
+        FIT_NSTEPS,
+        FIT_NWALKERS,
+        FIT_BURN,
+        MP_START_METHOD,
+    )
+    logger.debug("Fit likelihood settings: FIT_USE_LC=%s", FIT_USE_LC)
     rts = load_realistic_timeseries()
     existing_results = load_fitted_timeseries()
     fitted_ids, fitted_indices = fitted_key_sets(existing_results)
