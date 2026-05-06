@@ -3,13 +3,19 @@ This takes the pristine RV timeseries, samples them at various observing cadence
 """
 
 import logging
+import os
+import multiprocessing
 import numpy
 import random
 import warnings
+from concurrent.futures import ProcessPoolExecutor
+
+os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
+os.environ.setdefault("JAX_PLATFORMS", os.environ.get("SLRV_JAX_PLATFORMS", "cpu"))
 
 from astropy import units
-from tqdm.contrib.concurrent import process_map
 from tqdm import tqdm
+from tqdm.contrib.concurrent import process_map
 
 from pristine import (
     generate_pristine_timeseries,
@@ -36,6 +42,86 @@ logger = logging.getLogger(__name__)
 
 warnings.filterwarnings("ignore")
 warnings.filterwarnings("ignore", module="erfa.core")
+
+PARAM_MAX_WORKERS = int(
+    os.environ.get("SLRV_GENERATE_PARAM_MAX_WORKERS", os.cpu_count() or 1)
+)
+PARAM_CHUNKSIZE = int(os.environ.get("SLRV_GENERATE_PARAM_CHUNKSIZE", 32))
+MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "fork")
+
+
+_WORKER_EXISTING_KEYS = None
+
+
+def _init_param_worker(existing_keys):
+    global _WORKER_EXISTING_KEYS
+    _WORKER_EXISTING_KEYS = existing_keys
+
+
+def missing_params_for_pristine(row):
+    i, pristine_id = row
+    missing = []
+    for baseline in PARAMS["campaign_baselines"]:
+        for cadence in PARAMS["cadences"]:
+            for rv_accuracy in PARAMS["rv_accuracies"]:
+                key = realistic_key_from_values(
+                    pristine_id,
+                    cadence,
+                    rv_accuracy,
+                    baseline,
+                )
+                if key not in _WORKER_EXISTING_KEYS:
+                    missing.append(
+                        (
+                            i,
+                            cadence,
+                            rv_accuracy,
+                            baseline,
+                        )
+                    )
+    return missing
+
+
+def generate_missing_params(pristine, existing_keys):
+    rows = [
+        (i, pristine_id)
+        for i, pristine_id in enumerate(pristine["simulation_id"])
+    ]
+    if not rows:
+        return []
+
+    logger.debug(
+        "Generating realistic sample params with %d workers, chunksize=%d",
+        PARAM_MAX_WORKERS,
+        PARAM_CHUNKSIZE,
+    )
+    if PARAM_MAX_WORKERS == 1:
+        _init_param_worker(existing_keys)
+        results = [
+            missing_params_for_pristine(row)
+            for row in tqdm(rows, desc="[2/4] Generating sample params")
+        ]
+    else:
+        context = multiprocessing.get_context(MP_START_METHOD)
+        with ProcessPoolExecutor(
+            max_workers=PARAM_MAX_WORKERS,
+            mp_context=context,
+            initializer=_init_param_worker,
+            initargs=(existing_keys,),
+        ) as executor:
+            results = list(
+                tqdm(
+                    executor.map(
+                        missing_params_for_pristine,
+                        rows,
+                        chunksize=PARAM_CHUNKSIZE,
+                    ),
+                    total=len(rows),
+                    desc="[2/4] Generating sample params",
+                )
+            )
+
+    return [param for row_params in results for param in row_params]
 
 
 def sample_timeseries(ts, step, max_len):
@@ -134,27 +220,7 @@ if __name__ == "__main__":
         len(existing_keys),
     )
 
-    params = []
-
-    for i in tqdm(range(len(pristine)), desc="[2/4] Generating sample params"):
-        for baseline in PARAMS["campaign_baselines"]:
-            for cadence in PARAMS["cadences"]:
-                for rv_accuracy in PARAMS["rv_accuracies"]:
-                    key = realistic_key_from_values(
-                        pristine.iloc[i]["simulation_id"],
-                        cadence,
-                        rv_accuracy,
-                        baseline,
-                    )
-                    if key not in existing_keys:
-                        params.append(
-                            (
-                                i,
-                                cadence,
-                                rv_accuracy,
-                                baseline,
-                            )
-                        )
+    params = generate_missing_params(pristine, existing_keys)
     logger.debug("Generated %d candidate realistic parameter combinations", len(params))
     if len(params) > NUM_SAMPLES:
         params = random.sample(params, NUM_SAMPLES)
