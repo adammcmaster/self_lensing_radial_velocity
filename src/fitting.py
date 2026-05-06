@@ -13,7 +13,7 @@ from selflensing.generators import LightcurveGenerator, RVGenerator
 from selflensing.models import SelfLensingSystem
 
 from lensing_jax import install_selflensing_jax_lensing_patch
-from utils import DEFAULTS, DATA_PATH
+from utils import DATA_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +48,9 @@ def plot_fit(row):
         Macc=row["fitted_Macc"] * units.M_sun,
         e=row["fitted_e"] * units.dimensionless_unscaled,
         periapsis_phase=row["fitted_periapsis_phase"] * units.rad,
-        Mcomp=DEFAULTS["Mcomp"],
-        Rcomp=DEFAULTS["Rcomp"],
-        Teff=DEFAULTS["Teff"],
+        Mcomp=row["Mcomp"] * units.M_sun,
+        Rcomp=row["Rcomp"] * units.R_sun,
+        Teff=row["Teff"] * units.K,
     )
     peak_time = Time(row["peak_time"], format="jd")
     rvg = RVGenerator(

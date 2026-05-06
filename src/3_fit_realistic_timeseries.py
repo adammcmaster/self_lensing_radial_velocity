@@ -39,7 +39,7 @@ from selflensing.models import DEFAULT_LIMITS, SelfLensingSystem
 from fitting import TIMESERIES_TABLE_PATH, plot_fit, plot_emcee_diagnostics
 from lensing_jax import install_selflensing_jax_lensing_patch
 from realistic import load_realistic_timeseries, load_realistic_timeseries_curve
-from utils import DEFAULTS, DATA_PATH, configure_logging
+from utils import DATA_PATH, configure_logging
 
 logger = logging.getLogger(__name__)
 
@@ -298,9 +298,9 @@ def fit(a):
             fit_lc["lc_err"] * units.dimensionless_unscaled if FIT_USE_LC else None
         ),
         peak_time=Time(ts["peak_time"], format="jd"),
-        Mcomp=DEFAULTS["Mcomp"],
-        Rcomp=DEFAULTS["Rcomp"],
-        Teff=DEFAULTS["Teff"],
+        Mcomp=ts["Mcomp"] * units.M_sun,
+        Rcomp=ts["Rcomp"] * units.R_sun,
+        Teff=ts["Teff"] * units.K,
         false_alarm_probability=0.5,
         nsteps=FIT_NSTEPS,
         nwalkers=FIT_NWALKERS,
