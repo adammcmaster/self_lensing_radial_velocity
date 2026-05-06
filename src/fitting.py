@@ -3,7 +3,7 @@ import logging
 from astropy import units
 from astropy.time import Time
 
-from matplotlib import pyplot, patches
+from matplotlib import pyplot
 
 import corner
 import numpy
@@ -44,11 +44,17 @@ def plot_fit(row):
         sls, times=Time(row["lc_times"], format="jd"), peak_time=peak_time
     )
 
-    fig, (rv_axis, rv_resid_axis, lc_axis, lc_resid_axis) = pyplot.subplots(
-        4,
+    fig, (
+        rv_axis,
+        rv_resid_axis,
+        lc_axis,
+        lc_window_axis,
+        lc_resid_axis,
+    ) = pyplot.subplots(
+        5,
         1,
-        figsize=(14, 10),
-        gridspec_kw={"height_ratios": (4, 1, 4, 1)},
+        figsize=(14, 12),
+        gridspec_kw={"height_ratios": (4, 1, 4, 2, 1)},
     )
 
     # Top subplot: RV
@@ -89,22 +95,6 @@ def plot_fit(row):
     lc_axis.set_xlabel("LC Times")
     lc_axis.set_ylabel("LC")
 
-    # Draw inset of lensing event
-    lc_xlim = lc_axis.get_xlim()
-    lc_ylim = lc_axis.get_ylim()
-    width = (lc_xlim[1] - lc_xlim[0]) / 2.4
-    height = (lc_ylim[1] - lc_ylim[0]) / 2.2
-    square = patches.Rectangle(
-        (lc_xlim[1] - width, lc_ylim[1] - height),
-        width,
-        height,
-        color="white",
-        alpha=0.9,
-        zorder=2,
-    )
-    lc_axis.add_patch(square)
-
-    inset = lc_axis.inset_axes([0.7, 0.7, 0.25, 0.25])
     lc_times = numpy.array(row["lc_times"])
     lc = numpy.array(row["lc"])
     model_lc = numpy.array(lcg.flux_array)
@@ -113,24 +103,30 @@ def plot_fit(row):
     inset_lc_mask = (lc_times >= fit_window_start) & (
         lc_times <= fit_window_end
     )
+    # Light-curve fitting window
     seaborn.scatterplot(
         x=lc_times[inset_lc_mask],
         y=lc[inset_lc_mask],
         color="green",
-        ax=inset,
+        ax=lc_window_axis,
     )  # Simulated data
     seaborn.lineplot(
         {"times": lc_times[inset_lc_mask], "lc": model_lc[inset_lc_mask]},
         x="times",
         y="lc",
         color="red",
-        ax=inset,
+        ax=lc_window_axis,
     )  # Model
-    inset.axvline(fit_window_start, color="black", linestyle="--", linewidth=0.8)
-    inset.axvline(fit_window_end, color="black", linestyle="--", linewidth=0.8)
-    inset.set_xlim(fit_window_start, fit_window_end)
-    inset.set_xlabel("")
-    inset.set_ylabel("")
+    lc_window_axis.axvline(
+        fit_window_start, color="black", linestyle="--", linewidth=0.8
+    )
+    lc_window_axis.axvline(
+        fit_window_end, color="black", linestyle="--", linewidth=0.8
+    )
+    lc_window_axis.set_xlim(fit_window_start, fit_window_end)
+    lc_window_axis.set_title("Lightcurve Fit Window")
+    lc_window_axis.set_xlabel("LC Times")
+    lc_window_axis.set_ylabel("LC")
 
     # Calculate residuals
     rv_residuals = numpy.array(row["rv"]) - numpy.array(rvg.rv)
