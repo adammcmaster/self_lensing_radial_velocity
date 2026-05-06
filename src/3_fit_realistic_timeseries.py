@@ -256,7 +256,6 @@ def fit(a):
         Mcomp=DEFAULTS["Mcomp"],
         Rcomp=DEFAULTS["Rcomp"],
         Teff=DEFAULTS["Teff"],
-        tau_eff=ts["tau_eff"] * units.day,
         false_alarm_probability=0.5,
         nsteps=FIT_NSTEPS,
         nwalkers=FIT_NWALKERS,
