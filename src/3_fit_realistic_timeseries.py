@@ -13,7 +13,16 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
-os.environ.setdefault("JAX_PLATFORMS", "cpu")
+os.environ.setdefault(
+    "XLA_PYTHON_CLIENT_PREALLOCATE",
+    os.environ.get("SLRV_JAX_PREALLOCATE", "false"),
+)
+if "SLRV_JAX_PLATFORMS" in os.environ:
+    os.environ.setdefault("JAX_PLATFORMS", os.environ["SLRV_JAX_PLATFORMS"])
+
+import jax
+
+JAX_DEVICES = jax.devices()
 
 import numpy
 import pandas
@@ -27,6 +36,7 @@ from selflensing.fitting import self_lensing_system_from_fit
 from selflensing.models import SelfLensingSystem
 
 from fitting import TIMESERIES_TABLE_PATH, plot_fit, plot_emcee_diagnostics
+from lensing_jax import install_selflensing_jax_lensing_patch
 from realistic import load_realistic_timeseries, load_realistic_timeseries_curve
 from utils import DEFAULTS, DATA_PATH, configure_logging
 
@@ -35,15 +45,51 @@ logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")
 warnings.filterwarnings("ignore", module="erfa.core")
 
-FIT_MAX_WORKERS = int(os.environ.get("SLRV_FIT_MAX_WORKERS", 8))
+install_selflensing_jax_lensing_patch()
+
+
+def jax_device_summary():
+    return ", ".join(
+        f"{device.platform}:{device.device_kind}" for device in JAX_DEVICES
+    )
+
+
+def default_fit_max_workers():
+    if any(device.platform == "gpu" for device in JAX_DEVICES):
+        return 1
+    return 4
+
+
+def default_fit_device():
+    if any(device.platform == "gpu" for device in JAX_DEVICES):
+        return "gpu:0"
+    return "auto"
+
+
+FIT_MAX_WORKERS = int(os.environ.get("SLRV_FIT_MAX_WORKERS", default_fit_max_workers()))
 FIT_SAMPLE_SIZE = int(os.environ.get("SLRV_FIT_SAMPLE_SIZE", 5000))
 FIT_CHUNK_SIZE = int(os.environ.get("SLRV_FIT_CHUNK_SIZE", 2 * FIT_MAX_WORKERS))
-PLOT_MAX_WORKERS = int(os.environ.get("SLRV_PLOT_MAX_WORKERS", 8))
+PLOT_MAX_WORKERS = int(os.environ.get("SLRV_PLOT_MAX_WORKERS", FIT_MAX_WORKERS))
 MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "spawn")
 FIT_NSTEPS = int(os.environ.get("SLRV_FIT_NSTEPS", 2000))
-FIT_NWALKERS = int(os.environ.get("SLRV_FIT_NWALKERS", 20))
+FIT_NWALKERS = int(os.environ.get("SLRV_FIT_NWALKERS", 1024))
 FIT_BURN = int(os.environ.get("SLRV_FIT_BURN", 500))
 FIT_USE_LC = os.environ.get("SLRV_FIT_USE_LC", "1").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+FIT_DEVICE = os.environ.get("SLRV_FIT_DEVICE", default_fit_device())
+FIT_LENSING_METHOD = os.environ.get(
+    "SLRV_FIT_LENSING_METHOD",
+    (
+        "IntegratedWittMaoJax"
+        if any(device.platform == "gpu" for device in JAX_DEVICES)
+        else "IntegratedWittMao"
+    ),
+)
+REQUIRE_GPU = os.environ.get("SLRV_REQUIRE_GPU", "").lower() in (
     "1",
     "true",
     "yes",
@@ -58,6 +104,13 @@ def process_map(fn, iterable, total=None, desc=None, max_workers=None, chunksize
         total = len(items)
     if not items:
         return []
+    if max_workers == 1:
+        logger.debug(
+            "Starting serial map desc=%s items=%d because max_workers=1",
+            desc,
+            len(items),
+        )
+        return [fn(item) for item in tqdm(items, total=total, desc=desc)]
 
     context = multiprocessing.get_context(MP_START_METHOD)
     logger.debug(
@@ -80,10 +133,14 @@ def process_map(fn, iterable, total=None, desc=None, max_workers=None, chunksize
 
 def load_fitted_timeseries():
     if not TIMESERIES_TABLE_PATH.exists():
-        logger.debug("Fitted timeseries table does not exist at %s", TIMESERIES_TABLE_PATH)
+        logger.debug(
+            "Fitted timeseries table does not exist at %s", TIMESERIES_TABLE_PATH
+        )
         return pandas.DataFrame()
     table = pandas.read_pickle(TIMESERIES_TABLE_PATH)
-    logger.debug("Loaded %d fitted timeseries rows from %s", len(table), TIMESERIES_TABLE_PATH)
+    logger.debug(
+        "Loaded %d fitted timeseries rows from %s", len(table), TIMESERIES_TABLE_PATH
+    )
     return table
 
 
@@ -206,6 +263,9 @@ def fit(a):
         burn=FIT_BURN,
         pool=False,
         progress=False,
+        lensing_method=FIT_LENSING_METHOD,
+        device=FIT_DEVICE,
+        prefer_gpu=FIT_DEVICE == "auto",
     )
     new_ts = pandas.Series(ts)
     new_ts["realistic_idx"] = i
@@ -291,6 +351,18 @@ if __name__ == "__main__":
         MP_START_METHOD,
     )
     logger.debug("Fit likelihood settings: FIT_USE_LC=%s", FIT_USE_LC)
+    logger.debug("Fit device setting: FIT_DEVICE=%s", FIT_DEVICE)
+    logger.debug("Fit lensing method: FIT_LENSING_METHOD=%s", FIT_LENSING_METHOD)
+    logger.debug(
+        "JAX backend: default=%s devices=[%s]",
+        jax.default_backend(),
+        jax_device_summary(),
+    )
+    if REQUIRE_GPU and not any(device.platform == "gpu" for device in JAX_DEVICES):
+        raise RuntimeError(
+            "SLRV_REQUIRE_GPU is set, but JAX does not see a GPU. "
+            f"Available devices: [{jax_device_summary()}]"
+        )
     rts = load_realistic_timeseries()
     existing_results = load_fitted_timeseries()
     fitted_ids, fitted_indices = fitted_key_sets(existing_results)
@@ -338,7 +410,11 @@ if __name__ == "__main__":
             max_workers=FIT_MAX_WORKERS,
         )
         results += [r[0] for r in new_results]
-        logger.debug("Chunk produced %d fit results; cumulative results=%d", len(new_results), len(results))
+        logger.debug(
+            "Chunk produced %d fit results; cumulative results=%d",
+            len(new_results),
+            len(results),
+        )
         save_results(results)
         process_map(
             save_plots,
