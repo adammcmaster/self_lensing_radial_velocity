@@ -2615,7 +2615,7 @@ demo = ["corner (>=2.2.3,<3.0.0)", "ipykernel (>=7.0.0,<8.0.0)", "matplotlib (>=
 type = "git"
 url = "ssh://git@github.com/COBALT-lensing/py-self-lensing.git"
 reference = "HEAD"
-resolved_reference = "9b718616d5ef6052c464802b5e3e9e592152c72e"
+resolved_reference = "b18772ba8454b8e9afdaf9e8151d40b00cdd9818"
 
 [[package]]
 name = "six"
