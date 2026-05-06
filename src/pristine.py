@@ -1,8 +1,16 @@
 import logging
+import multiprocessing
+import os
 from pathlib import Path
 import warnings
+from concurrent.futures import ProcessPoolExecutor
 
 warnings.filterwarnings("ignore", module="erfa.core")
+
+os.environ.setdefault(
+    "JAX_PLATFORMS", os.environ.get("SLRV_PRISTINE_JAX_PLATFORMS", "cpu")
+)
+os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 
 import numpy
 import pandas
@@ -10,7 +18,7 @@ from astropy import units
 from astropy.io import fits
 from astropy.table import Table
 from astropy.time import Time
-from tqdm.contrib.concurrent import process_map
+from tqdm import tqdm
 
 from selflensing.generators import RVGenerator
 from selflensing.models import SelfLensingSystem
@@ -23,6 +31,32 @@ PHOTOMETRY_SIMULATION_PATH = Path.home() / "Code/lc-filter/data/simulations/1.0/
 PRISTINE_RV_PATH = DATA_PATH / "pristine_rv"
 PRISTINE_RV_PATH.mkdir(exist_ok=True, parents=True)
 PRISTINE_METADATA_PATH = PRISTINE_RV_PATH / "metadata.csv"
+MAX_PRISTINE_ECCENTRICITY = 0.01
+PRISTINE_MAX_WORKERS = int(
+    os.environ.get("SLRV_PRISTINE_MAX_WORKERS", min(8, os.cpu_count() or 1))
+)
+PRISTINE_MP_START_METHOD = os.environ.get("SLRV_PRISTINE_MP_START_METHOD", "spawn")
+
+
+def process_map(fn, iterable, desc=None, max_workers=PRISTINE_MAX_WORKERS):
+    items = list(iterable)
+    if not items:
+        return []
+    if max_workers == 1:
+        logger.debug("Starting serial pristine map desc=%s items=%d", desc, len(items))
+        return [fn(item) for item in tqdm(items, desc=desc)]
+
+    context = multiprocessing.get_context(PRISTINE_MP_START_METHOD)
+    logger.debug(
+        "Starting pristine process map desc=%s items=%d max_workers=%d mp_start_method=%s",
+        desc,
+        len(items),
+        max_workers,
+        PRISTINE_MP_START_METHOD,
+    )
+    with ProcessPoolExecutor(max_workers=max_workers, mp_context=context) as executor:
+        return list(tqdm(executor.map(fn, items), total=len(items), desc=desc))
+
 
 PARAMETER_KEYS = (
     "A",
@@ -78,6 +112,19 @@ def photometry_simulation_paths(path=PHOTOMETRY_SIMULATION_PATH):
     paths = sorted(Path(path).glob("*.fits.gz"))
     logger.debug("Found %d photometry simulation paths in %s", len(paths), path)
     return paths
+
+
+def is_low_eccentricity_photometry_simulation(path):
+    with fits.open(path) as hdul:
+        e = hdul[1].header.get("E")
+    is_low_eccentricity = e is not None and float(e) < MAX_PRISTINE_ECCENTRICITY
+    logger.debug(
+        "Photometry simulation %s has E=%s; low_eccentricity=%s",
+        path,
+        e,
+        is_low_eccentricity,
+    )
+    return is_low_eccentricity
 
 
 def pristine_rv_paths(path=PRISTINE_RV_PATH):
@@ -268,12 +315,12 @@ def load_pristine_lightcurve(row_or_path):
     with fits.open(photometry_path) as hdul:
         data = hdul[1].data
         flux = numpy.asarray(data["flux"], dtype=float)
-        original_mean = numpy.mean(flux)
-        flux = (flux / original_mean) - 1.0
+        original_avg = numpy.median(flux)
+        flux = (flux / original_avg) - 1.0
         logger.debug(
-            "Loaded lightcurve with %d samples and normalised flux mean from %.6g to %.6g",
+            "Loaded lightcurve with %d samples and normalised flux median from %.6g to %.6g",
             len(flux),
-            original_mean,
+            original_avg,
             numpy.mean(flux),
         )
         return {
@@ -323,6 +370,18 @@ def generate_pristine_timeseries(desc=None, photometry_path=PHOTOMETRY_SIMULATIO
         raise FileNotFoundError(
             f"No photometric simulations found in {photometry_path}"
         )
+    all_paths = [
+        path for path in all_paths if is_low_eccentricity_photometry_simulation(path)
+    ]
+    logger.debug(
+        "Filtered photometric simulations down to %d low-eccentricity e<%.3g paths",
+        len(all_paths),
+        MAX_PRISTINE_ECCENTRICITY,
+    )
+    if not all_paths:
+        raise FileNotFoundError(
+            f"No low-eccentricity e<{MAX_PRISTINE_ECCENTRICITY} photometric simulations found in {photometry_path}"
+        )
 
     paths = [path for path in all_paths if not (PRISTINE_RV_PATH / path.name).exists()]
     logger.debug(
@@ -367,5 +426,12 @@ def load_pristine_timeseries():
     if missing_paths or len(table) != len(rv_paths):
         _write_metadata_cache(table)
 
+    table = table[table["e"].astype(float) < MAX_PRISTINE_ECCENTRICITY].copy()
+    table.reset_index(drop=True, inplace=True)
+    logger.debug(
+        "Filtered pristine metadata down to %d low-eccentricity e<%.3g rows",
+        len(table),
+        MAX_PRISTINE_ECCENTRICITY,
+    )
     logger.debug("Returning %d pristine metadata rows", len(table))
     return table

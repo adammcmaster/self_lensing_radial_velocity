@@ -29,11 +29,12 @@ import pandas
 
 from astropy import units
 from astropy.time import Time
+from matplotlib import pyplot
 
 from tqdm import tqdm
 
 from selflensing.fitting import self_lensing_system_from_fit
-from selflensing.models import SelfLensingSystem
+from selflensing.models import DEFAULT_LIMITS, SelfLensingSystem
 
 from fitting import TIMESERIES_TABLE_PATH, plot_fit, plot_emcee_diagnostics
 from lensing_jax import install_selflensing_jax_lensing_patch
@@ -56,7 +57,7 @@ def jax_device_summary():
 
 def default_fit_max_workers():
     if any(device.platform == "gpu" for device in JAX_DEVICES):
-        return 1
+        return 2
     return 4
 
 
@@ -73,7 +74,9 @@ PLOT_MAX_WORKERS = int(os.environ.get("SLRV_PLOT_MAX_WORKERS", FIT_MAX_WORKERS))
 MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "spawn")
 FIT_NSTEPS = int(os.environ.get("SLRV_FIT_NSTEPS", 2000))
 FIT_NWALKERS = int(os.environ.get("SLRV_FIT_NWALKERS", 1024))
-FIT_BURN = int(os.environ.get("SLRV_FIT_BURN", 500))
+FIT_BURN = int(os.environ.get("SLRV_FIT_BURN", 200))
+FIT_E_MIN = float(os.environ.get("SLRV_FIT_E_MIN", 0.0))
+FIT_E_MAX = float(os.environ.get("SLRV_FIT_E_MAX", 0.01))
 FIT_USE_LC = os.environ.get("SLRV_FIT_USE_LC", "1").lower() in (
     "1",
     "true",
@@ -95,6 +98,14 @@ REQUIRE_GPU = os.environ.get("SLRV_REQUIRE_GPU", "").lower() in (
     "yes",
     "on",
 )
+
+
+def configure_fit_parameter_limits():
+    DEFAULT_LIMITS["e"] = (FIT_E_MIN, FIT_E_MAX)
+    logger.debug("Configured fit eccentricity limits to [%s, %s]", FIT_E_MIN, FIT_E_MAX)
+
+
+configure_fit_parameter_limits()
 
 
 def process_map(fn, iterable, total=None, desc=None, max_workers=None, chunksize=1):
@@ -129,6 +140,14 @@ def process_map(fn, iterable, total=None, desc=None, max_workers=None, chunksize
                 desc=desc,
             )
         )
+
+
+def return_sampler_from_fit():
+    return FIT_MAX_WORKERS == 1 and PLOT_MAX_WORKERS == 1
+
+
+def plot_fit_in_worker():
+    return not return_sampler_from_fit()
 
 
 def load_fitted_timeseries():
@@ -312,7 +331,13 @@ def fit(a):
         new_ts["fitted_Macc"],
         new_ts["fitted_e"],
     )
-    return new_ts, sampler
+    if plot_fit_in_worker():
+        logger.debug(
+            "Saving plots in fit worker for row index=%s because sampler is not pickleable",
+            i,
+        )
+        save_plots((new_ts, sampler))
+    return new_ts, sampler if return_sampler_from_fit() else None
 
 
 FIG_PATH = DATA_PATH / "figures"
@@ -346,6 +371,10 @@ def save_plots(a):
     logger.debug("Writing fit diagnostic plots to %s", out_path)
 
     fit_fig = plot_fit(plot_ts)
+    fit_fig.savefig(out_path / "fit.png")
+    if sampler is None:
+        raise ValueError("Cannot save MCMC diagnostic plots without a sampler")
+
     params = ["a", "i", "Macc", "e", "periapsis_phase"]
     walker_fig, corner_fig = plot_emcee_diagnostics(
         sampler,
@@ -353,10 +382,11 @@ def save_plots(a):
         truths=ts[params],
         axes_scale=["log", "linear", "linear", "linear", "linear"],
     )
-
-    fit_fig.savefig(out_path / "fit.png")
     walker_fig.savefig(out_path / "walkers.png")
     corner_fig.savefig(out_path / "corner.png")
+    pyplot.close(fit_fig)
+    pyplot.close(walker_fig)
+    pyplot.close(corner_fig)
     logger.debug("Saved fit diagnostic plots to %s", out_path)
 
 
@@ -376,9 +406,15 @@ if __name__ == "__main__":
         FIT_BURN,
         MP_START_METHOD,
     )
+    logger.debug("Fit eccentricity limits: e_min=%s e_max=%s", FIT_E_MIN, FIT_E_MAX)
     logger.debug("Fit likelihood settings: FIT_USE_LC=%s", FIT_USE_LC)
     logger.debug("Fit device setting: FIT_DEVICE=%s", FIT_DEVICE)
     logger.debug("Fit lensing method: FIT_LENSING_METHOD=%s", FIT_LENSING_METHOD)
+    logger.debug(
+        "MCMC diagnostic plot settings: return_sampler=%s plot_fit_in_worker=%s",
+        return_sampler_from_fit(),
+        plot_fit_in_worker(),
+    )
     logger.debug(
         "JAX backend: default=%s devices=[%s]",
         jax.default_backend(),
@@ -442,10 +478,15 @@ if __name__ == "__main__":
             len(results),
         )
         save_results(results)
-        process_map(
-            save_plots,
-            new_results,
-            desc="Saving plots",
-            max_workers=PLOT_MAX_WORKERS,
-        )
+        if return_sampler_from_fit():
+            process_map(
+                save_plots,
+                new_results,
+                desc="Saving plots",
+                max_workers=PLOT_MAX_WORKERS,
+            )
+        else:
+            logger.debug(
+                "Skipping parent-process plot saving because plots were saved in fit workers"
+            )
     logger.debug("Finished fitting script")

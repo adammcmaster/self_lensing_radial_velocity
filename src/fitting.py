@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 TIMESERIES_TABLE_PATH = DATA_PATH / "fitted_timeseries.gz"
 
 install_selflensing_jax_lensing_patch()
+logging.getLogger().addFilter(
+    lambda record: record.getMessage() != "Too few points to create valid contours"
+)
 
 
 def plot_fit(row):
@@ -28,6 +31,16 @@ def plot_fit(row):
         "Plotting fit for realistic_idx=%s realistic_id=%s",
         row.get("realistic_idx"),
         row.get("realistic_id"),
+    )
+    truth_sls = SelfLensingSystem(
+        a=row["a"] * units.au,
+        i=row["i"] * units.rad,
+        Macc=row["Macc"] * units.M_sun,
+        e=row["e"] * units.dimensionless_unscaled,
+        periapsis_phase=row["periapsis_phase"] * units.rad,
+        Mcomp=row["Mcomp"] * units.M_sun,
+        Rcomp=row["Rcomp"] * units.R_sun,
+        Teff=row["Teff"] * units.K,
     )
     sls = SelfLensingSystem(
         a=row["fitted_a"] * units.au,
@@ -49,7 +62,14 @@ def plot_fit(row):
         peak_time=peak_time,
         lensing_method="IntegratedWittMaoJax",
     )
+    truth_lcg = LightcurveGenerator(
+        truth_sls,
+        times=Time(row["lc_times"], format="jd"),
+        peak_time=peak_time,
+        lensing_method="IntegratedWittMaoJax",
+    )
     model_lc = numpy.array(lcg.flux_array) - 1.0
+    truth_model_lc = numpy.array(truth_lcg.flux_array) - 1.0
 
     fig, (
         rv_axis,
@@ -90,7 +110,7 @@ def plot_fit(row):
 
     # Lower subplot: Lightcurve
     seaborn.scatterplot(
-        x=row["lc_times"], y=row["lc"], color="green", ax=lc_axis
+        x=row["lc_times"], y=row["lc"], color="green", ax=lc_axis, label="Data"
     )  # Simulated data
     seaborn.lineplot(
         {"times": row["lc_times"], "lc": model_lc},
@@ -98,10 +118,20 @@ def plot_fit(row):
         y="lc",
         color="red",
         ax=lc_axis,
+        label="Fit",
     )  # Model
+    seaborn.lineplot(
+        {"times": row["lc_times"], "lc": truth_model_lc},
+        x="times",
+        y="lc",
+        color="blue",
+        ax=lc_axis,
+        label="Truth",
+    )  # Truth model
     lc_axis.set_title("Lightcurve")
     lc_axis.set_xlabel("LC Times")
     lc_axis.set_ylabel("LC")
+    lc_axis.legend()
 
     lc_times = numpy.array(row["lc_times"])
     lc = numpy.array(row["lc"])
@@ -116,6 +146,7 @@ def plot_fit(row):
         y=lc[inset_lc_mask],
         color="green",
         ax=lc_window_axis,
+        label="Data",
     )  # Simulated data
     seaborn.lineplot(
         {"times": lc_times[inset_lc_mask], "lc": model_lc[inset_lc_mask]},
@@ -123,7 +154,19 @@ def plot_fit(row):
         y="lc",
         color="red",
         ax=lc_window_axis,
+        label="Fit",
     )  # Model
+    seaborn.lineplot(
+        {
+            "times": lc_times[inset_lc_mask],
+            "lc": truth_model_lc[inset_lc_mask],
+        },
+        x="times",
+        y="lc",
+        color="blue",
+        ax=lc_window_axis,
+        label="Truth",
+    )  # Truth model
     lc_window_axis.axvline(
         fit_window_start, color="black", linestyle="--", linewidth=0.8
     )
@@ -134,6 +177,7 @@ def plot_fit(row):
     lc_window_axis.set_title("Lightcurve Fit Window")
     lc_window_axis.set_xlabel("LC Times")
     lc_window_axis.set_ylabel("LC")
+    lc_window_axis.legend()
 
     # Calculate residuals
     rv_residuals = numpy.array(row["rv"]) - numpy.array(rvg.rv)
