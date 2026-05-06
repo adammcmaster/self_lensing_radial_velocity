@@ -16,9 +16,7 @@ from selflensing.models import SelfLensingSystem
 
 from utils import DATA_PATH, default_rv_times
 
-PHOTOMETRY_SIMULATION_PATH = (
-    Path.home() / "Code/lc-filter/data/simulations/1.0/lensing"
-)
+PHOTOMETRY_SIMULATION_PATH = Path.home() / "Code/lc-filter/data/simulations/1.0/lensing"
 PRISTINE_RV_PATH = DATA_PATH / "pristine_rv"
 PRISTINE_RV_PATH.mkdir(exist_ok=True, parents=True)
 PRISTINE_METADATA_PATH = PRISTINE_RV_PATH / "metadata.csv"
@@ -225,9 +223,12 @@ def load_pristine_lightcurve(row_or_path):
 
     with fits.open(photometry_path) as hdul:
         data = hdul[1].data
+        # Shift flux to mean=0
+        flux = numpy.asarray(data["flux"], dtype=float)
+        flux -= numpy.mean(flux)
         return {
             "lc_times": _jd_from_fits_time(data["time"]),
-            "lc": numpy.asarray(data["flux"], dtype=float),
+            "lc": flux,
             "lc_err": numpy.asarray(data["flux_err"], dtype=float),
         }
 
@@ -267,11 +268,7 @@ def generate_pristine_timeseries(desc=None, photometry_path=PHOTOMETRY_SIMULATIO
             f"No photometric simulations found in {photometry_path}"
         )
 
-    paths = [
-        path
-        for path in all_paths
-        if not (PRISTINE_RV_PATH / path.name).exists()
-    ]
+    paths = [path for path in all_paths if not (PRISTINE_RV_PATH / path.name).exists()]
     if not paths:
         return
 
