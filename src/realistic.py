@@ -317,6 +317,27 @@ def load_realistic_timeseries_curve(row_or_path):
     with fits.open(path) as hdul:
         rv_data = hdul["RV"].data
         lc_data = hdul["LC"].data
+        lc = numpy.asarray(lc_data["lc"], dtype=float)
+        lc_err = numpy.asarray(lc_data["lc_err"], dtype=float)
+        finite_lc = lc[numpy.isfinite(lc)]
+        lc_range = numpy.ptp(finite_lc) if len(finite_lc) else 0
+        if lc_range > 10:
+            photometry_path = hdul["LC"].header.get("PHOTPATH")
+            if photometry_path:
+                with fits.open(photometry_path) as phot_hdul:
+                    source_flux = numpy.asarray(
+                        phot_hdul[1].data["flux"], dtype=float
+                    )
+                    source_mean = numpy.nanmean(source_flux)
+                if numpy.isfinite(source_mean) and source_mean != 0:
+                    logger.debug(
+                        "Normalising legacy count-space light curve from %s by source mean %.6g",
+                        path,
+                        source_mean,
+                    )
+                    lc = lc / source_mean
+                    lc -= numpy.nanmean(lc)
+                    lc_err = lc_err / source_mean
         logger.debug(
             "Loaded realistic curve with %d RV samples and %d LC samples",
             len(rv_data),
@@ -327,8 +348,8 @@ def load_realistic_timeseries_curve(row_or_path):
             "rv": numpy.asarray(rv_data["rv"], dtype=float),
             "rv_err": numpy.asarray(rv_data["rv_err"], dtype=float),
             "lc_times": numpy.asarray(lc_data["time"], dtype=float),
-            "lc": numpy.asarray(lc_data["lc"], dtype=float),
-            "lc_err": numpy.asarray(lc_data["lc_err"], dtype=float),
+            "lc": lc,
+            "lc_err": lc_err,
         }
 
 

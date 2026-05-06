@@ -2851,7 +2851,10 @@ develop = false
 astropy = ">=7.1.0,<8.0.0"
 emcee = ">=3.1.0,<4.0.0"
 gmpy2 = ">=2.2.0,<3.0.0"
-jax = ">=0.8.1,<1.0.0"
+jax = [
+    {version = ">=0.8.1,<1.0.0"},
+    {version = ">=0.8.1,<1.0.0", extras = ["cuda12"], optional = true},
+]
 numpy = ">=2.3.0,<3.0.0"
 pandas = ">=2.3.2,<3.0.0"
 rustlens = ">=0.4.0,<1.0.0"
@@ -2874,7 +2877,7 @@ rocm = ["jax[rocm7-local] (>=0.8.1,<1.0.0)"]
 type = "git"
 url = "ssh://git@github.com/COBALT-lensing/py-self-lensing.git"
 reference = "HEAD"
-resolved_reference = "a4039d8cdb2d6efeca723539d44ee8067850372b"
+resolved_reference = "be68cc05fca506a1ace342f9cc8491cd30ebfec4"
 
 [[package]]
 name = "six"

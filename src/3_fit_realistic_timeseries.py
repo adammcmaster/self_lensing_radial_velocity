@@ -289,6 +289,7 @@ def fit(a):
         pool=False,
         progress=False,
         lensing_method=FIT_LENSING_METHOD,
+        center_lc_model=True,
         device=FIT_DEVICE,
         prefer_gpu=FIT_DEVICE == "auto",
     )

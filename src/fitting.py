@@ -12,12 +12,15 @@ import seaborn
 from selflensing.generators import LightcurveGenerator, RVGenerator
 from selflensing.models import SelfLensingSystem
 
+from lensing_jax import install_selflensing_jax_lensing_patch
 from utils import DEFAULTS, DATA_PATH
 
 logger = logging.getLogger(__name__)
 
 
 TIMESERIES_TABLE_PATH = DATA_PATH / "fitted_timeseries.gz"
+
+install_selflensing_jax_lensing_patch()
 
 
 def plot_fit(row):
@@ -41,20 +44,25 @@ def plot_fit(row):
         sls, times=Time(row["rv_times"], format="jd"), peak_time=peak_time
     )
     lcg = LightcurveGenerator(
-        sls, times=Time(row["lc_times"], format="jd"), peak_time=peak_time
+        sls,
+        times=Time(row["lc_times"], format="jd"),
+        peak_time=peak_time,
+        lensing_method="IntegratedWittMaoJax",
     )
+    model_lc = numpy.array(lcg.flux_array) - 1.0
 
     fig, (
         rv_axis,
         rv_resid_axis,
         lc_axis,
+        lc_full_resid_axis,
         lc_window_axis,
-        lc_resid_axis,
+        lc_window_resid_axis,
     ) = pyplot.subplots(
-        5,
+        6,
         1,
-        figsize=(14, 12),
-        gridspec_kw={"height_ratios": (4, 1, 4, 2, 1)},
+        figsize=(14, 13),
+        gridspec_kw={"height_ratios": (4, 1, 4, 1, 2, 1)},
     )
 
     # Top subplot: RV
@@ -85,7 +93,7 @@ def plot_fit(row):
         x=row["lc_times"], y=row["lc"], color="green", ax=lc_axis
     )  # Simulated data
     seaborn.lineplot(
-        {"times": row["lc_times"], "lc": lcg.flux_array},
+        {"times": row["lc_times"], "lc": model_lc},
         x="times",
         y="lc",
         color="red",
@@ -97,7 +105,6 @@ def plot_fit(row):
 
     lc_times = numpy.array(row["lc_times"])
     lc = numpy.array(row["lc"])
-    model_lc = numpy.array(lcg.flux_array)
     fit_window_start = row["peak_time"] - row["tau_eff"]
     fit_window_end = row["peak_time"] + row["tau_eff"]
     inset_lc_mask = (lc_times >= fit_window_start) & (
@@ -139,12 +146,29 @@ def plot_fit(row):
     rv_resid_axis.axhline(0, color="black", linestyle="--", linewidth=1)
     rv_resid_axis.set_ylabel("RV Residuals")
 
-    # Plot LC residuals
+    # Plot full LC residuals
     seaborn.scatterplot(
-        x=row["lc_times"], y=lc_residuals, color="green", ax=lc_resid_axis
+        x=row["lc_times"], y=lc_residuals, color="green", ax=lc_full_resid_axis
     )
-    lc_resid_axis.axhline(0, color="black", linestyle="--", linewidth=1)
-    lc_resid_axis.set_ylabel("LC Residuals")
+    lc_full_resid_axis.axhline(0, color="black", linestyle="--", linewidth=1)
+    lc_full_resid_axis.set_ylabel("LC Residuals")
+
+    # Plot fitting-window LC residuals
+    seaborn.scatterplot(
+        x=lc_times[inset_lc_mask],
+        y=lc_residuals[inset_lc_mask],
+        color="green",
+        ax=lc_window_resid_axis,
+    )
+    lc_window_resid_axis.axhline(0, color="black", linestyle="--", linewidth=1)
+    lc_window_resid_axis.axvline(
+        fit_window_start, color="black", linestyle="--", linewidth=0.8
+    )
+    lc_window_resid_axis.axvline(
+        fit_window_end, color="black", linestyle="--", linewidth=0.8
+    )
+    lc_window_resid_axis.set_xlim(fit_window_start, fit_window_end)
+    lc_window_resid_axis.set_ylabel("Window Residuals")
 
     # Create a multiline block of text underneath the subplots
     b_max = row.get("b_max", numpy.nan)

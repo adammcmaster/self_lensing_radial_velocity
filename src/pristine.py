@@ -267,12 +267,11 @@ def load_pristine_lightcurve(row_or_path):
     logger.debug("Opening pristine photometry FITS at %s", photometry_path)
     with fits.open(photometry_path) as hdul:
         data = hdul[1].data
-        # Shift flux to median=0
         flux = numpy.asarray(data["flux"], dtype=float)
         original_mean = numpy.mean(flux)
-        flux -= numpy.median(flux)
+        flux = (flux / original_mean) - 1.0
         logger.debug(
-            "Loaded lightcurve with %d samples and shifted flux mean from %.6g to %.6g",
+            "Loaded lightcurve with %d samples and normalised flux mean from %.6g to %.6g",
             len(flux),
             original_mean,
             numpy.mean(flux),
