@@ -223,7 +223,9 @@ def _normalise_metadata_table(table):
     table.drop_duplicates(subset="rv_path", keep="last", inplace=True)
     table.sort_values("rv_path", inplace=True)
     table.reset_index(drop=True, inplace=True)
-    logger.debug("Normalised pristine metadata table from %d to %d rows", before, len(table))
+    logger.debug(
+        "Normalised pristine metadata table from %d to %d rows", before, len(table)
+    )
     return table
 
 
@@ -248,23 +250,27 @@ def load_pristine_lightcurve(row_or_path):
     """Load the source photometric light curve for one pristine RV curve."""
     if isinstance(row_or_path, pandas.Series):
         photometry_path = row_or_path["photometry_path"]
-        logger.debug("Loading pristine lightcurve from metadata path %s", photometry_path)
+        logger.debug(
+            "Loading pristine lightcurve from metadata path %s", photometry_path
+        )
     else:
         logger.debug("Resolving pristine lightcurve path from RV file %s", row_or_path)
         with fits.open(row_or_path) as hdul:
             photometry_path = _photometry_path_from_rv_header(hdul[1].header)
 
     if photometry_path is None:
-        logger.debug("Cannot load pristine lightcurve because no photometry path is recorded")
+        logger.debug(
+            "Cannot load pristine lightcurve because no photometry path is recorded"
+        )
         raise ValueError("No source photometry path is recorded for this RV file")
 
     logger.debug("Opening pristine photometry FITS at %s", photometry_path)
     with fits.open(photometry_path) as hdul:
         data = hdul[1].data
-        # Shift flux to mean=0
+        # Shift flux to median=0
         flux = numpy.asarray(data["flux"], dtype=float)
         original_mean = numpy.mean(flux)
-        flux -= numpy.mean(flux)
+        flux -= numpy.median(flux)
         logger.debug(
             "Loaded lightcurve with %d samples and shifted flux mean from %.6g to %.6g",
             len(flux),
@@ -281,7 +287,9 @@ def load_pristine_lightcurve(row_or_path):
 def calc_rv(photometry_path, save_curve=True):
     photometry_path = Path(photometry_path)
     rv_path = PRISTINE_RV_PATH / photometry_path.name
-    logger.debug("Calculating pristine RV for %s; save_curve=%s", photometry_path, save_curve)
+    logger.debug(
+        "Calculating pristine RV for %s; save_curve=%s", photometry_path, save_curve
+    )
     if save_curve and rv_path.exists():
         logger.debug("Pristine RV already exists at %s; loading metadata", rv_path)
         return metadata_row_from_rv_path(rv_path)
