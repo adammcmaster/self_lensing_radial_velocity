@@ -117,7 +117,7 @@ keyword1 -- keyword2 -- keyword3
 Paper aims:
 \begin{enumerate}
     \item Produce a library of ``pristine'' simulated self-lensing light curves and RV curves, covering all plausible physical parameter space.
-    \item Simulate observing those systems under a range of observing schedules (a small number of reprenstative schedules, not fully compresenhive as it'll be too much) and with a variety of instrument accuracies.
+    \item Simulate observing those systems under a range of observing schedules (a small number of representative schedules, not fully comprehensive as it'll be too much) and with a variety of instrument accuracies.
     \item Fit simulated observations and determine which parameters can and can not be recovered as a function of instrument accuracies, for each observing schedule.
     \item Combine these results with previous population synthesis results to determine how many such systems could be discovered by each instrument/strategy.
 \end{enumerate}
@@ -142,6 +142,8 @@ We compute photometric light curves and RV curves with no noise for a grid of pa
 We exclude from above any combination of $a$ and $M_\text{BH}$ where the Roche lobe radius at periapsis would be smaller than or equal to 1~R$_\odot$, as such systems would be guaranteed to be X-ray binaries.
 
 Three photometric effects are included when generating the light curves: self-lensing, ellipsoidal variations, and Doppler boosting. At small values of $a$ the light curve is dominated by ellipsoidal variations and Doppler boosting (though lensing is often visible too); at large $a$ lensing is dominant, with ellipsoidal variation and Doppler boosting tending to zero as $a$ increases.
+
+Calculation of self-lensing magnifications is performed according to the lensing formulae given by \cite{witt_can_1994}, with source-lens distance calculated assuming a Keplerian orbit with the given semi-major axis, BH mass, eccentricity, and periapsis phase angle. Calculation of ellipsoidal variations and Doppler boosting, and the combination of these effects with self-lensing, follow \cite{sorabella_modeling_2022}, with the addiition of a variable orbital separation to account for eccentricity in the ellipsoidal variation calculation. These effects all depend on the orbital phase at a given time during the simulation. The zero point for this is defined as the moment of maximum lensing magnification (i.e. the time of minimum separation between source and lens, $t_0$). The periapsis phase angle is defined in terms of this zero point; i.e. the phase angle at which periastron passage occurs, relative to the position at $t_0$. The source-lens distance is calculated for each time according to the phase angle at that time, meaning the source-lens distance changes during the microlensing event according to the eccentricity. Strictly speaking, the Einstein ring radius should also change as a function of orbital phase, but this is not accounted for in the present work. Instead, the radius at $t_0$ is used for all calculations.
 
 \subsection{Simulated realistic observations}
 
