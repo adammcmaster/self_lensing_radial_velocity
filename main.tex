@@ -66,7 +66,7 @@
 
 % Title of the paper, and the short title which is used in the headers.
 % Keep the title short and informative.
-\title{Detecting the self-lensing black hole population}
+\title{Characterising the self-lensing binary population}
 
 % The list of authors, and the short list which is used in the headers.
 % If you need two or more lines of authors, add an extra line using \newauthor
@@ -114,6 +114,16 @@ keyword1 -- keyword2 -- keyword3
 
 \section{Introduction}
 
+Self-lensing systems are edge-on (eclipsing) binary systems, consisting of a star in orbit with a compact object. With an appropriate separation distance, the Einstein radius of the compact object can be larger than its surface radius, and if the orbital inclination is close enough to $2\pi$ this can result in a measurable microlensing amplification of the stellar flux once per orbit.
+
+Tio date, five self-lensing binaries have been confimred, each containing a white dwarf-stellar binary, all of which have relatviely close, short-period orbits. However, it is expected that stellar-compact object binaries shoudl span the full range of masses of such objects, as well as the full range of orbital configurations. 
+
+photometry remians the best way to detect self-lensing bianries, and previous works have assessed the detectability of self-lensing bianries in various photometric surveys. These results look promising, with modern all-sky surveys expected to imminently uncover a population of compact objects in self-lensing binaries, including the previously unstudied population of quiescent black holes.
+
+While detection of self-lensing systems with photometry alone has been demonstrated, modelling of such systems and characterisation of the compact component is subject to numerous degeneracies between the physical parameters which prevent the mass from being determined unless the star's radial velocity can be measured. For short-period binaries it should be psosible to derive a photometric RV by modelling Doppler boosting (CITATIONS, including COBALT-BLUE), but for systems with no detectable Doppler boosting effect, spectroscopic observations are required.
+
+In this work, we therefore consider the question of how many spectroscopic RV measurements are required, and at what level of precision, in order to correctly model the self-lensing system parameters, as a function of those parameters, including systems with orbital periods on the order of centuries. This will inform observing strategies for followup of the large number of candidates expected to come from new surveys, allowing the most efficient use of resources by not obtaining more observations than necessary.
+
 Paper aims:
 \begin{enumerate}
     \item Produce a library of ``pristine'' simulated self-lensing light curves and RV curves, covering all plausible physical parameter space.
@@ -126,20 +136,27 @@ The main distinguishing feature of self-lensing vs microlensing is the periodici
 
 \section{Methods}
 
-\subsection{``Pristine'' simulations}
+\subsection{Photometric simulations}
 
-Describe py-self-lensing code and maths behind LC and RV
+We use as the basis of this work the library of self-lensing simulations produced in (CITATION). These simulations comprise a sample of self-lensing system parameters which is physically complete (i.e. covering the full plausible range of physical parameters) but not realistic (i.e. parameters are not sampled according to the frequency they are expected to occur in nature). This is ideal as the basis for determining the ranges of parameters which produce self-lensing effects which are detectable, independent of how common or uncommon particular parameter ranges are expected to be.
 
-We compute photometric light curves and RV curves with no noise for a grid of parameter values.  We assume the stellar companion is Sun-like (1 M$_\odot$, 1 R$_\odot$, 5500 K). Other params are sampled linearly spaced as follows:
+The library of simnulations includes realistic simulated TESS light curves for each sample self-lensing system, stored alongside the original parameter values.
+
+The parameter values are linearly sampled between the following limits, which the exception of semi-major axis and eccentricity which are sampled on a log scale to favour smaller values:
 
 \begin{itemize}
-    \item $a$ (semi-major axis): 10 samples between 0.1 and 5 AU, 10 samples between 5 and 50 AU, 10 samples between 50 and 200 AU.
-    \item $M_\text{BH}$: 10 samples between 5 and 50 M$_\odot$.
-    \item $e$ (eccentricity): 10 samples between 0 and 0.9.
-    \item $\omega$ (periapsis phase angle; 0 meaning closest approach at peak of lensing): 10 samples between 0 and $2\pi$.
+    \item $a$ (semi-major axis): 0.1 and 200 AU.
+    \item $i$ (orbital inclination) $0.5 \pi - 0.0001$ to $0.5 \pi$ radians.
+    \item $M_\text{lens}$: 0.5 and 50 M$_\odot$.
+    \item $M_\text{star}$: 0.5 and 50 M$_\odot$.
+    \item $e$ (eccentricity): 0 and 0.999999.
+    \item $\omega$ (periapsis phase angle; 0 meaning closest approach at peak of lensing): 0 and $2\pi$.
+    \item $d$ (distance from Earth): 0.1 to 100 kpc.
 \end{itemize}
 
-We exclude from above any combination of $a$ and $M_\text{BH}$ where the Roche lobe radius at periapsis would be smaller than or equal to 1~R$_\odot$, as such systems would be guaranteed to be X-ray binaries.
+% We exclude from above any combination of $a$ and $M_\text{BH}$ where the Roche lobe radius at periapsis would be smaller than or equal to 1~R$_\odot$, as such systems would be guaranteed to be X-ray binaries.
+
+We select only the ``lensing'' subset from the library of simulations; i.e. we use only the simulated light curves which contain visible lensing peaks, where the peak amplitude is larger than the photometric noise.
 
 Three photometric effects are included when generating the light curves: self-lensing, ellipsoidal variations, and Doppler boosting. At small values of $a$ the light curve is dominated by ellipsoidal variations and Doppler boosting (though lensing is often visible too); at large $a$ lensing is dominant, with ellipsoidal variation and Doppler boosting tending to zero as $a$ increases.
 
