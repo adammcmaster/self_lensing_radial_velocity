@@ -83,10 +83,7 @@ def missing_params_for_pristine(row):
 
 
 def generate_missing_params(pristine, existing_keys):
-    rows = [
-        (i, pristine_id)
-        for i, pristine_id in enumerate(pristine["simulation_id"])
-    ]
+    rows = [(i, pristine_id) for i, pristine_id in enumerate(pristine["simulation_id"])]
     if not rows:
         return []
 
@@ -127,7 +124,9 @@ def generate_missing_params(pristine, existing_keys):
 def sample_timeseries(ts, step, max_len):
     step = int(step)
     max_len = int(max_len)
-    logger.debug("Sampling timeseries with len=%d step=%d max_len=%d", len(ts), step, max_len)
+    logger.debug(
+        "Sampling timeseries with len=%d step=%d max_len=%d", len(ts), step, max_len
+    )
     if max_len > len(ts):
         max_len = len(ts)
     idx = numpy.arange(0, max_len, step)
@@ -202,15 +201,17 @@ def gen_ts(params):
         lc=noisy_lc,
         lc_err=lc_noise,
     )
-    logger.debug("Finished realistic timeseries generation for realistic_id=%s", realistic_id)
+    logger.debug(
+        "Finished realistic timeseries generation for realistic_id=%s", realistic_id
+    )
     return row
 
 
 if __name__ == "__main__":
     configure_logging()
     logger.debug("Starting realistic timeseries generation script")
-    NUM_SAMPLES = 100000
-    logger.debug("Configured NUM_SAMPLES=%d", NUM_SAMPLES)
+    # NUM_SAMPLES = 100000
+    # logger.debug("Configured NUM_SAMPLES=%d", NUM_SAMPLES)
     generate_pristine_timeseries(desc="[1/4] Generating timeseries")
     pristine = load_pristine_timeseries()
     existing_keys = existing_realistic_keys()
@@ -222,9 +223,9 @@ if __name__ == "__main__":
 
     params = generate_missing_params(pristine, existing_keys)
     logger.debug("Generated %d candidate realistic parameter combinations", len(params))
-    if len(params) > NUM_SAMPLES:
-        params = random.sample(params, NUM_SAMPLES)
-        logger.debug("Sampled candidate parameter combinations down to %d", len(params))
+    # if len(params) > NUM_SAMPLES:
+    #     params = random.sample(params, NUM_SAMPLES)
+    #     logger.debug("Sampled candidate parameter combinations down to %d", len(params))
     params = [
         p + (pristine.iloc[p[0]],)
         for p in tqdm(params, desc="[3/4] Adding timeseries to params")
