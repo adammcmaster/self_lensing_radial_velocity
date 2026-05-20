@@ -8,15 +8,25 @@ realistic_id/realistic_idx, and writes the reduced table atomically.
 
 import argparse
 import os
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import pandas
+from tqdm import tqdm
 
 from utils import DATA_PATH
 
 
 DEFAULT_SUBMIT_ROOT = DATA_PATH / "slurm"
 DEFAULT_OUTPUT_PATH = DATA_PATH / "fitted_timeseries.gz"
+DEFAULT_WORKERS = min(8, os.cpu_count() or 1)
+
+
+def positive_int(value):
+    value = int(value)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return value
 
 
 def parse_args():
@@ -48,6 +58,12 @@ def parse_args():
         "--replace",
         action="store_true",
         help="Write only the shard rows instead of merging with the existing table.",
+    )
+    parser.add_argument(
+        "--workers",
+        type=positive_int,
+        default=DEFAULT_WORKERS,
+        help="Number of worker processes used to read shard files.",
     )
     parser.add_argument(
         "--dry-run",
@@ -95,17 +111,50 @@ def read_existing_table(path):
     return read_table(path)
 
 
-def read_shards(shard_paths):
+def read_shard(path):
+    try:
+        table = read_table(path)
+    except (EOFError, OSError, ValueError, pandas.errors.EmptyDataError) as error:
+        return None, str(path), str(error)
+    if table.empty:
+        return None, str(path), None
+    return table, str(path), None
+
+
+def read_shards(shard_paths, workers=DEFAULT_WORKERS):
     tables = []
     skipped = []
-    for path in shard_paths:
-        try:
-            table = read_table(path)
-        except (EOFError, OSError, ValueError, pandas.errors.EmptyDataError) as error:
+    if not shard_paths:
+        return pandas.DataFrame(), skipped
+
+    if workers == 1 or len(shard_paths) == 1:
+        results = map(read_shard, shard_paths)
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            results = executor.map(read_shard, shard_paths)
+            for table, path, error in tqdm(
+                results,
+                total=len(shard_paths),
+                desc="Reading fit shards",
+            ):
+                if error is not None:
+                    skipped.append((path, error))
+                elif table is not None:
+                    tables.append(table)
+            if not tables:
+                return pandas.DataFrame(), skipped
+            return pandas.concat(tables, ignore_index=True, sort=False), skipped
+
+    for table, path, error in tqdm(
+        results,
+        total=len(shard_paths),
+        desc="Reading fit shards",
+    ):
+        if error is not None:
             skipped.append((path, error))
-            continue
-        if not table.empty:
+        elif table is not None:
             tables.append(table)
+
     if not tables:
         return pandas.DataFrame(), skipped
     return pandas.concat(tables, ignore_index=True, sort=False), skipped
@@ -123,6 +172,28 @@ def deduplicate(table):
     return table
 
 
+def reduce_fit_results_with_progress(existing, shard_rows):
+    with tqdm(total=2, desc="Reducing fit results") as progress:
+        progress.set_postfix_str("combining rows")
+        if existing.empty:
+            combined = shard_rows
+        elif shard_rows.empty:
+            combined = existing
+        else:
+            combined = pandas.concat(
+                [existing, shard_rows],
+                ignore_index=True,
+                sort=False,
+            )
+        progress.update()
+
+        progress.set_postfix_str("deduplicating")
+        reduced = deduplicate(combined)
+        progress.update()
+
+    return reduced
+
+
 def write_table_atomically(table, path):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = Path(f"{path}.new.gz")
@@ -134,7 +205,7 @@ def main():
     args = parse_args()
     submit_dirs = discover_submit_dirs(args)
     shard_paths = shard_paths_for_submit_dirs(submit_dirs)
-    shard_rows, skipped = read_shards(shard_paths)
+    shard_rows, skipped = read_shards(shard_paths, workers=args.workers)
     existing = (
         pandas.DataFrame() if args.replace else read_existing_table(args.output_path)
     )
@@ -143,17 +214,11 @@ def main():
         print("No fit shards or existing fitted table found; nothing to reduce.")
         return
 
-    if existing.empty:
-        combined = shard_rows
-    elif shard_rows.empty:
-        combined = existing
-    else:
-        combined = pandas.concat([existing, shard_rows], ignore_index=True, sort=False)
-
-    reduced = deduplicate(combined)
+    reduced = reduce_fit_results_with_progress(existing, shard_rows)
 
     print(f"Submit directories scanned: {len(submit_dirs)}")
     print(f"Shard files found: {len(shard_paths)}")
+    print(f"Shard read workers: {args.workers}")
     print(f"Shard rows loaded: {len(shard_rows)}")
     print(f"Existing rows loaded: {0 if args.replace else len(existing)}")
     print(f"Reduced rows: {len(reduced)}")
@@ -169,7 +234,10 @@ def main():
         print("Dry run only; not writing output table.")
         return
 
-    write_table_atomically(reduced, args.output_path)
+    with tqdm(total=1, desc="Writing fit table") as progress:
+        progress.set_postfix_str(str(args.output_path))
+        write_table_atomically(reduced, args.output_path)
+        progress.update()
     print("Wrote reduced fitted-timeseries table.")
 
 

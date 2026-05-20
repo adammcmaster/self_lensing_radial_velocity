@@ -19,7 +19,6 @@ from pristine import PRISTINE_METADATA_PATH, load_pristine_timeseries
 from realistic import PARAMS, load_realistic_timeseries
 from utils import DATA_PATH
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SUBMIT_ROOT = DATA_PATH / "slurm"
 
@@ -48,7 +47,7 @@ def parse_args():
     )
     parser.add_argument(
         "--partition",
-        default="a100",
+        default="amd",
         help="SLURM partition/queue to submit to.",
     )
     parser.add_argument(
@@ -259,11 +258,11 @@ def write_sbatch_script(args, submit_dir, n_batches):
         "export NUMEXPR_NUM_THREADS=1",
         "",
         "BATCH_FILE=$(printf '%s/batches/batch_%04d.csv' "
-        f"{shlex.quote(str(submit_dir))} \"$SLURM_ARRAY_TASK_ID\")",
+        f'{shlex.quote(str(submit_dir))} "$SLURM_ARRAY_TASK_ID")',
         "METADATA_FILE=$(printf '%s/metadata_shards/metadata_%04d.csv' "
-        f"{shlex.quote(str(submit_dir))} \"$SLURM_ARRAY_TASK_ID\")",
-        "export SLRV_GENERATE_BATCH_FILE=\"$BATCH_FILE\"",
-        "export SLRV_GENERATE_METADATA_OUTPUT_PATH=\"$METADATA_FILE\"",
+        f'{shlex.quote(str(submit_dir))} "$SLURM_ARRAY_TASK_ID")',
+        'export SLRV_GENERATE_BATCH_FILE="$BATCH_FILE"',
+        'export SLRV_GENERATE_METADATA_OUTPUT_PATH="$METADATA_FILE"',
         "",
         f"{python_command} src/2_generate_realistic_timeseries.py",
         "",
@@ -312,11 +311,24 @@ def main():
     script_path = write_sbatch_script(args, submit_dir, len(batches))
 
     total_realistic = int(table["missing_realistic_count"].sum())
+    max_pristine_per_task = max(len(batch) for batch in batches)
+    max_realistic_per_task = max(
+        int(batch["missing_realistic_count"].sum()) for batch in batches
+    )
     print(
         f"Prepared {len(table)} pristine simulations "
         f"({total_realistic} realistic timeseries) "
         f"in {len(manifest_paths)} SLURM array tasks."
     )
+    print(
+        f"Largest array task: {max_pristine_per_task} pristine simulations "
+        f"({max_realistic_per_task} realistic timeseries)."
+    )
+    if len(manifest_paths) == args.max_jobs:
+        print(
+            f"Note: --max-jobs={args.max_jobs} capped the array size; "
+            "increase it for smaller per-task batches."
+        )
     print(f"Submit directory: {submit_dir}")
     print(f"SBATCH script: {script_path}")
     if args.dry_run:

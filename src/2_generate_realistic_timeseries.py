@@ -19,6 +19,7 @@ from tqdm import tqdm
 from tqdm.contrib.concurrent import process_map
 
 from pristine import (
+    PRISTINE_METADATA_PATH,
     generate_pristine_timeseries,
     load_pristine_lightcurve,
     load_pristine_rv_curve,
@@ -95,7 +96,10 @@ def missing_params_for_pristine(row):
 
 
 def generate_missing_params(pristine, existing_keys):
-    rows = [(i, pristine_id) for i, pristine_id in enumerate(pristine["simulation_id"])]
+    rows = [
+        (i, row["simulation_id"])
+        for i, (_, row) in enumerate(pristine.iterrows())
+    ]
     if not rows:
         return []
 
@@ -296,10 +300,12 @@ def group_params_by_pristine(params, pristine):
     grouped = {}
     for i, cadence, rv_accuracy, baseline in params:
         grouped.setdefault(i, []).append((cadence, rv_accuracy, baseline))
-    return [
-        (i, pristine.iloc[i], pristine_params)
-        for i, pristine_params in grouped.items()
-    ]
+    groups = []
+    for i, pristine_params in grouped.items():
+        pristine_row = pristine.iloc[i]
+        pristine_idx = int(pristine_row.get("_pristine_idx", i))
+        groups.append((pristine_idx, pristine_row, pristine_params))
+    return groups
 
 
 def filter_pristine_to_batch(pristine, path):
@@ -310,6 +316,19 @@ def filter_pristine_to_batch(pristine, path):
     if not simulation_ids:
         return pristine.iloc[0:0].copy()
     return pristine[pristine["simulation_id"].astype(str).isin(simulation_ids)].copy()
+
+
+def load_pristine_for_generation():
+    if GENERATE_BATCH_FILE and PRISTINE_METADATA_PATH.exists():
+        pristine = pandas.read_csv(PRISTINE_METADATA_PATH)
+        pristine["_pristine_idx"] = numpy.arange(len(pristine))
+        return filter_pristine_to_batch(pristine, GENERATE_BATCH_FILE)
+
+    pristine = load_pristine_timeseries()
+    pristine["_pristine_idx"] = numpy.arange(len(pristine))
+    if GENERATE_BATCH_FILE:
+        pristine = filter_pristine_to_batch(pristine, GENERATE_BATCH_FILE)
+    return pristine
 
 
 def write_metadata_shard(rows, path):
@@ -331,9 +350,12 @@ if __name__ == "__main__":
     # logger.debug("Configured NUM_SAMPLES=%d", NUM_SAMPLES)
     if not SKIP_PRISTINE_GENERATION:
         generate_pristine_timeseries(desc="[1/4] Generating timeseries")
-    pristine = load_pristine_timeseries()
+    pristine = load_pristine_for_generation()
     if GENERATE_BATCH_FILE:
-        pristine = filter_pristine_to_batch(pristine, GENERATE_BATCH_FILE)
+        print(
+            f"Loaded {len(pristine)} pristine rows from batch file {GENERATE_BATCH_FILE}",
+            flush=True,
+        )
         logger.debug("Filtered pristine rows down to %d batch rows", len(pristine))
 
     existing_keys = existing_realistic_keys()
@@ -344,6 +366,11 @@ if __name__ == "__main__":
     )
 
     params = generate_missing_params(pristine, existing_keys)
+    print(
+        f"Generated {len(params)} missing realistic parameter combinations "
+        f"for {len(pristine)} pristine rows",
+        flush=True,
+    )
     logger.debug("Generated %d candidate realistic parameter combinations", len(params))
     # if len(params) > NUM_SAMPLES:
     #     params = random.sample(params, NUM_SAMPLES)

@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas
+from tqdm import tqdm
 
 from realistic import load_realistic_timeseries
 from utils import DATA_PATH
@@ -147,6 +148,7 @@ def parse_args():
 def load_existing_fitted_ids(
     path=DEFAULT_FITTED_TABLE_PATH,
     submit_root=DEFAULT_SUBMIT_ROOT,
+    progress=False,
 ):
     fitted_ids = set()
     path = Path(path)
@@ -163,7 +165,15 @@ def load_existing_fitted_ids(
     if submit_root.exists():
         shard_paths.extend(sorted(submit_root.glob("*/fit_shards/*.gz")))
 
-    for shard_path in shard_paths:
+    shard_iter = shard_paths
+    if progress and shard_paths:
+        shard_iter = tqdm(
+            shard_paths,
+            desc="Reading fitted checkpoints",
+            leave=False,
+        )
+
+    for shard_path in shard_iter:
         fitted = pandas.read_pickle(shard_path)
         if "realistic_id" in fitted.columns:
             fitted_ids.update(fitted["realistic_id"].dropna().astype(str))
@@ -186,11 +196,50 @@ def split_batches(table, target_rows_per_job, max_jobs):
 def write_batches(batches, batch_dir):
     batch_dir.mkdir(parents=True, exist_ok=True)
     manifest_paths = []
-    for index, batch in enumerate(batches):
+    for index, batch in enumerate(tqdm(batches, desc="Writing batch manifests")):
         path = batch_dir / f"batch_{index:04d}.csv"
         batch[["realistic_id", "realistic_path"]].to_csv(path, index=False)
         manifest_paths.append(path)
     return manifest_paths
+
+
+def prepare_rows(args):
+    stats = {}
+    with tqdm(total=5, desc="Preparing rows") as progress:
+        progress.set_postfix_str("loading realistic table")
+        table = load_realistic_timeseries()
+        stats["loaded_rows"] = len(table)
+        progress.update()
+
+        progress.set_postfix_str("loading fitted ids")
+        fitted_ids = load_existing_fitted_ids(
+            submit_root=args.submit_root,
+            progress=True,
+        )
+        stats["fitted_ids"] = len(fitted_ids)
+        progress.update()
+
+        progress.set_postfix_str("filtering fitted rows")
+        if fitted_ids:
+            table = table[~table["realistic_id"].astype(str).isin(fitted_ids)].copy()
+        stats["unfitted_rows"] = len(table)
+        progress.update()
+
+        progress.set_postfix_str("sorting rows")
+        table.sort_values(["realistic_path", "realistic_id"], inplace=True)
+        progress.update()
+
+        progress.set_postfix_str("sampling rows")
+        stats["sampled_rows"] = 0
+        if args.sample_size is not None and len(table) > args.sample_size:
+            table = table.sample(args.sample_size, random_state=args.seed).sort_values(
+                ["realistic_path", "realistic_id"]
+            )
+            stats["sampled_rows"] = len(table)
+        stats["prepared_rows"] = len(table)
+        progress.update()
+
+    return table, stats
 
 
 def sbatch_header(args, n_batches, log_dir):
@@ -280,25 +329,32 @@ def main():
     submit_dir = (args.submit_root / submit_name).resolve()
     batch_dir = submit_dir / "batches"
 
-    table = load_realistic_timeseries()
-    fitted_ids = load_existing_fitted_ids(submit_root=args.submit_root)
-    if fitted_ids:
-        table = table[~table["realistic_id"].astype(str).isin(fitted_ids)].copy()
-    table.sort_values(["realistic_path", "realistic_id"], inplace=True)
+    print(f"Preparing realistic fit submission in {submit_dir}")
+    print(f"Existing fitted table: {DEFAULT_FITTED_TABLE_PATH}")
+    print(f"Submit root scanned for shards: {args.submit_root}")
 
-    if args.sample_size is not None and len(table) > args.sample_size:
-        table = table.sample(args.sample_size, random_state=args.seed).sort_values(
-            ["realistic_path", "realistic_id"]
-        )
-
+    table, stats = prepare_rows(args)
     batches = split_batches(table, args.target_rows_per_job, args.max_jobs)
     if not batches:
+        print(f"Realistic rows loaded: {stats['loaded_rows']}")
+        print(f"Known fitted realistic ids: {stats['fitted_ids']}")
+        print(f"Unfitted rows after filtering: {stats['unfitted_rows']}")
         print("No unfitted realistic timeseries rows found; nothing to submit.")
         return
 
     manifest_paths = write_batches(batches, batch_dir)
     script_path = write_sbatch_script(args, submit_dir, len(batches))
 
+    rows_per_job = math.ceil(len(table) / len(batches))
+    print(f"Realistic rows loaded: {stats['loaded_rows']}")
+    print(f"Known fitted realistic ids: {stats['fitted_ids']}")
+    print(f"Unfitted rows after filtering: {stats['unfitted_rows']}")
+    if args.sample_size is not None:
+        print(f"Sample size requested: {args.sample_size}")
+        print(f"Rows selected for submission: {stats['prepared_rows']}")
+    print(f"Target rows per job: {args.target_rows_per_job}")
+    print(f"Max jobs: {args.max_jobs}")
+    print(f"Actual rows per job: up to {rows_per_job}")
     print(f"Prepared {len(table)} rows in {len(manifest_paths)} SLURM array tasks.")
     print(f"Submit directory: {submit_dir}")
     print(f"SBATCH script: {script_path}")

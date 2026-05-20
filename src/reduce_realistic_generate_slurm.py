@@ -3,12 +3,18 @@ Reduce SLURM realistic-generation metadata shards into realistic/metadata.csv.
 """
 
 import argparse
+import os
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import pandas
+from tqdm import tqdm
 
 from realistic import (
     REALISTIC_METADATA_PATH,
+    _normalise_metadata_table,
+    _read_metadata_cache,
+    _write_metadata_cache,
     load_realistic_timeseries,
     update_realistic_metadata,
 )
@@ -16,6 +22,14 @@ from utils import DATA_PATH
 
 
 DEFAULT_SUBMIT_ROOT = DATA_PATH / "slurm"
+DEFAULT_WORKERS = min(8, os.cpu_count() or 1)
+
+
+def positive_int(value):
+    value = int(value)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return value
 
 
 def parse_args():
@@ -43,6 +57,12 @@ def parse_args():
         help="Rebuild/update metadata by scanning realistic FITS files too.",
     )
     parser.add_argument(
+        "--workers",
+        type=positive_int,
+        default=DEFAULT_WORKERS,
+        help="Number of worker processes used to read metadata shard files.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print the reduction summary without writing metadata.",
@@ -67,27 +87,86 @@ def metadata_shard_paths(submit_dirs):
     return paths
 
 
-def read_metadata_shards(paths):
+def read_metadata_shard(path):
+    try:
+        table = pandas.read_csv(path)
+    except (EOFError, OSError, ValueError, pandas.errors.EmptyDataError) as error:
+        return None, str(path), str(error)
+    if table.empty:
+        return None, str(path), None
+    return table, str(path), None
+
+
+def read_metadata_shards(paths, workers=DEFAULT_WORKERS):
     tables = []
     skipped = []
-    for path in paths:
-        try:
-            table = pandas.read_csv(path)
-        except (EOFError, OSError, ValueError, pandas.errors.EmptyDataError) as error:
+    if not paths:
+        return pandas.DataFrame(), skipped
+
+    if workers == 1 or len(paths) == 1:
+        results = map(read_metadata_shard, paths)
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            results = executor.map(read_metadata_shard, paths)
+            for table, path, error in tqdm(
+                results,
+                total=len(paths),
+                desc="Reading metadata shards",
+            ):
+                if error is not None:
+                    skipped.append((path, error))
+                elif table is not None:
+                    tables.append(table)
+            if not tables:
+                return pandas.DataFrame(), skipped
+            return pandas.concat(tables, ignore_index=True, sort=False), skipped
+
+    for table, path, error in tqdm(
+        results,
+        total=len(paths),
+        desc="Reading metadata shards",
+    ):
+        if error is not None:
             skipped.append((path, error))
-            continue
-        if not table.empty:
+        elif table is not None:
             tables.append(table)
+
     if not tables:
         return pandas.DataFrame(), skipped
     return pandas.concat(tables, ignore_index=True, sort=False), skipped
+
+
+def update_realistic_metadata_with_progress(shard_rows):
+    with tqdm(total=4, desc="Reducing metadata") as progress:
+        progress.set_postfix_str("reading cache")
+        cached = _normalise_metadata_table(_read_metadata_cache())
+        progress.update()
+
+        progress.set_postfix_str("combining rows")
+        if cached.empty:
+            table = shard_rows.copy()
+        elif shard_rows.empty:
+            table = cached
+        else:
+            table = pandas.concat([cached, shard_rows], ignore_index=True, sort=False)
+        progress.update()
+
+        progress.set_postfix_str("deduplicating")
+        table = _normalise_metadata_table(table)
+        progress.update()
+
+        progress.set_postfix_str("writing csv")
+        _write_metadata_cache(table)
+        progress.update()
+
+    return table
 
 
 def main():
     args = parse_args()
     submit_dirs = discover_submit_dirs(args)
     shard_paths = metadata_shard_paths(submit_dirs)
-    shard_rows, skipped = read_metadata_shards(shard_paths)
+    shard_rows, skipped = read_metadata_shards(shard_paths, workers=args.workers)
 
     if args.from_fits:
         current = load_realistic_timeseries()
@@ -100,6 +179,7 @@ def main():
 
     print(f"Submit directories scanned: {len(submit_dirs)}")
     print(f"Metadata shard files found: {len(shard_paths)}")
+    print(f"Metadata shard read workers: {args.workers}")
     print(f"Metadata shard rows loaded: {len(shard_rows)}")
     print(f"Existing metadata rows loaded: {len(current)}")
     print(f"Metadata path: {REALISTIC_METADATA_PATH}")
@@ -121,7 +201,7 @@ def main():
             else update_realistic_metadata([])
         )
     else:
-        table = update_realistic_metadata(shard_rows.to_dict("records"))
+        table = update_realistic_metadata_with_progress(shard_rows)
     print(f"Wrote realistic metadata with {len(table)} rows.")
 
 

@@ -1,6 +1,9 @@
 import logging
 import os
 from pathlib import Path
+import warnings
+
+warnings.filterwarnings("ignore", module="erfa.core")
 
 from astropy import units
 from astropy.time import Time
