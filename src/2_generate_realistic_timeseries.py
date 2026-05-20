@@ -50,6 +50,7 @@ PARAM_CHUNKSIZE = int(os.environ.get("SLRV_GENERATE_PARAM_CHUNKSIZE", 32))
 REALISTIC_MAX_WORKERS = int(
     os.environ.get("SLRV_GENERATE_REALISTIC_MAX_WORKERS", os.cpu_count() or 1)
 )
+VECTOR_BATCH_SIZE = int(os.environ.get("SLRV_GENERATE_VECTOR_BATCH_SIZE", 50))
 MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "fork")
 GENERATE_BATCH_FILE = os.environ.get("SLRV_GENERATE_BATCH_FILE")
 GENERATE_METADATA_OUTPUT_PATH = os.environ.get("SLRV_GENERATE_METADATA_OUTPUT_PATH")
@@ -145,10 +146,60 @@ def sample_timeseries(ts, step, max_len):
     return idx.tolist(), numpy.array(ts).take(idx).tolist()
 
 
+def sample_indices(ts, step, max_len):
+    step = int(step)
+    max_len = min(int(max_len), len(ts))
+    return numpy.arange(0, max_len, step, dtype=int)
+
+
 def value_in_m_per_s(value):
     if hasattr(value, "to_value"):
         return value.to_value(units.m / units.s)
     return float(value)
+
+
+def grouped_params_by_sampling(pristine_params):
+    grouped = {}
+    for cadence, rv_accuracy, baseline in pristine_params:
+        grouped.setdefault((int(cadence), int(baseline)), []).append(float(rv_accuracy))
+    return grouped
+
+
+def curve_from_arrays(
+    i,
+    ts,
+    cadence,
+    rv_accuracy,
+    baseline,
+    rv_times,
+    noisy_rv,
+    rv_err,
+    lc_times,
+    noisy_lc,
+    lc_err,
+):
+    realistic_id = realistic_id_from_params(ts, cadence, rv_accuracy, baseline)
+    realistic_path = realistic_path_from_params(ts, cadence, rv_accuracy, baseline)
+    row = metadata_row_from_params(
+        realistic_id=realistic_id,
+        realistic_path=realistic_path,
+        pristine_idx=i,
+        pristine=ts,
+        rv_accuracy=rv_accuracy,
+        cadence=cadence,
+        baseline=baseline,
+        rv_err=rv_err,
+        lc_err=lc_err,
+    )
+    return {
+        "row": row,
+        "rv_times": rv_times,
+        "rv": noisy_rv,
+        "rv_err": rv_err,
+        "lc_times": lc_times,
+        "lc": noisy_lc,
+        "lc_err": lc_err,
+    }
 
 
 def _realistic_curve(i, cadence, rv_accuracy, baseline, ts, pristine_rv, pristine_lc):
@@ -210,6 +261,72 @@ def _realistic_curve(i, cadence, rv_accuracy, baseline, ts, pristine_rv, pristin
     }
 
 
+def realistic_curves_for_sampling(
+    i,
+    ts,
+    cadence,
+    baseline,
+    rv_accuracies,
+    pristine_rv,
+    pristine_lc,
+    lc_noise,
+):
+    indices = sample_indices(pristine_rv["rv"], cadence, baseline)
+    rv_times = numpy.asarray(pristine_rv["rv_times"], dtype=float)[indices]
+    pristine_sample = numpy.asarray(pristine_rv["rv"], dtype=float)[indices]
+    lc_times = numpy.asarray(pristine_lc["lc_times"], dtype=float)
+    lc = numpy.asarray(pristine_lc["lc"], dtype=float)
+    stellar_noise = Spectrograph.STELLAR_NOISE.to_value(units.m / units.s)
+    curves = []
+
+    for start in range(0, len(rv_accuracies), VECTOR_BATCH_SIZE):
+        accuracy_batch = numpy.asarray(
+            rv_accuracies[start : start + VECTOR_BATCH_SIZE],
+            dtype=float,
+        )
+        rv_noise = numpy.random.normal(
+            0,
+            stellar_noise,
+            (len(accuracy_batch), len(pristine_sample)),
+        )
+        rv_noise += numpy.random.normal(
+            0,
+            accuracy_batch[:, None],
+            (len(accuracy_batch), len(pristine_sample)),
+        )
+        noisy_rvs = pristine_sample[None, :] + rv_noise
+        noisy_lcs = lc[None, :] + numpy.random.normal(
+            0,
+            lc_noise,
+            (len(accuracy_batch), len(lc)),
+        )
+        rv_errs = numpy.sqrt(stellar_noise**2 + accuracy_batch**2)
+
+        for rv_accuracy, noisy_rv, rv_err, noisy_lc in zip(
+            accuracy_batch,
+            noisy_rvs,
+            rv_errs,
+            noisy_lcs,
+        ):
+            curves.append(
+                curve_from_arrays(
+                    i,
+                    ts,
+                    cadence,
+                    rv_accuracy,
+                    baseline,
+                    rv_times,
+                    noisy_rv,
+                    float(rv_err),
+                    lc_times,
+                    noisy_lc,
+                    lc_noise,
+                )
+            )
+
+    return curves
+
+
 def gen_pristine_ts(params):
     i, ts, pristine_params = params
     logger.debug(
@@ -227,18 +344,25 @@ def gen_pristine_ts(params):
         len(pristine_lc["lc"]),
     )
 
-    curves = [
-        _realistic_curve(
-            i,
-            cadence,
-            rv_accuracy,
-            baseline,
-            ts,
-            pristine_rv,
-            pristine_lc,
+    lc = numpy.asarray(pristine_lc["lc"], dtype=float)
+    lc_noise = numpy.abs(numpy.median(lc[:5] - numpy.max(lc))) / 20
+    curves = []
+    for (cadence, baseline), rv_accuracies in grouped_params_by_sampling(
+        pristine_params
+    ).items():
+        curves.extend(
+            realistic_curves_for_sampling(
+                i,
+                ts,
+                cadence,
+                baseline,
+                rv_accuracies,
+                pristine_rv,
+                pristine_lc,
+                lc_noise,
+            )
         )
-        for cadence, rv_accuracy, baseline in pristine_params
-    ]
+
     if curves:
         write_realistic_timeseries_file(
             curves, realistic_path_from_params(ts, *pristine_params[0])
