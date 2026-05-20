@@ -6,8 +6,10 @@ import logging
 import os
 import multiprocessing
 import numpy
+import pandas
 import warnings
 from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
 
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 os.environ.setdefault("JAX_PLATFORMS", os.environ.get("SLRV_JAX_PLATFORMS", "cpu"))
@@ -45,7 +47,18 @@ PARAM_MAX_WORKERS = int(
     os.environ.get("SLRV_GENERATE_PARAM_MAX_WORKERS", os.cpu_count() or 1)
 )
 PARAM_CHUNKSIZE = int(os.environ.get("SLRV_GENERATE_PARAM_CHUNKSIZE", 32))
+REALISTIC_MAX_WORKERS = int(
+    os.environ.get("SLRV_GENERATE_REALISTIC_MAX_WORKERS", os.cpu_count() or 1)
+)
 MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "fork")
+GENERATE_BATCH_FILE = os.environ.get("SLRV_GENERATE_BATCH_FILE")
+GENERATE_METADATA_OUTPUT_PATH = os.environ.get("SLRV_GENERATE_METADATA_OUTPUT_PATH")
+SKIP_PRISTINE_GENERATION = os.environ.get("SLRV_SKIP_PRISTINE_GENERATION", "").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 
 
 _WORKER_EXISTING_KEYS = None
@@ -132,6 +145,12 @@ def sample_timeseries(ts, step, max_len):
     return idx.tolist(), numpy.array(ts).take(idx).tolist()
 
 
+def value_in_m_per_s(value):
+    if hasattr(value, "to_value"):
+        return value.to_value(units.m / units.s)
+    return float(value)
+
+
 def _realistic_curve(i, cadence, rv_accuracy, baseline, ts, pristine_rv, pristine_lc):
     logger.debug(
         "Generating realistic timeseries for pristine_idx=%s cadence=%s rv_accuracy=%s baseline=%s",
@@ -174,7 +193,7 @@ def _realistic_curve(i, cadence, rv_accuracy, baseline, ts, pristine_rv, pristin
         rv_accuracy=rv_accuracy,
         cadence=cadence,
         baseline=baseline,
-        rv_err=noisy_err.to_value(units.m / units.s),
+        rv_err=value_in_m_per_s(noisy_err),
         lc_err=lc_noise,
     )
     logger.debug(
@@ -184,7 +203,7 @@ def _realistic_curve(i, cadence, rv_accuracy, baseline, ts, pristine_rv, pristin
         "row": row,
         "rv_times": rv_times,
         "rv": noisy_sample.to_value(units.m / units.s),
-        "rv_err": noisy_err.to_value(units.m / units.s),
+        "rv_err": value_in_m_per_s(noisy_err),
         "lc_times": pristine_lc["lc_times"],
         "lc": noisy_lc,
         "lc_err": lc_noise,
@@ -237,13 +256,40 @@ def group_params_by_pristine(params, pristine):
     ]
 
 
+def filter_pristine_to_batch(pristine, path):
+    batch = pandas.read_csv(path)
+    if "simulation_id" not in batch.columns:
+        raise ValueError(f"Batch file {path} must contain a simulation_id column")
+    simulation_ids = set(batch["simulation_id"].dropna().astype(str))
+    if not simulation_ids:
+        return pristine.iloc[0:0].copy()
+    return pristine[pristine["simulation_id"].astype(str).isin(simulation_ids)].copy()
+
+
+def write_metadata_shard(rows, path):
+    path = Path(path)
+    path.parent.mkdir(exist_ok=True, parents=True)
+    table = pandas.DataFrame(rows)
+    tmp_path = Path(f"{path}.new")
+    table.to_csv(tmp_path, index=False)
+    os.replace(tmp_path, path)
+
+
 if __name__ == "__main__":
     configure_logging()
     logger.debug("Starting realistic timeseries generation script")
+    logger.debug("Generate batch file: %s", GENERATE_BATCH_FILE)
+    logger.debug("Generate metadata output path: %s", GENERATE_METADATA_OUTPUT_PATH)
+    logger.debug("Skip pristine generation: %s", SKIP_PRISTINE_GENERATION)
     # NUM_SAMPLES = 100000
     # logger.debug("Configured NUM_SAMPLES=%d", NUM_SAMPLES)
-    generate_pristine_timeseries(desc="[1/4] Generating timeseries")
+    if not SKIP_PRISTINE_GENERATION:
+        generate_pristine_timeseries(desc="[1/4] Generating timeseries")
     pristine = load_pristine_timeseries()
+    if GENERATE_BATCH_FILE:
+        pristine = filter_pristine_to_batch(pristine, GENERATE_BATCH_FILE)
+        logger.debug("Filtered pristine rows down to %d batch rows", len(pristine))
+
     existing_keys = existing_realistic_keys()
     logger.debug(
         "Loaded %d pristine rows and %d existing realistic keys",
@@ -263,12 +309,21 @@ if __name__ == "__main__":
     del pristine
     if not params:
         logger.debug("No realistic parameter combinations to generate")
-        update_realistic_metadata([])
+        if GENERATE_METADATA_OUTPUT_PATH:
+            write_metadata_shard([], GENERATE_METADATA_OUTPUT_PATH)
+        else:
+            update_realistic_metadata([])
     else:
         grouped_results = process_map(
-            gen_pristine_ts, params, desc="[4/4] Sampling timeseries"
+            gen_pristine_ts,
+            params,
+            desc="[4/4] Sampling timeseries",
+            max_workers=REALISTIC_MAX_WORKERS,
         )
         results = [row for rows in grouped_results for row in rows]
         logger.debug("Generated %d realistic metadata rows from workers", len(results))
-        update_realistic_metadata(results)
+        if GENERATE_METADATA_OUTPUT_PATH:
+            write_metadata_shard(results, GENERATE_METADATA_OUTPUT_PATH)
+        else:
+            update_realistic_metadata(results)
     logger.debug("Finished realistic timeseries generation script")

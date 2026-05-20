@@ -74,6 +74,7 @@ def default_fit_device():
 
 FIT_MAX_WORKERS = int(os.environ.get("SLRV_FIT_MAX_WORKERS", default_fit_max_workers()))
 FIT_SAMPLE_SIZE = int(os.environ.get("SLRV_FIT_SAMPLE_SIZE", 5000))
+FIT_BATCH_FILE = os.environ.get("SLRV_FIT_BATCH_FILE")
 FIT_CHUNK_SIZE = int(os.environ.get("SLRV_FIT_CHUNK_SIZE", 2 * FIT_MAX_WORKERS))
 PLOT_MAX_WORKERS = int(os.environ.get("SLRV_PLOT_MAX_WORKERS", FIT_MAX_WORKERS))
 MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "spawn")
@@ -194,6 +195,22 @@ def fitted_key_sets(results):
         len(realistic_indices),
     )
     return realistic_ids, realistic_indices
+
+
+def load_batch_realistic_ids(path):
+    batch = pandas.read_csv(path)
+    if "realistic_id" not in batch.columns:
+        raise ValueError(f"Batch file {path} must contain a realistic_id column")
+    realistic_ids = set(batch["realistic_id"].dropna().astype(str))
+    logger.debug("Loaded %d realistic IDs from batch file %s", len(realistic_ids), path)
+    return realistic_ids
+
+
+def filter_to_batch(table, path):
+    realistic_ids = load_batch_realistic_ids(path)
+    if not realistic_ids:
+        return table.iloc[0:0].copy()
+    return table[table["realistic_id"].astype(str).isin(realistic_ids)].copy()
 
 
 def is_already_fitted(row, realistic_ids, realistic_indices):
@@ -489,6 +506,7 @@ if __name__ == "__main__":
         FIT_CHUNK_SIZE,
         PLOT_MAX_WORKERS,
     )
+    logger.debug("Fit batch file: %s", FIT_BATCH_FILE)
     logger.debug(
         "MCMC settings: FIT_NSTEPS=%d FIT_NWALKERS=%d FIT_BURN=%d MP_START_METHOD=%s",
         FIT_NSTEPS,
@@ -516,6 +534,10 @@ if __name__ == "__main__":
             f"Available devices: [{jax_device_summary()}]"
         )
     rts = load_realistic_timeseries()
+    if FIT_BATCH_FILE:
+        rts = filter_to_batch(rts, FIT_BATCH_FILE)
+        logger.debug("Filtered realistic rows down to %d batch rows", len(rts))
+
     existing_results = load_fitted_timeseries()
     fitted_ids, fitted_indices = fitted_key_sets(existing_results)
     logger.debug(
@@ -533,7 +555,7 @@ if __name__ == "__main__":
         ].copy()
         logger.debug("Filtered realistic rows down to %d unfitted rows", len(rts))
 
-    sample_size = min(FIT_SAMPLE_SIZE, len(rts))
+    sample_size = len(rts) if FIT_BATCH_FILE else min(FIT_SAMPLE_SIZE, len(rts))
     if sample_size == 0:
         logger.debug("No realistic rows left to fit; exiting")
         raise SystemExit
