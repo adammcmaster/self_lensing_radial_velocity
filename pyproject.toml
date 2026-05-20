@@ -2,11 +2,14 @@
 name = "slrv"
 version = "0.1.0"
 description = ""
-authors = [
-    {name = "Adam McMaster",email = "me@adam-mcmaster.com"}
-]
-readme = "README.md"
+authors = [{ name = "Adam McMaster", email = "me@adam-mcmaster.com" }]
 requires-python = ">=3.13,<4.0"
+readme = "README.md"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
 dependencies = [
     "astropy (>=7.1.0,<8.0.0)",
     "numpy (>=2.3.2,<3.0.0)",
@@ -19,10 +22,12 @@ dependencies = [
     "selflensing[cuda12] @ git+ssh://git@github.com/COBALT-lensing/py-self-lensing.git",
 ]
 
-
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["uv_build>=0.11.15,<0.12.0"]
+build-backend = "uv_build"
 
-[tool.poetry.group.dev.dependencies]
-ipykernel = "^6.30.1"
+[dependency-groups]
+dev = ["ipykernel>=6.30.1,<7"]
+
+[tool.uv]
+default-groups = "all"
