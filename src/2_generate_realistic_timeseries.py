@@ -6,7 +6,6 @@ import logging
 import os
 import multiprocessing
 import numpy
-import random
 import warnings
 from concurrent.futures import ProcessPoolExecutor
 
@@ -29,12 +28,11 @@ from realistic import (
     PARAMS,
     existing_realistic_keys,
     metadata_row_from_params,
-    metadata_row_from_realistic_path,
     realistic_id_from_params,
     realistic_key_from_values,
     realistic_path_from_params,
     update_realistic_metadata,
-    write_realistic_timeseries,
+    write_realistic_timeseries_file,
 )
 from utils import configure_logging
 
@@ -134,8 +132,7 @@ def sample_timeseries(ts, step, max_len):
     return idx.tolist(), numpy.array(ts).take(idx).tolist()
 
 
-def gen_ts(params):
-    i, cadence, rv_accuracy, baseline, ts = params
+def _realistic_curve(i, cadence, rv_accuracy, baseline, ts, pristine_rv, pristine_lc):
     logger.debug(
         "Generating realistic timeseries for pristine_idx=%s cadence=%s rv_accuracy=%s baseline=%s",
         i,
@@ -145,18 +142,6 @@ def gen_ts(params):
     )
     realistic_id = realistic_id_from_params(ts, cadence, rv_accuracy, baseline)
     realistic_path = realistic_path_from_params(ts, cadence, rv_accuracy, baseline)
-    if realistic_path.exists():
-        logger.debug("Realistic timeseries already exists at %s", realistic_path)
-        return metadata_row_from_realistic_path(realistic_path)
-
-    pristine_rv = load_pristine_rv_curve(ts)
-    pristine_lc = load_pristine_lightcurve(ts)
-    logger.debug(
-        "Loaded pristine inputs for realistic_id=%s: %d RV samples, %d LC samples",
-        realistic_id,
-        len(pristine_rv["rv"]),
-        len(pristine_lc["lc"]),
-    )
 
     sample_idx, pristine_sample = sample_timeseries(
         pristine_rv["rv"], cadence, baseline
@@ -189,22 +174,67 @@ def gen_ts(params):
         rv_accuracy=rv_accuracy,
         cadence=cadence,
         baseline=baseline,
-        rv_err=noisy_err,
-        lc_err=lc_noise,
-    )
-    write_realistic_timeseries(
-        row=row,
-        rv_times=rv_times,
-        rv=noisy_sample.to_value(units.m / units.s),
-        rv_err=noisy_err,
-        lc_times=pristine_lc["lc_times"],
-        lc=noisy_lc,
+        rv_err=noisy_err.to_value(units.m / units.s),
         lc_err=lc_noise,
     )
     logger.debug(
         "Finished realistic timeseries generation for realistic_id=%s", realistic_id
     )
-    return row
+    return {
+        "row": row,
+        "rv_times": rv_times,
+        "rv": noisy_sample.to_value(units.m / units.s),
+        "rv_err": noisy_err.to_value(units.m / units.s),
+        "lc_times": pristine_lc["lc_times"],
+        "lc": noisy_lc,
+        "lc_err": lc_noise,
+    }
+
+
+def gen_pristine_ts(params):
+    i, ts, pristine_params = params
+    logger.debug(
+        "Generating %d realistic timeseries for pristine_idx=%s simulation_id=%s",
+        len(pristine_params),
+        i,
+        ts["simulation_id"],
+    )
+    pristine_rv = load_pristine_rv_curve(ts)
+    pristine_lc = load_pristine_lightcurve(ts)
+    logger.debug(
+        "Loaded pristine inputs for simulation_id=%s: %d RV samples, %d LC samples",
+        ts["simulation_id"],
+        len(pristine_rv["rv"]),
+        len(pristine_lc["lc"]),
+    )
+
+    curves = [
+        _realistic_curve(
+            i,
+            cadence,
+            rv_accuracy,
+            baseline,
+            ts,
+            pristine_rv,
+            pristine_lc,
+        )
+        for cadence, rv_accuracy, baseline in pristine_params
+    ]
+    if curves:
+        write_realistic_timeseries_file(
+            curves, realistic_path_from_params(ts, *pristine_params[0])
+        )
+    return [curve["row"] for curve in curves]
+
+
+def group_params_by_pristine(params, pristine):
+    grouped = {}
+    for i, cadence, rv_accuracy, baseline in params:
+        grouped.setdefault(i, []).append((cadence, rv_accuracy, baseline))
+    return [
+        (i, pristine.iloc[i], pristine_params)
+        for i, pristine_params in grouped.items()
+    ]
 
 
 if __name__ == "__main__":
@@ -226,16 +256,19 @@ if __name__ == "__main__":
     # if len(params) > NUM_SAMPLES:
     #     params = random.sample(params, NUM_SAMPLES)
     #     logger.debug("Sampled candidate parameter combinations down to %d", len(params))
-    params = [
-        p + (pristine.iloc[p[0]],)
-        for p in tqdm(params, desc="[3/4] Adding timeseries to params")
-    ]
+    params = group_params_by_pristine(params, pristine)
+    logger.debug(
+        "Grouped candidate combinations into %d pristine FITS files", len(params)
+    )
     del pristine
     if not params:
         logger.debug("No realistic parameter combinations to generate")
         update_realistic_metadata([])
     else:
-        results = process_map(gen_ts, params, desc="[4/4] Sampling timeseries")
+        grouped_results = process_map(
+            gen_pristine_ts, params, desc="[4/4] Sampling timeseries"
+        )
+        results = [row for rows in grouped_results for row in rows]
         logger.debug("Generated %d realistic metadata rows from workers", len(results))
         update_realistic_metadata(results)
     logger.debug("Finished realistic timeseries generation script")

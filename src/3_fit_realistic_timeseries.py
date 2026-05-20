@@ -38,7 +38,11 @@ from selflensing.models import DEFAULT_LIMITS, SelfLensingSystem
 
 from fitting import TIMESERIES_TABLE_PATH, plot_fit, plot_emcee_diagnostics
 from lensing_jax import install_selflensing_jax_lensing_patch
-from realistic import load_realistic_timeseries, load_realistic_timeseries_curve
+from realistic import (
+    load_realistic_timeseries,
+    load_realistic_timeseries_curve,
+    load_realistic_timeseries_curves,
+)
 from utils import DATA_PATH, configure_logging
 
 logger = logging.getLogger(__name__)
@@ -274,14 +278,17 @@ def lightcurve_fit_window(curve, ts):
 
 
 def fit(a):
-    i, ts = a
+    if len(a) == 3:
+        i, ts, curve = a
+    else:
+        i, ts = a
+        curve = load_realistic_timeseries_curve(ts)
     logger.debug(
         "Starting fit for row index=%s realistic_id=%s path=%s",
         i,
         ts.get("realistic_id", None),
         ts.get("realistic_path", None),
     )
-    curve = load_realistic_timeseries_curve(ts)
     truth_sls = truth_self_lensing_system(ts)
     fit_lc = lightcurve_fit_window(curve, ts) if FIT_USE_LC else None
     logger.debug(
@@ -342,8 +349,37 @@ def fit(a):
             "Saving plots in fit worker for row index=%s because sampler is not pickleable",
             i,
         )
-        save_plots((new_ts, sampler))
-    return new_ts, sampler if return_sampler_from_fit() else None
+        save_plots((new_ts, sampler, curve))
+    return (
+        new_ts,
+        sampler if return_sampler_from_fit() else None,
+        curve if return_sampler_from_fit() else None,
+    )
+
+
+def fit_realistic_file(rows):
+    rows = list(rows)
+    if not rows:
+        return []
+
+    path = rows[0][1]["realistic_path"]
+    logger.debug("Fitting %d realistic rows from %s", len(rows), path)
+    curves = load_realistic_timeseries_curves(rows)
+    results = []
+    for i, ts in rows:
+        curve = curves[str(ts["realistic_id"])]
+        results.append(fit((i, ts, curve)))
+    return results
+
+
+def grouped_realistic_rows(table):
+    groups = []
+    for _, group in table.groupby("realistic_path", sort=True):
+        groups.append(list(group.iterrows()))
+    logger.debug(
+        "Grouped %d realistic rows into %d FITS-file jobs", len(table), len(groups)
+    )
+    return groups
 
 
 FIG_PATH = DATA_PATH / "figures"
@@ -351,13 +387,18 @@ FIG_PATH.mkdir(exist_ok=True, parents=True)
 
 
 def save_plots(a):
-    ts, sampler = a
+    if len(a) == 3:
+        ts, sampler, curve = a
+        if curve is None:
+            curve = load_realistic_timeseries_curve(ts)
+    else:
+        ts, sampler = a
+        curve = load_realistic_timeseries_curve(ts)
     logger.debug(
         "Saving plots for realistic_idx=%s realistic_id=%s",
         ts.get("realistic_idx", None),
         ts.get("realistic_id", None),
     )
-    curve = load_realistic_timeseries_curve(ts)
     plot_ts = pandas.Series(ts)
     plot_ts["rv_times"] = curve["rv_times"]
     plot_ts["rv"] = curve["rv"]
@@ -457,10 +498,9 @@ if __name__ == "__main__":
     rts = rts.sample(sample_size)
     logger.debug("Sampled %d realistic rows for fitting", len(rts))
 
-    chunks = [
-        rts.iloc[i : i + FIT_CHUNK_SIZE] for i in range(0, len(rts), FIT_CHUNK_SIZE)
-    ]
-    logger.debug("Split sampled rows into %d chunks", len(chunks))
+    jobs = grouped_realistic_rows(rts)
+    chunks = [jobs[i : i + FIT_CHUNK_SIZE] for i in range(0, len(jobs), FIT_CHUNK_SIZE)]
+    logger.debug("Split sampled rows into %d FITS-file job chunks", len(chunks))
 
     results = (
         [row for _, row in existing_results.iterrows()]
@@ -469,14 +509,15 @@ if __name__ == "__main__":
     )
 
     for chunk in tqdm(chunks, desc="All chunks"):
-        logger.debug("Fitting chunk with %d rows", len(chunk))
-        new_results = process_map(
-            fit,
-            chunk.iterrows(),
+        logger.debug("Fitting chunk with %d FITS-file jobs", len(chunk))
+        grouped_new_results = process_map(
+            fit_realistic_file,
+            chunk,
             total=len(chunk),
             desc="Current chunk",
             max_workers=FIT_MAX_WORKERS,
         )
+        new_results = [result for group in grouped_new_results for result in group]
         results += [r[0] for r in new_results]
         logger.debug(
             "Chunk produced %d fit results; cumulative results=%d",

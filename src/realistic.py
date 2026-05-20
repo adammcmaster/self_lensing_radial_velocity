@@ -56,6 +56,10 @@ def realistic_paths(path=REALISTIC_PATH):
     return paths
 
 
+def _realistic_hdu_name(index):
+    return f"TS{index:05d}"
+
+
 def realistic_key_from_values(pristine_id, cadence, rv_accuracy, baseline):
     logger.debug(
         "Building realistic key for pristine_id=%s cadence=%s rv_accuracy=%s baseline=%s",
@@ -94,9 +98,14 @@ def realistic_id_from_params(pristine, cadence, rv_accuracy, baseline):
 
 
 def realistic_path_from_params(pristine, cadence, rv_accuracy, baseline):
-    realistic_id = realistic_id_from_params(pristine, cadence, rv_accuracy, baseline)
-    path = REALISTIC_PATH / f"{realistic_id}.fits.gz"
+    path = realistic_path_from_pristine(pristine)
     logger.debug("Resolved realistic path %s", path)
+    return path
+
+
+def realistic_path_from_pristine(pristine):
+    path = REALISTIC_PATH / f"{pristine['simulation_id']}.fits.gz"
+    logger.debug("Resolved grouped realistic path %s", path)
     return path
 
 
@@ -140,11 +149,21 @@ def _normalise_metadata_table(table):
     table["realistic_path"] = table["realistic_path"].map(
         lambda p: str(Path(p).resolve())
     )
-    table.drop_duplicates(subset="realistic_path", keep="last", inplace=True)
-    table.sort_values("realistic_path", inplace=True)
+    table.drop_duplicates(subset="realistic_id", keep="last", inplace=True)
+    table.sort_values(
+        ["pristine_id", "cadence", "RV accuracy", "baseline"], inplace=True
+    )
     table.reset_index(drop=True, inplace=True)
-    logger.debug("Normalised realistic metadata table from %d to %d rows", before, len(table))
+    logger.debug(
+        "Normalised realistic metadata table from %d to %d rows", before, len(table)
+    )
     return table
+
+
+def _to_float(value):
+    if hasattr(value, "to_value"):
+        return float(value.to_value())
+    return float(value)
 
 
 def _metadata_from_header(header, path):
@@ -176,11 +195,15 @@ def _metadata_from_header(header, path):
     }
 
 
-def metadata_row_from_realistic_path(path):
+def metadata_rows_from_realistic_path(path):
     path = Path(path)
-    logger.debug("Loading realistic metadata row from %s", path)
+    logger.debug("Loading realistic metadata rows from %s", path)
     with fits.open(path) as hdul:
-        return _metadata_from_header(hdul[1].header, path)
+        return [
+            _metadata_from_header(hdu.header, path)
+            for hdu in hdul[1:]
+            if "REAL_ID" in hdu.header
+        ]
 
 
 def metadata_row_from_params(
@@ -252,105 +275,170 @@ def _metadata_header(row):
         "RV_ACC": float(row["RV accuracy"]),
         "CADENCE": float(row["cadence"]),
         "BASELINE": float(row["baseline"]),
-        "RV_ERR": float(row["rv_err"]),
+        "RV_ERR": _to_float(row["rv_err"]),
         "LC_ERR": float(row["lc_err"]),
     }
 
 
-def write_realistic_timeseries(
-    row,
-    rv_times,
-    rv,
-    rv_err,
-    lc_times,
-    lc,
-    lc_err,
-):
-    path = Path(row["realistic_path"])
-    if path.exists():
-        logger.debug("Skipping existing realistic timeseries at %s", path)
+def _curve_table(row, rv_times, rv, rv_err, lc_times, lc, lc_err):
+    n_rows = max(len(rv), len(lc))
+
+    def padded(values):
+        array = numpy.full(n_rows, numpy.nan, dtype=float)
+        values = numpy.asarray(values, dtype=float)
+        array[: len(values)] = values
+        return array
+
+    table = Table()
+    table["rv_time"] = padded(rv_times)
+    table["rv_time"].unit = "d"
+    table["rv"] = padded(rv)
+    table["rv"].unit = "m / s"
+    table["rv_err"] = padded(numpy.full(len(rv), _to_float(rv_err)))
+    table["rv_err"].unit = "m / s"
+    table["lc_time"] = padded(lc_times)
+    table["lc_time"].unit = "d"
+    table["lc"] = padded(lc)
+    table["lc_err"] = padded(numpy.full(len(lc), _to_float(lc_err)))
+    table.meta.update(_metadata_header(row))
+    return table
+
+
+def _realistic_hdu_index(hdul, realistic_id):
+    for i, hdu in enumerate(hdul[1:], start=1):
+        if hdu.header.get("REAL_ID") == realistic_id:
+            return i
+    return None
+
+
+def _curve_from_hdu(hdu):
+    data = hdu.data
+    rv_mask = numpy.isfinite(numpy.asarray(data["rv_time"], dtype=float))
+    lc_mask = numpy.isfinite(numpy.asarray(data["lc_time"], dtype=float))
+    return {
+        "rv_times": numpy.asarray(data["rv_time"], dtype=float)[rv_mask],
+        "rv": numpy.asarray(data["rv"], dtype=float)[rv_mask],
+        "rv_err": numpy.asarray(data["rv_err"], dtype=float)[rv_mask],
+        "lc_times": numpy.asarray(data["lc_time"], dtype=float)[lc_mask],
+        "lc": numpy.asarray(data["lc"], dtype=float)[lc_mask],
+        "lc_err": numpy.asarray(data["lc_err"], dtype=float)[lc_mask],
+    }
+
+
+def write_realistic_timeseries_file(curves, path):
+    path = Path(path)
+    if not curves:
         return
 
-    logger.debug(
-        "Writing realistic timeseries to %s with %d RV samples and %d LC samples",
-        path,
-        len(rv),
-        len(lc),
-    )
     path.parent.mkdir(exist_ok=True, parents=True)
+    if path.exists():
+        with fits.open(path) as hdul:
+            hdus = fits.HDUList(hdul)
+            existing_ids = {
+                hdu.header.get("REAL_ID")
+                for hdu in hdus[1:]
+                if "REAL_ID" in hdu.header
+            }
+            next_index = len(hdus)
+            for curve in curves:
+                row = curve["row"]
+                if row["realistic_id"] in existing_ids:
+                    logger.debug(
+                        "Skipping existing realistic timeseries %s in %s",
+                        row["realistic_id"],
+                        path,
+                    )
+                    continue
+                table = _curve_table(
+                    row,
+                    curve["rv_times"],
+                    curve["rv"],
+                    curve["rv_err"],
+                    curve["lc_times"],
+                    curve["lc"],
+                    curve["lc_err"],
+                )
+                hdu = fits.table_to_hdu(table)
+                hdu.name = _realistic_hdu_name(next_index)
+                next_index += 1
+                existing_ids.add(row["realistic_id"])
+                hdus.append(hdu)
+            hdus.writeto(path, overwrite=True)
+        return
 
-    rv_table = Table()
-    rv_table["time"] = rv_times
-    rv_table["time"].unit = "d"
-    rv_table["rv"] = rv
-    rv_table["rv"].unit = "m / s"
-    rv_table["rv_err"] = numpy.full(len(rv), rv_err)
-    rv_table["rv_err"].unit = "m / s"
-    rv_table.meta.update(_metadata_header(row))
-
-    lc_table = Table()
-    lc_table["time"] = lc_times
-    lc_table["time"].unit = "d"
-    lc_table["lc"] = lc
-    lc_table["lc_err"] = numpy.full(len(lc), lc_err)
-    lc_table.meta.update(_metadata_header(row))
-
-    hdul = fits.HDUList(
-        [
-            fits.PrimaryHDU(),
-            fits.table_to_hdu(rv_table),
-            fits.table_to_hdu(lc_table),
-        ]
-    )
-    hdul[1].name = "RV"
-    hdul[2].name = "LC"
-    hdul.writeto(path)
+    hdus = fits.HDUList([fits.PrimaryHDU()])
+    for index, curve in enumerate(curves, start=1):
+        table = _curve_table(
+            curve["row"],
+            curve["rv_times"],
+            curve["rv"],
+            curve["rv_err"],
+            curve["lc_times"],
+            curve["lc"],
+            curve["lc_err"],
+        )
+        hdu = fits.table_to_hdu(table)
+        hdu.name = _realistic_hdu_name(index)
+        hdus.append(hdu)
+    hdus.writeto(path)
 
 
 def load_realistic_timeseries_curve(row_or_path):
     if isinstance(row_or_path, (pandas.Series, dict)):
         path = row_or_path["realistic_path"]
+        realistic_id = row_or_path.get("realistic_id")
     else:
         path = row_or_path
+        realistic_id = None
 
     logger.debug("Loading realistic timeseries curve from %s", path)
     with fits.open(path) as hdul:
-        rv_data = hdul["RV"].data
-        lc_data = hdul["LC"].data
-        lc = numpy.asarray(lc_data["lc"], dtype=float)
-        lc_err = numpy.asarray(lc_data["lc_err"], dtype=float)
-        finite_lc = lc[numpy.isfinite(lc)]
-        lc_range = numpy.ptp(finite_lc) if len(finite_lc) else 0
-        if lc_range > 10:
-            photometry_path = hdul["LC"].header.get("PHOTPATH")
-            if photometry_path:
-                with fits.open(photometry_path) as phot_hdul:
-                    source_flux = numpy.asarray(
-                        phot_hdul[1].data["flux"], dtype=float
-                    )
-                    source_mean = numpy.nanmean(source_flux)
-                if numpy.isfinite(source_mean) and source_mean != 0:
-                    logger.debug(
-                        "Normalising legacy count-space light curve from %s by source mean %.6g",
-                        path,
-                        source_mean,
-                    )
-                    lc = lc / source_mean
-                    lc -= numpy.nanmean(lc)
-                    lc_err = lc_err / source_mean
+        hdu_index = None
+        if realistic_id is not None:
+            hdu_index = _realistic_hdu_index(hdul, realistic_id)
+        elif len(hdul) == 2:
+            hdu_index = 1
+        if hdu_index is None:
+            raise KeyError(f"Could not find realistic_id={realistic_id} in {path}")
+
+        curve = _curve_from_hdu(hdul[hdu_index])
         logger.debug(
             "Loaded realistic curve with %d RV samples and %d LC samples",
-            len(rv_data),
-            len(lc_data),
+            len(curve["rv"]),
+            len(curve["lc"]),
         )
-        return {
-            "rv_times": numpy.asarray(rv_data["time"], dtype=float),
-            "rv": numpy.asarray(rv_data["rv"], dtype=float),
-            "rv_err": numpy.asarray(rv_data["rv_err"], dtype=float),
-            "lc_times": numpy.asarray(lc_data["time"], dtype=float),
-            "lc": lc,
-            "lc_err": lc_err,
-        }
+        return curve
+
+
+def load_realistic_timeseries_curves(rows):
+    rows = list(rows)
+    if not rows:
+        return {}
+
+    paths = {str(row["realistic_path"]) for _, row in rows}
+    if len(paths) != 1:
+        raise ValueError(
+            f"Expected rows from one realistic FITS file, got {len(paths)} paths"
+        )
+
+    path = next(iter(paths))
+    realistic_ids = {str(row["realistic_id"]) for _, row in rows}
+    logger.debug(
+        "Loading %d realistic curves from grouped FITS file %s",
+        len(realistic_ids),
+        path,
+    )
+    with fits.open(path) as hdul:
+        curves = {}
+        for hdu in hdul[1:]:
+            realistic_id = hdu.header.get("REAL_ID")
+            if realistic_id in realistic_ids:
+                curves[realistic_id] = _curve_from_hdu(hdu)
+
+    missing_ids = realistic_ids - set(curves)
+    if missing_ids:
+        raise KeyError(f"Could not find realistic_ids={sorted(missing_ids)} in {path}")
+    return curves
 
 
 def update_realistic_metadata(rows):
@@ -373,19 +461,25 @@ def update_realistic_metadata(rows):
 
 def load_realistic_timeseries():
     realistic_path_set = {str(path) for path in realistic_paths()}
-    logger.debug("Loading realistic metadata for %d FITS files", len(realistic_path_set))
+    logger.debug(
+        "Loading realistic metadata for %d FITS files", len(realistic_path_set)
+    )
     cached = _normalise_metadata_table(_read_metadata_cache())
+    cached_len = len(cached)
     if not cached.empty:
         cached = cached[cached["realistic_path"].isin(realistic_path_set)].copy()
+    removed_stale_rows = len(cached) != cached_len
 
     cached_paths = set(cached["realistic_path"]) if not cached.empty else set()
-    missing_paths = [
-        path for path in realistic_path_set if path not in cached_paths
-    ]
+    missing_paths = [path for path in realistic_path_set if path not in cached_paths]
     logger.debug("Realistic metadata cache is missing %d paths", len(missing_paths))
 
     if missing_paths:
-        new_rows = [metadata_row_from_realistic_path(path) for path in missing_paths]
+        new_rows = [
+            row
+            for path in missing_paths
+            for row in metadata_rows_from_realistic_path(path)
+        ]
         new_table = pandas.DataFrame(new_rows)
         if cached.empty:
             cached = new_table
@@ -393,7 +487,7 @@ def load_realistic_timeseries():
             cached = pandas.concat([cached, new_table], ignore_index=True)
 
     table = _normalise_metadata_table(cached)
-    if missing_paths or len(table) != len(realistic_path_set):
+    if missing_paths or removed_stale_rows:
         _write_metadata_cache(table)
 
     logger.debug("Returning %d realistic metadata rows", len(table))
