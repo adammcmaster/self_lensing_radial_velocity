@@ -120,6 +120,12 @@ def parse_args():
         help="SLRV_GENERATE_REALISTIC_MAX_WORKERS inside each array task.",
     )
     parser.add_argument(
+        "--vector-batch-size",
+        type=positive_int,
+        default=50,
+        help="Number of RV-accuracy variants to generate at once per pristine curve.",
+    )
+    parser.add_argument(
         "--plain-python",
         action="store_true",
         help="Run the generator via plain python instead of 'uv run python'.",
@@ -244,6 +250,7 @@ def write_sbatch_script(args, submit_dir, n_batches):
         "export SLRV_SKIP_PRISTINE_GENERATION=1",
         f"export SLRV_GENERATE_PARAM_MAX_WORKERS={args.param_max_workers}",
         f"export SLRV_GENERATE_REALISTIC_MAX_WORKERS={args.realistic_max_workers}",
+        f"export SLRV_GENERATE_VECTOR_BATCH_SIZE={args.vector_batch_size}",
         "export SLRV_MP_START_METHOD=spawn",
         "export OMP_NUM_THREADS=1",
         "export OPENBLAS_NUM_THREADS=1",

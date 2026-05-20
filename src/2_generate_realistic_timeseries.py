@@ -133,29 +133,10 @@ def generate_missing_params(pristine, existing_keys):
     return [param for row_params in results for param in row_params]
 
 
-def sample_timeseries(ts, step, max_len):
-    step = int(step)
-    max_len = int(max_len)
-    logger.debug(
-        "Sampling timeseries with len=%d step=%d max_len=%d", len(ts), step, max_len
-    )
-    if max_len > len(ts):
-        max_len = len(ts)
-    idx = numpy.arange(0, max_len, step)
-    logger.debug("Sampled %d indices from timeseries", len(idx))
-    return idx.tolist(), numpy.array(ts).take(idx).tolist()
-
-
 def sample_indices(ts, step, max_len):
     step = int(step)
     max_len = min(int(max_len), len(ts))
     return numpy.arange(0, max_len, step, dtype=int)
-
-
-def value_in_m_per_s(value):
-    if hasattr(value, "to_value"):
-        return value.to_value(units.m / units.s)
-    return float(value)
 
 
 def grouped_params_by_sampling(pristine_params):
@@ -199,65 +180,6 @@ def curve_from_arrays(
         "lc_times": lc_times,
         "lc": noisy_lc,
         "lc_err": lc_err,
-    }
-
-
-def _realistic_curve(i, cadence, rv_accuracy, baseline, ts, pristine_rv, pristine_lc):
-    logger.debug(
-        "Generating realistic timeseries for pristine_idx=%s cadence=%s rv_accuracy=%s baseline=%s",
-        i,
-        cadence,
-        rv_accuracy,
-        baseline,
-    )
-    realistic_id = realistic_id_from_params(ts, cadence, rv_accuracy, baseline)
-    realistic_path = realistic_path_from_params(ts, cadence, rv_accuracy, baseline)
-
-    sample_idx, pristine_sample = sample_timeseries(
-        pristine_rv["rv"], cadence, baseline
-    )
-    pristine_sample *= units.m / units.s
-    noisy_sample = Spectrograph.add_rv_noise(
-        pristine_sample, rv_accuracy * (units.m / units.s)
-    )
-    noisy_err = Spectrograph.total_error(
-        unit=pristine_sample.unit, accuracy=rv_accuracy * (units.m / units.s)
-    )
-    lc = pristine_lc["lc"]
-
-    lc_noise = numpy.abs(numpy.median(lc[:5] - numpy.max(lc))) / 20
-    noisy_lc = lc + numpy.random.normal(0, lc_noise, len(lc))
-    rv_times = numpy.array(pristine_rv["rv_times"]).take(sample_idx)
-    logger.debug(
-        "Noise model for realistic_id=%s: rv_err=%s lc_noise=%.6g sampled_rv=%d",
-        realistic_id,
-        noisy_err,
-        lc_noise,
-        len(rv_times),
-    )
-
-    row = metadata_row_from_params(
-        realistic_id=realistic_id,
-        realistic_path=realistic_path,
-        pristine_idx=i,
-        pristine=ts,
-        rv_accuracy=rv_accuracy,
-        cadence=cadence,
-        baseline=baseline,
-        rv_err=value_in_m_per_s(noisy_err),
-        lc_err=lc_noise,
-    )
-    logger.debug(
-        "Finished realistic timeseries generation for realistic_id=%s", realistic_id
-    )
-    return {
-        "row": row,
-        "rv_times": rv_times,
-        "rv": noisy_sample.to_value(units.m / units.s),
-        "rv_err": value_in_m_per_s(noisy_err),
-        "lc_times": pristine_lc["lc_times"],
-        "lc": noisy_lc,
-        "lc_err": lc_noise,
     }
 
 
