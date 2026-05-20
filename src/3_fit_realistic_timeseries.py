@@ -29,6 +29,7 @@ import pandas
 
 from astropy import units
 from astropy.time import Time
+from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib import pyplot
 
 from tqdm import tqdm
@@ -344,17 +345,7 @@ def fit(a):
         new_ts["fitted_Macc"],
         new_ts["fitted_e"],
     )
-    if plot_fit_in_worker():
-        logger.debug(
-            "Saving plots in fit worker for row index=%s because sampler is not pickleable",
-            i,
-        )
-        save_plots((new_ts, sampler, curve))
-    return (
-        new_ts,
-        sampler if return_sampler_from_fit() else None,
-        curve if return_sampler_from_fit() else None,
-    )
+    return new_ts, sampler, curve
 
 
 def fit_realistic_file(rows):
@@ -369,7 +360,10 @@ def fit_realistic_file(rows):
     for i, ts in rows:
         curve = curves[str(ts["realistic_id"])]
         results.append(fit((i, ts, curve)))
-    return results
+    save_plots_pdf(results)
+    if return_sampler_from_fit():
+        return results
+    return [(ts, None, None) for ts, _, _ in results]
 
 
 def grouped_realistic_rows(table):
@@ -386,6 +380,90 @@ FIG_PATH = DATA_PATH / "figures"
 FIG_PATH.mkdir(exist_ok=True, parents=True)
 
 
+def plot_label(ts):
+    return (
+        f"realistic_id={ts.get('realistic_id')} | "
+        f"baseline={float(ts['baseline']):g} d | "
+        f"cadence={float(ts['cadence']):g} d | "
+        f"RV accuracy={float(ts['RV accuracy']):g} m/s"
+    )
+
+
+def add_pdf_page_title(fig, ts, label):
+    fig.suptitle(f"{label}\n{plot_label(ts)}", fontsize=10)
+    fig.subplots_adjust(top=0.9)
+
+
+def figure_shard_keys(ts):
+    return (
+        f"a1e{int(numpy.floor(numpy.log10(ts['a'])))}",
+        f"b{int(ts['b'])}",
+        f"Macc{int(ts['Macc'])}",
+    )
+
+
+def pdf_path_for_results(results):
+    ts = results[0][0]
+    pristine_id = str(ts.get("pristine_id", "unknown"))
+    a_key, b_key, macc_key = figure_shard_keys(ts)
+    name = f"{a_key}_{b_key}_{macc_key}_{pristine_id}.pdf"
+    return FIG_PATH / a_key / b_key / macc_key / name
+
+
+def plot_ts_with_curve(ts, curve):
+    plot_ts = pandas.Series(ts)
+    plot_ts["rv_times"] = curve["rv_times"]
+    plot_ts["rv"] = curve["rv"]
+    plot_ts["rv_err"] = curve["rv_err"]
+    plot_ts["lc_times"] = curve["lc_times"]
+    plot_ts["lc"] = curve["lc"]
+    plot_ts["lc_err"] = curve["lc_err"]
+    if "b_max" not in plot_ts or pandas.isna(plot_ts["b_max"]):
+        plot_ts["b_max"] = truth_self_lensing_system(plot_ts).b_max.value
+    return plot_ts
+
+
+def save_plots_pdf(results):
+    if not results:
+        return
+
+    out_path = pdf_path_for_results(results)
+    out_path.parent.mkdir(exist_ok=True, parents=True)
+    logger.debug("Writing %d fit diagnostic plot sets to %s", len(results), out_path)
+    params = ["a", "i", "Macc", "e", "periapsis_phase"]
+    with PdfPages(out_path) as pdf:
+        for ts, sampler, curve in results:
+            if curve is None:
+                curve = load_realistic_timeseries_curve(ts)
+
+            plot_ts = plot_ts_with_curve(ts, curve)
+            fit_fig = plot_fit(plot_ts)
+            add_pdf_page_title(fit_fig, ts, "Fit")
+            pdf.savefig(fit_fig)
+            pyplot.close(fit_fig)
+
+            if sampler is None:
+                logger.debug(
+                    "Skipping MCMC diagnostic pages for realistic_id=%s because sampler is unavailable",
+                    ts.get("realistic_id", None),
+                )
+                continue
+
+            walker_fig, corner_fig = plot_emcee_diagnostics(
+                sampler,
+                param_names=params,
+                truths=ts[params],
+                axes_scale=["log", "linear", "linear", "linear", "linear"],
+            )
+            add_pdf_page_title(walker_fig, ts, "Walkers")
+            add_pdf_page_title(corner_fig, ts, "Corner")
+            pdf.savefig(walker_fig)
+            pdf.savefig(corner_fig)
+            pyplot.close(walker_fig)
+            pyplot.close(corner_fig)
+    logger.debug("Saved fit diagnostic PDF to %s", out_path)
+
+
 def save_plots(a):
     if len(a) == 3:
         ts, sampler, curve = a
@@ -399,42 +477,7 @@ def save_plots(a):
         ts.get("realistic_idx", None),
         ts.get("realistic_id", None),
     )
-    plot_ts = pandas.Series(ts)
-    plot_ts["rv_times"] = curve["rv_times"]
-    plot_ts["rv"] = curve["rv"]
-    plot_ts["rv_err"] = curve["rv_err"]
-    plot_ts["lc_times"] = curve["lc_times"]
-    plot_ts["lc"] = curve["lc"]
-    plot_ts["lc_err"] = curve["lc_err"]
-    if "b_max" not in plot_ts or pandas.isna(plot_ts["b_max"]):
-        plot_ts["b_max"] = truth_self_lensing_system(plot_ts).b_max.value
-
-    out_path = (
-        FIG_PATH
-        / f"a1e{int(numpy.floor(numpy.log10(ts['a'])))}_b{int(ts['b'])}_Macc{int(ts['Macc'])}"
-        / str(ts["realistic_idx"])
-    )
-    out_path.mkdir(exist_ok=True, parents=True)
-    logger.debug("Writing fit diagnostic plots to %s", out_path)
-
-    fit_fig = plot_fit(plot_ts)
-    fit_fig.savefig(out_path / "fit.png")
-    if sampler is None:
-        raise ValueError("Cannot save MCMC diagnostic plots without a sampler")
-
-    params = ["a", "i", "Macc", "e", "periapsis_phase"]
-    walker_fig, corner_fig = plot_emcee_diagnostics(
-        sampler,
-        param_names=params,
-        truths=ts[params],
-        axes_scale=["log", "linear", "linear", "linear", "linear"],
-    )
-    walker_fig.savefig(out_path / "walkers.png")
-    corner_fig.savefig(out_path / "corner.png")
-    pyplot.close(fit_fig)
-    pyplot.close(walker_fig)
-    pyplot.close(corner_fig)
-    logger.debug("Saved fit diagnostic plots to %s", out_path)
+    save_plots_pdf([(ts, sampler, curve)])
 
 
 if __name__ == "__main__":
@@ -525,15 +568,5 @@ if __name__ == "__main__":
             len(results),
         )
         save_results(results)
-        if return_sampler_from_fit():
-            process_map(
-                save_plots,
-                new_results,
-                desc="Saving plots",
-                max_workers=PLOT_MAX_WORKERS,
-            )
-        else:
-            logger.debug(
-                "Skipping parent-process plot saving because plots were saved in fit workers"
-            )
+        logger.debug("Skipping parent-process plot saving; PDFs were saved per FITS job")
     logger.debug("Finished fitting script")
