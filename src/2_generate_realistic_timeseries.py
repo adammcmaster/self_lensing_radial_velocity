@@ -168,13 +168,10 @@ def curve_from_arrays(
     row = metadata_row_from_params(
         realistic_id=realistic_id,
         realistic_path=realistic_path,
-        pristine_idx=i,
         pristine=ts,
         rv_accuracy=rv_accuracy,
         cadence=cadence,
         baseline=baseline,
-        rv_err=rv_err,
-        lc_err=lc_err,
     )
     return {
         "row": row,
@@ -248,11 +245,11 @@ def realistic_curves_for_sampling(
 
 
 def gen_pristine_ts(params):
-    i, ts, pristine_params = params
+    pristine_row_index, ts, pristine_params = params
     logger.debug(
-        "Generating %d realistic timeseries for pristine_idx=%s simulation_id=%s",
+        "Generating %d realistic timeseries for pristine row index=%s simulation_id=%s",
         len(pristine_params),
-        i,
+        pristine_row_index,
         ts["simulation_id"],
     )
     pristine_rv = load_pristine_rv_curve(ts)
@@ -270,7 +267,7 @@ def gen_pristine_ts(params):
     ).items():
         curves.extend(
             realistic_curves_for_sampling(
-                i,
+                pristine_row_index,
                 ts,
                 cadence,
                 baseline,
@@ -294,8 +291,8 @@ def group_params_by_pristine(params, pristine):
     groups = []
     for i, pristine_params in grouped.items():
         pristine_row = pristine.iloc[i]
-        pristine_idx = int(pristine_row.get("_pristine_idx", i))
-        groups.append((pristine_idx, pristine_row, pristine_params))
+        pristine_row_index = int(pristine_row.get("_pristine_row_index", i))
+        groups.append((pristine_row_index, pristine_row, pristine_params))
     return groups
 
 
@@ -312,11 +309,11 @@ def filter_pristine_to_batch(pristine, path):
 def load_pristine_for_generation():
     if GENERATE_BATCH_FILE and PRISTINE_METADATA_PATH.exists():
         pristine = pandas.read_csv(PRISTINE_METADATA_PATH)
-        pristine["_pristine_idx"] = numpy.arange(len(pristine))
+        pristine["_pristine_row_index"] = numpy.arange(len(pristine))
         return filter_pristine_to_batch(pristine, GENERATE_BATCH_FILE)
 
     pristine = load_pristine_timeseries()
-    pristine["_pristine_idx"] = numpy.arange(len(pristine))
+    pristine["_pristine_row_index"] = numpy.arange(len(pristine))
     if GENERATE_BATCH_FILE:
         pristine = filter_pristine_to_batch(pristine, GENERATE_BATCH_FILE)
     return pristine
