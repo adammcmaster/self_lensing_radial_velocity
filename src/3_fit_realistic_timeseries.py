@@ -98,6 +98,9 @@ FIT_LENSING_METHOD = os.environ.get(
         else "IntegratedWittMao"
     ),
 )
+FIT_STOP_ON_CONVERGENCE = os.environ.get(
+    "SLRV_FIT_STOP_ON_CONVERGENCE", "1"
+).lower() in ("1", "true", "yes", "on")
 REQUIRE_GPU = os.environ.get("SLRV_REQUIRE_GPU", "").lower() in (
     "1",
     "true",
@@ -295,12 +298,84 @@ def lightcurve_fit_window(curve, ts):
     }
 
 
+def unpack_fit_result(result):
+    if len(result) == 2:
+        sls, sampler = result
+        return sls, sampler, None
+    sls, sampler, walker_state = result
+    return sls, sampler, walker_state
+
+
+def walker_state_coords(walker_state):
+    if walker_state is None:
+        return None
+    return numpy.asarray(getattr(walker_state, "coords", walker_state), dtype=float)
+
+
+def fitted_timeseries_row(i, ts, truth_sls, sls):
+    new_ts = pandas.Series(ts)
+    new_ts["realistic_idx"] = i
+    new_ts["b_max"] = truth_sls.b_max.value
+    new_ts["fitted_a"] = sls.a.value
+    new_ts["fitted_b"] = sls.b.value
+    new_ts["fitted_b_max"] = sls.b_max.value
+    new_ts["fitted_i"] = sls.i.value
+    new_ts["fitted_Macc"] = sls.Macc.value
+    new_ts["fitted_e"] = sls.e.value
+    new_ts["fitted_periapsis_phase"] = sls.periapsis_phase.value
+    new_ts["fitted_porb"] = sls.porb.value
+    new_ts["fitted_tau_eff"] = sls.tau_eff.value
+    return new_ts
+
+
+def fit_photometry_prefit(i, ts, curve):
+    fit_lc = lightcurve_fit_window(curve, ts)
+    logger.debug(
+        "Starting photometry-only prefit for realistic_id=%s with %d clipped LC samples",
+        ts.get("realistic_id", None),
+        len(fit_lc["lc"]),
+    )
+    sls, _, walker_state = unpack_fit_result(
+        self_lensing_system_from_fit(
+            lc_times=Time(fit_lc["lc_times"], format="jd"),
+            observed_lc=fit_lc["lc"] * units.dimensionless_unscaled,
+            observed_lc_err=fit_lc["lc_err"] * units.dimensionless_unscaled,
+            peak_time=Time(ts["peak_time"], format="jd"),
+            Mcomp=ts["Mcomp"] * units.M_sun,
+            Rcomp=ts["Rcomp"] * units.R_sun,
+            Teff=ts["Teff"] * units.K,
+            false_alarm_probability=0.5,
+            nsteps=FIT_NSTEPS,
+            nwalkers=FIT_NWALKERS,
+            burn=FIT_BURN,
+            pool=False,
+            progress=False,
+            lensing_method=FIT_LENSING_METHOD,
+            center_lc_model=True,
+            device=FIT_DEVICE,
+            prefer_gpu=FIT_DEVICE == "auto",
+            stop_on_convergence=FIT_STOP_ON_CONVERGENCE,
+        )
+    )
+    logger.debug(
+        "Finished photometry-only prefit for realistic_id=%s walker_state=%s",
+        ts.get("realistic_id", None),
+        walker_state is not None,
+    )
+    prefit_ts = fitted_timeseries_row(i, ts, truth_self_lensing_system(ts), sls)
+    return prefit_ts, walker_state_coords(walker_state)
+
+
 def fit(a):
-    if len(a) == 3:
+    if len(a) == 4:
+        i, ts, curve, initial_walker_state = a
+    elif len(a) == 3:
         i, ts, curve = a
+        initial_walker_state = None
     else:
         i, ts = a
         curve = load_realistic_timeseries_curve(ts)
+        initial_walker_state = None
     logger.debug(
         "Starting fit for row index=%s realistic_id=%s path=%s",
         i,
@@ -316,45 +391,40 @@ def fit(a):
         len(curve["lc"]),
         f" clipped to {len(fit_lc['lc'])}" if fit_lc is not None else "",
     )
+    if initial_walker_state is not None:
+        initial_walker_state = numpy.array(initial_walker_state, copy=True)
     logger.debug("Calling self_lensing_system_from_fit for row index=%s", i)
-    sls, sampler = self_lensing_system_from_fit(
-        rv_times=Time(curve["rv_times"], format="jd"),
-        observed_rv=curve["rv"] * units.m / units.s,
-        observed_rv_err=curve["rv_err"] * units.m / units.s,
-        lc_times=Time(fit_lc["lc_times"], format="jd") if FIT_USE_LC else None,
-        observed_lc=(
-            fit_lc["lc"] * units.dimensionless_unscaled if FIT_USE_LC else None
-        ),
-        observed_lc_err=(
-            fit_lc["lc_err"] * units.dimensionless_unscaled if FIT_USE_LC else None
-        ),
-        peak_time=Time(ts["peak_time"], format="jd"),
-        Mcomp=ts["Mcomp"] * units.M_sun,
-        Rcomp=ts["Rcomp"] * units.R_sun,
-        Teff=ts["Teff"] * units.K,
-        false_alarm_probability=0.5,
-        nsteps=FIT_NSTEPS,
-        nwalkers=FIT_NWALKERS,
-        burn=FIT_BURN,
-        pool=False,
-        progress=False,
-        lensing_method=FIT_LENSING_METHOD,
-        center_lc_model=True,
-        device=FIT_DEVICE,
-        prefer_gpu=FIT_DEVICE == "auto",
+    sls, sampler, _ = unpack_fit_result(
+        self_lensing_system_from_fit(
+            rv_times=Time(curve["rv_times"], format="jd"),
+            observed_rv=curve["rv"] * units.m / units.s,
+            observed_rv_err=curve["rv_err"] * units.m / units.s,
+            lc_times=Time(fit_lc["lc_times"], format="jd") if FIT_USE_LC else None,
+            observed_lc=(
+                fit_lc["lc"] * units.dimensionless_unscaled if FIT_USE_LC else None
+            ),
+            observed_lc_err=(
+                fit_lc["lc_err"] * units.dimensionless_unscaled if FIT_USE_LC else None
+            ),
+            peak_time=Time(ts["peak_time"], format="jd"),
+            Mcomp=ts["Mcomp"] * units.M_sun,
+            Rcomp=ts["Rcomp"] * units.R_sun,
+            Teff=ts["Teff"] * units.K,
+            false_alarm_probability=0.5,
+            nsteps=FIT_NSTEPS,
+            nwalkers=FIT_NWALKERS,
+            burn=FIT_BURN,
+            pool=False,
+            progress=False,
+            lensing_method=FIT_LENSING_METHOD,
+            center_lc_model=True,
+            device=FIT_DEVICE,
+            prefer_gpu=FIT_DEVICE == "auto",
+            stop_on_convergence=FIT_STOP_ON_CONVERGENCE,
+            initial_walker_state=initial_walker_state,
+        )
     )
-    new_ts = pandas.Series(ts)
-    new_ts["realistic_idx"] = i
-    new_ts["b_max"] = truth_sls.b_max.value
-    new_ts["fitted_a"] = sls.a.value
-    new_ts["fitted_b"] = sls.b.value
-    new_ts["fitted_b_max"] = sls.b_max.value
-    new_ts["fitted_i"] = sls.i.value
-    new_ts["fitted_Macc"] = sls.Macc.value
-    new_ts["fitted_e"] = sls.e.value
-    new_ts["fitted_periapsis_phase"] = sls.periapsis_phase.value
-    new_ts["fitted_porb"] = sls.porb.value
-    new_ts["fitted_tau_eff"] = sls.tau_eff.value
+    new_ts = fitted_timeseries_row(i, ts, truth_sls, sls)
     logger.debug(
         "Finished fit for row index=%s: fitted_a=%.6g fitted_Macc=%.6g fitted_e=%.6g",
         i,
@@ -373,11 +443,26 @@ def fit_realistic_file(rows):
     path = rows[0][1]["realistic_path"]
     logger.debug("Fitting %d realistic rows from %s", len(rows), path)
     curves = load_realistic_timeseries_curves(rows)
+    initial_walker_state = None
+    prefit_result = None
+    if FIT_USE_LC:
+        prefit_i, prefit_ts = rows[0]
+        prefit_curve = curves[str(prefit_ts["realistic_id"])]
+        logger.debug(
+            "Prefitting photometry once for %d-row realistic group from %s using row index=%s",
+            len(rows),
+            path,
+            prefit_i,
+        )
+        prefit_ts, initial_walker_state = fit_photometry_prefit(
+            prefit_i, prefit_ts, prefit_curve
+        )
+        prefit_result = (prefit_ts, None, prefit_curve)
     results = []
     for i, ts in rows:
         curve = curves[str(ts["realistic_id"])]
-        results.append(fit((i, ts, curve)))
-    save_plots_pdf(results)
+        results.append(fit((i, ts, curve, initial_walker_state)))
+    save_plots_pdf(results, prefit_result=prefit_result)
     if return_sampler_from_fit():
         return results
     return [(ts, None, None) for ts, _, _ in results]
@@ -440,7 +525,7 @@ def plot_ts_with_curve(ts, curve):
     return plot_ts
 
 
-def save_plots_pdf(results):
+def save_plots_pdf(results, prefit_result=None):
     if not results:
         return
 
@@ -449,6 +534,20 @@ def save_plots_pdf(results):
     logger.debug("Writing %d fit diagnostic plot sets to %s", len(results), out_path)
     params = ["a", "i", "Macc", "e", "periapsis_phase"]
     with PdfPages(out_path) as pdf:
+        if prefit_result is not None:
+            ts, _, curve = prefit_result
+            if curve is None:
+                curve = load_realistic_timeseries_curve(ts)
+            logger.debug(
+                "Writing photometry prefit page for realistic_id=%s to %s",
+                ts.get("realistic_id", None),
+                out_path,
+            )
+            prefit_fig = plot_fit(plot_ts_with_curve(ts, curve))
+            add_pdf_page_title(prefit_fig, ts, "Photometry Prefit")
+            pdf.savefig(prefit_fig)
+            pyplot.close(prefit_fig)
+
         for ts, sampler, curve in results:
             if curve is None:
                 curve = load_realistic_timeseries_curve(ts)
@@ -515,7 +614,11 @@ if __name__ == "__main__":
         MP_START_METHOD,
     )
     logger.debug("Fit eccentricity limits: %s", DEFAULT_LIMITS["e"])
-    logger.debug("Fit likelihood settings: FIT_USE_LC=%s", FIT_USE_LC)
+    logger.debug(
+        "Fit likelihood settings: FIT_USE_LC=%s FIT_STOP_ON_CONVERGENCE=%s",
+        FIT_USE_LC,
+        FIT_STOP_ON_CONVERGENCE,
+    )
     logger.debug("Fit device setting: FIT_DEVICE=%s", FIT_DEVICE)
     logger.debug("Fit lensing method: FIT_LENSING_METHOD=%s", FIT_LENSING_METHOD)
     logger.debug(
@@ -535,6 +638,9 @@ if __name__ == "__main__":
         )
     rts = load_realistic_timeseries()
     if FIT_BATCH_FILE:
+        # SLURM array tasks pass an explicit manifest of realistic_id values.
+        # In that mode we must fit exactly those rows; FIT_SAMPLE_SIZE is only
+        # for standalone exploratory runs.
         rts = filter_to_batch(rts, FIT_BATCH_FILE)
         logger.debug("Filtered realistic rows down to %d batch rows", len(rts))
 
@@ -555,13 +661,16 @@ if __name__ == "__main__":
         ].copy()
         logger.debug("Filtered realistic rows down to %d unfitted rows", len(rts))
 
-    sample_size = len(rts) if FIT_BATCH_FILE else min(FIT_SAMPLE_SIZE, len(rts))
-    if sample_size == 0:
+    if len(rts) == 0:
         logger.debug("No realistic rows left to fit; exiting")
         raise SystemExit
 
-    rts = rts.sample(sample_size)
-    logger.debug("Sampled %d realistic rows for fitting", len(rts))
+    if FIT_BATCH_FILE:
+        logger.debug("Using all %d manifest rows for fitting", len(rts))
+    else:
+        sample_size = min(FIT_SAMPLE_SIZE, len(rts))
+        rts = rts.sample(sample_size)
+        logger.debug("Sampled %d realistic rows for fitting", len(rts))
 
     jobs = grouped_realistic_rows(rts)
     chunks = [jobs[i : i + FIT_CHUNK_SIZE] for i in range(0, len(jobs), FIT_CHUNK_SIZE)]

@@ -198,6 +198,9 @@ def write_batches(batches, batch_dir):
     manifest_paths = []
     for index, batch in enumerate(tqdm(batches, desc="Writing batch manifests")):
         path = batch_dir / f"batch_{index:04d}.csv"
+        # Each SLURM array task filters the fitter to these explicit IDs.
+        # That makes per-task membership deterministic; random sampling inside
+        # the fitter is bypassed whenever SLRV_FIT_BATCH_FILE is set.
         batch[["realistic_id", "realistic_path"]].to_csv(path, index=False)
         manifest_paths.append(path)
     return manifest_paths
@@ -232,6 +235,8 @@ def prepare_rows(args):
         progress.set_postfix_str("sampling rows")
         stats["sampled_rows"] = 0
         if args.sample_size is not None and len(table) > args.sample_size:
+            # Optional submit-time downsampling is deterministic. Without
+            # --sample-size, every currently-unfitted realistic row is batched.
             table = table.sample(args.sample_size, random_state=args.seed).sort_values(
                 ["realistic_path", "realistic_id"]
             )
