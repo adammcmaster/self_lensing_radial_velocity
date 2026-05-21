@@ -3,6 +3,8 @@ import os
 from pathlib import Path
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from hashlib import sha1
+from time import perf_counter
 
 import numpy
 import pandas
@@ -21,12 +23,42 @@ PARAMS = {
     "campaign_baselines": 365 * numpy.array([1, 3, 5]),
     "rv_accuracies": numpy.logspace(-1, 3, 50),
 }
+PARAM_GRID = tuple(
+    (
+        int(cadence),
+        float(rv_accuracy),
+        int(baseline),
+    )
+    for baseline in PARAMS["campaign_baselines"]
+    for cadence in PARAMS["cadences"]
+    for rv_accuracy in PARAMS["rv_accuracies"]
+)
+PARAM_CADENCES = numpy.fromiter(
+    (cadence for cadence, _, _ in PARAM_GRID),
+    dtype=int,
+    count=len(PARAM_GRID),
+)
+PARAM_RV_ACCURACIES = numpy.fromiter(
+    (rv_accuracy for _, rv_accuracy, _ in PARAM_GRID),
+    dtype=float,
+    count=len(PARAM_GRID),
+)
+PARAM_BASELINES = numpy.fromiter(
+    (baseline for _, _, baseline in PARAM_GRID),
+    dtype=int,
+    count=len(PARAM_GRID),
+)
+PARAM_ID_SUFFIXES = tuple(
+    f"|{cadence}|{rv_accuracy:.17g}|{baseline}".encode("utf-8")
+    for cadence, rv_accuracy, baseline in PARAM_GRID
+)
 
 REALISTIC_PATH = (DATA_PATH / "realistic").resolve()
 REALISTIC_PATH.mkdir(exist_ok=True, parents=True)
 REALISTIC_METADATA_PATH = REALISTIC_PATH / "metadata.csv"
 REALISTIC_METADATA_PICKLE_PATH = REALISTIC_METADATA_PATH.with_suffix(".pkl")
 REALISTIC_ID_NAMESPACE = uuid.UUID("1d34c442-474c-5d23-83ff-c121e5ed4a73")
+REALISTIC_ID_NAMESPACE_BYTES = REALISTIC_ID_NAMESPACE.bytes
 REALISTIC_METADATA_MAX_WORKERS = int(
     os.environ.get("SLRV_REALISTIC_METADATA_MAX_WORKERS", min(8, os.cpu_count() or 1))
 )
@@ -82,6 +114,16 @@ def realistic_key_from_values(pristine_id, cadence, rv_accuracy, baseline):
     )
 
 
+def _uuid5_from_name_bytes(name):
+    digest = sha1(REALISTIC_ID_NAMESPACE_BYTES + name).digest()
+    return str(uuid.UUID(bytes=digest[:16], version=5))
+
+
+def realistic_id_from_values(pristine_id, cadence, rv_accuracy, baseline):
+    key = realistic_key_from_values(pristine_id, cadence, rv_accuracy, baseline)
+    return _uuid5_from_name_bytes("|".join(map(str, key)).encode("utf-8"))
+
+
 def realistic_key(row):
     return realistic_key_from_values(
         row["pristine_id"],
@@ -92,14 +134,12 @@ def realistic_key(row):
 
 
 def realistic_id_from_params(pristine, cadence, rv_accuracy, baseline):
-    key = realistic_key_from_values(
+    return realistic_id_from_values(
         pristine["simulation_id"],
         cadence,
         rv_accuracy,
         baseline,
     )
-    realistic_id = str(uuid.uuid5(REALISTIC_ID_NAMESPACE, "|".join(map(str, key))))
-    return realistic_id
 
 
 def realistic_path_from_params(pristine, cadence, rv_accuracy, baseline):
@@ -183,9 +223,12 @@ def _read_metadata_cache(path=REALISTIC_METADATA_PATH):
     return table
 
 
-def _write_metadata_cache(table, path=REALISTIC_METADATA_PATH):
+def _write_metadata_cache(table, path=REALISTIC_METADATA_PATH, normalise=True):
     path = Path(path)
-    table = _normalise_metadata_table(table)
+    if normalise:
+        table = _normalise_metadata_table(table)
+    else:
+        table = table.reindex(columns=REALISTIC_METADATA_COLUMNS)
     path.parent.mkdir(exist_ok=True, parents=True)
     logger.debug("Writing %d realistic metadata rows to %s", len(table), path)
     table.to_csv(path, index=False)
@@ -326,39 +369,36 @@ def metadata_rows_from_realistic_paths(paths):
 
 def metadata_rows_from_params_for_pristine(pristine):
     rows = []
-    for baseline in PARAMS["campaign_baselines"]:
-        for cadence in PARAMS["cadences"]:
-            for rv_accuracy in PARAMS["rv_accuracies"]:
-                rows.append(
-                    metadata_row_from_params(
-                        realistic_id=realistic_id_from_params(
-                            pristine,
-                            cadence,
-                            rv_accuracy,
-                            baseline,
-                        ),
-                        realistic_path=realistic_path_from_pristine(pristine),
-                        pristine=pristine,
-                        rv_accuracy=rv_accuracy,
-                        cadence=cadence,
-                        baseline=baseline,
-                    )
-                )
+    for cadence, rv_accuracy, baseline in PARAM_GRID:
+        rows.append(
+            metadata_row_from_params(
+                realistic_id=realistic_id_from_params(
+                    pristine,
+                    cadence,
+                    rv_accuracy,
+                    baseline,
+                ),
+                realistic_path=realistic_path_from_pristine(pristine),
+                pristine=pristine,
+                rv_accuracy=rv_accuracy,
+                cadence=cadence,
+                baseline=baseline,
+            )
+        )
     return rows
 
 
-def metadata_rows_from_params_for_paths(paths, pristine):
+def metadata_table_from_params_for_paths(paths, pristine):
     paths = list(paths)
     if not paths:
-        return []
+        return _empty_metadata_table()
 
-    pristine_by_id = {
-        str(row["simulation_id"]): row for _, row in pristine.iterrows()
-    }
+    start_time = perf_counter()
+    pristine_ids = set(pristine["simulation_id"].astype(str))
     missing_ids = sorted(
         pristine_id_from_realistic_path(path)
         for path in paths
-        if pristine_id_from_realistic_path(path) not in pristine_by_id
+        if pristine_id_from_realistic_path(path) not in pristine_ids
     )
     if missing_ids:
         raise KeyError(
@@ -366,11 +406,44 @@ def metadata_rows_from_params_for_paths(paths, pristine):
             f"for simulation_id values: {missing_ids[:10]}"
         )
 
-    rows = []
+    n_per_path = len(PARAM_GRID)
+    total_rows = len(paths) * n_per_path
+    logger.debug(
+        "Building %d deterministic realistic metadata rows for %d paths",
+        total_rows,
+        len(paths),
+    )
+    data = {
+        "realistic_id": [],
+        "realistic_path": [],
+        "pristine_id": [],
+        "RV accuracy": numpy.tile(PARAM_RV_ACCURACIES, len(paths)),
+        "cadence": numpy.tile(PARAM_CADENCES, len(paths)),
+        "baseline": numpy.tile(PARAM_BASELINES, len(paths)),
+    }
+
     for path in paths:
         pristine_id = pristine_id_from_realistic_path(path)
-        rows.extend(metadata_rows_from_params_for_pristine(pristine_by_id[pristine_id]))
-    return rows
+        path = Path(path).resolve()
+        pristine_id_bytes = str(pristine_id).encode("utf-8")
+        data["realistic_id"].extend(
+            _uuid5_from_name_bytes(pristine_id_bytes + suffix)
+            for suffix in PARAM_ID_SUFFIXES
+        )
+        data["realistic_path"].extend([str(path)] * n_per_path)
+        data["pristine_id"].extend([pristine_id] * n_per_path)
+
+    table = pandas.DataFrame(data, columns=REALISTIC_METADATA_COLUMNS)
+    logger.debug(
+        "Built %d deterministic realistic metadata rows in %.1f s",
+        len(table),
+        perf_counter() - start_time,
+    )
+    return table
+
+
+def metadata_rows_from_params_for_paths(paths, pristine):
+    return metadata_table_from_params_for_paths(paths, pristine).to_dict("records")
 
 
 def metadata_row_from_params(
@@ -646,18 +719,23 @@ def load_realistic_timeseries():
             "Deriving realistic metadata rows for %d paths from deterministic IDs",
             len(missing_paths),
         )
-        new_rows = metadata_rows_from_params_for_paths(missing_paths, pristine)
-        new_table = pandas.DataFrame(new_rows)
+        new_table = metadata_table_from_params_for_paths(missing_paths, pristine)
         if cached.empty:
             table = new_table
         else:
+            logger.debug(
+                "Combining %d cached rows with %d newly-derived rows",
+                len(cached),
+                len(new_table),
+            )
             table = pandas.concat([cached, new_table], ignore_index=True)
+        logger.debug("Normalising %d realistic metadata rows", len(table))
         table = _normalise_metadata_table(table)
     else:
         table = cached
 
     if missing_paths or removed_stale_rows or cache_needs_rewrite:
-        _write_metadata_cache(table)
+        _write_metadata_cache(table, normalise=False)
 
     expanded = _expand_metadata_table_with_pristine(table, pristine, normalise=False)
     logger.debug("Returning %d realistic metadata rows", len(expanded))
