@@ -101,6 +101,12 @@ FIT_LENSING_METHOD = os.environ.get(
 FIT_STOP_ON_CONVERGENCE = os.environ.get(
     "SLRV_FIT_STOP_ON_CONVERGENCE", "1"
 ).lower() in ("1", "true", "yes", "on")
+FIT_MCMC_PROGRESS = os.environ.get("SLRV_FIT_MCMC_PROGRESS", "1").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 REQUIRE_GPU = os.environ.get("SLRV_REQUIRE_GPU", "").lower() in (
     "1",
     "true",
@@ -131,7 +137,7 @@ def process_map(fn, iterable, total=None, desc=None, max_workers=None, chunksize
     if not items:
         return []
     if max_workers == 1:
-        logger.debug(
+        logger.info(
             "Starting serial map desc=%s items=%d because max_workers=1",
             desc,
             len(items),
@@ -139,7 +145,7 @@ def process_map(fn, iterable, total=None, desc=None, max_workers=None, chunksize
         return [fn(item) for item in tqdm(items, total=total, desc=desc)]
 
     context = multiprocessing.get_context(MP_START_METHOD)
-    logger.debug(
+    logger.info(
         "Starting process map desc=%s items=%d max_workers=%s chunksize=%d mp_start_method=%s",
         desc,
         len(items),
@@ -148,13 +154,15 @@ def process_map(fn, iterable, total=None, desc=None, max_workers=None, chunksize
         MP_START_METHOD,
     )
     with ProcessPoolExecutor(max_workers=max_workers, mp_context=context) as executor:
-        return list(
+        results = list(
             tqdm(
                 executor.map(fn, items, chunksize=chunksize),
                 total=total,
                 desc=desc,
             )
         )
+    logger.info("Finished process map desc=%s items=%d", desc, len(items))
+    return results
 
 
 def return_sampler_from_fit():
@@ -167,12 +175,12 @@ def plot_fit_in_worker():
 
 def load_fitted_timeseries():
     if not TIMESERIES_TABLE_PATH.exists():
-        logger.debug(
+        logger.info(
             "Fitted timeseries table does not exist at %s", TIMESERIES_TABLE_PATH
         )
         return pandas.DataFrame()
     table = pandas.read_pickle(TIMESERIES_TABLE_PATH)
-    logger.debug(
+    logger.info(
         "Loaded %d fitted timeseries rows from %s", len(table), TIMESERIES_TABLE_PATH
     )
     return table
@@ -239,7 +247,7 @@ def save_results(results):
     if not results:
         logger.debug("No fit results to save")
         return
-    logger.debug("Saving %d fit result rows to %s", len(results), TIMESERIES_TABLE_PATH)
+    logger.info("Saving %d fit result rows to %s", len(results), TIMESERIES_TABLE_PATH)
     table = pandas.DataFrame(results).reset_index(drop=True)
     if "realistic_id" in table.columns or "realistic_idx" in table.columns:
         table["_fit_key"] = table.apply(result_checkpoint_key, axis=1)
@@ -247,7 +255,7 @@ def save_results(results):
         table.drop(columns="_fit_key", inplace=True)
     table.reset_index(drop=True).to_pickle(f"{TIMESERIES_TABLE_PATH}.new.gz")
     os.replace(f"{TIMESERIES_TABLE_PATH}.new.gz", TIMESERIES_TABLE_PATH)
-    logger.debug("Saved fit results atomically to %s", TIMESERIES_TABLE_PATH)
+    logger.info("Saved fit results atomically to %s", TIMESERIES_TABLE_PATH)
 
 
 def truth_self_lensing_system(ts):
@@ -330,7 +338,7 @@ def fitted_timeseries_row(i, ts, truth_sls, sls):
 
 def fit_photometry_prefit(i, ts, curve):
     fit_lc = lightcurve_fit_window(curve, ts)
-    logger.debug(
+    logger.info(
         "Starting photometry-only prefit for realistic_id=%s with %d clipped LC samples",
         ts.get("realistic_id", None),
         len(fit_lc["lc"]),
@@ -349,7 +357,7 @@ def fit_photometry_prefit(i, ts, curve):
             nwalkers=FIT_NWALKERS,
             burn=FIT_BURN,
             pool=False,
-            progress=False,
+            progress=FIT_MCMC_PROGRESS,
             lensing_method=FIT_LENSING_METHOD,
             center_lc_model=True,
             device=FIT_DEVICE,
@@ -357,7 +365,7 @@ def fit_photometry_prefit(i, ts, curve):
             stop_on_convergence=FIT_STOP_ON_CONVERGENCE,
         )
     )
-    logger.debug(
+    logger.info(
         "Finished photometry-only prefit for realistic_id=%s walker_state=%s",
         ts.get("realistic_id", None),
         walker_state is not None,
@@ -376,7 +384,7 @@ def fit(a):
         i, ts = a
         curve = load_realistic_timeseries_curve(ts)
         initial_walker_state = None
-    logger.debug(
+    logger.info(
         "Starting fit for row index=%s realistic_id=%s path=%s",
         i,
         ts.get("realistic_id", None),
@@ -384,7 +392,7 @@ def fit(a):
     )
     truth_sls = truth_self_lensing_system(ts)
     fit_lc = lightcurve_fit_window(curve, ts) if FIT_USE_LC else None
-    logger.debug(
+    logger.info(
         "Fit inputs row index=%s: %d RV samples, %d LC samples%s",
         i,
         len(curve["rv"]),
@@ -393,7 +401,11 @@ def fit(a):
     )
     if initial_walker_state is not None:
         initial_walker_state = numpy.array(initial_walker_state, copy=True)
-    logger.debug("Calling self_lensing_system_from_fit for row index=%s", i)
+    logger.info(
+        "Running MCMC fit for row index=%s realistic_id=%s",
+        i,
+        ts.get("realistic_id", None),
+    )
     sls, sampler, _ = unpack_fit_result(
         self_lensing_system_from_fit(
             rv_times=Time(curve["rv_times"], format="jd"),
@@ -415,7 +427,7 @@ def fit(a):
             nwalkers=FIT_NWALKERS,
             burn=FIT_BURN,
             pool=False,
-            progress=False,
+            progress=FIT_MCMC_PROGRESS,
             lensing_method=FIT_LENSING_METHOD,
             center_lc_model=True,
             device=FIT_DEVICE,
@@ -425,7 +437,7 @@ def fit(a):
         )
     )
     new_ts = fitted_timeseries_row(i, ts, truth_sls, sls)
-    logger.debug(
+    logger.info(
         "Finished fit for row index=%s: fitted_a=%.6g fitted_Macc=%.6g fitted_e=%.6g",
         i,
         new_ts["fitted_a"],
@@ -441,14 +453,16 @@ def fit_realistic_file(rows):
         return []
 
     path = rows[0][1]["realistic_path"]
-    logger.debug("Fitting %d realistic rows from %s", len(rows), path)
+    logger.info("Fitting %d realistic rows from %s", len(rows), path)
+    logger.info("Loading grouped realistic curves from %s", path)
     curves = load_realistic_timeseries_curves(rows)
+    logger.info("Loaded %d grouped realistic curves from %s", len(curves), path)
     initial_walker_state = None
     prefit_result = None
     if FIT_USE_LC:
         prefit_i, prefit_ts = rows[0]
         prefit_curve = curves[str(prefit_ts["realistic_id"])]
-        logger.debug(
+        logger.info(
             "Prefitting photometry once for %d-row realistic group from %s using row index=%s",
             len(rows),
             path,
@@ -459,10 +473,18 @@ def fit_realistic_file(rows):
         )
         prefit_result = (prefit_ts, None, prefit_curve)
     results = []
-    for i, ts in rows:
+    for row_number, (i, ts) in enumerate(rows, start=1):
+        logger.info(
+            "Starting joint fit %d/%d for realistic_id=%s",
+            row_number,
+            len(rows),
+            ts.get("realistic_id", None),
+        )
         curve = curves[str(ts["realistic_id"])]
         results.append(fit((i, ts, curve, initial_walker_state)))
+    logger.info("Finished all joint fits for %s; writing diagnostic PDF", path)
     save_plots_pdf(results, prefit_result=prefit_result)
+    logger.info("Finished grouped fit for %s", path)
     if return_sampler_from_fit():
         return results
     return [(ts, None, None) for ts, _, _ in results]
@@ -531,14 +553,14 @@ def save_plots_pdf(results, prefit_result=None):
 
     out_path = pdf_path_for_results(results)
     out_path.parent.mkdir(exist_ok=True, parents=True)
-    logger.debug("Writing %d fit diagnostic plot sets to %s", len(results), out_path)
+    logger.info("Writing %d fit diagnostic plot sets to %s", len(results), out_path)
     params = ["a", "i", "Macc", "e", "periapsis_phase"]
     with PdfPages(out_path) as pdf:
         if prefit_result is not None:
             ts, _, curve = prefit_result
             if curve is None:
                 curve = load_realistic_timeseries_curve(ts)
-            logger.debug(
+            logger.info(
                 "Writing photometry prefit page for realistic_id=%s to %s",
                 ts.get("realistic_id", None),
                 out_path,
@@ -577,7 +599,7 @@ def save_plots_pdf(results, prefit_result=None):
             pdf.savefig(corner_fig)
             pyplot.close(walker_fig)
             pyplot.close(corner_fig)
-    logger.debug("Saved fit diagnostic PDF to %s", out_path)
+    logger.info("Saved fit diagnostic PDF to %s", out_path)
 
 
 def save_plots(a):
@@ -598,35 +620,38 @@ def save_plots(a):
 
 if __name__ == "__main__":
     configure_logging()
-    logger.debug(
+    logger.info("Starting realistic timeseries fitting script")
+    logger.info(
         "Starting fitting script with FIT_MAX_WORKERS=%d FIT_SAMPLE_SIZE=%d FIT_CHUNK_SIZE=%d PLOT_MAX_WORKERS=%d",
         FIT_MAX_WORKERS,
         FIT_SAMPLE_SIZE,
         FIT_CHUNK_SIZE,
         PLOT_MAX_WORKERS,
     )
-    logger.debug("Fit batch file: %s", FIT_BATCH_FILE)
-    logger.debug(
+    logger.info("Fit batch file: %s", FIT_BATCH_FILE)
+    logger.info(
         "MCMC settings: FIT_NSTEPS=%d FIT_NWALKERS=%d FIT_BURN=%d MP_START_METHOD=%s",
         FIT_NSTEPS,
         FIT_NWALKERS,
         FIT_BURN,
         MP_START_METHOD,
     )
-    logger.debug("Fit eccentricity limits: %s", DEFAULT_LIMITS["e"])
-    logger.debug(
-        "Fit likelihood settings: FIT_USE_LC=%s FIT_STOP_ON_CONVERGENCE=%s",
+    logger.info("Fit eccentricity limits: %s", DEFAULT_LIMITS["e"])
+    logger.info(
+        "Fit likelihood settings: FIT_USE_LC=%s "
+        "FIT_STOP_ON_CONVERGENCE=%s FIT_MCMC_PROGRESS=%s",
         FIT_USE_LC,
         FIT_STOP_ON_CONVERGENCE,
+        FIT_MCMC_PROGRESS,
     )
-    logger.debug("Fit device setting: FIT_DEVICE=%s", FIT_DEVICE)
-    logger.debug("Fit lensing method: FIT_LENSING_METHOD=%s", FIT_LENSING_METHOD)
-    logger.debug(
+    logger.info("Fit device setting: FIT_DEVICE=%s", FIT_DEVICE)
+    logger.info("Fit lensing method: FIT_LENSING_METHOD=%s", FIT_LENSING_METHOD)
+    logger.info(
         "MCMC diagnostic plot settings: return_sampler=%s plot_fit_in_worker=%s",
         return_sampler_from_fit(),
         plot_fit_in_worker(),
     )
-    logger.debug(
+    logger.info(
         "JAX backend: default=%s devices=[%s]",
         jax.default_backend(),
         jax_device_summary(),
@@ -636,45 +661,64 @@ if __name__ == "__main__":
             "SLRV_REQUIRE_GPU is set, but JAX does not see a GPU. "
             f"Available devices: [{jax_device_summary()}]"
         )
+    logger.info("Loading realistic metadata")
     rts = load_realistic_timeseries()
+    logger.info("Loaded %d realistic metadata rows", len(rts))
     if FIT_BATCH_FILE:
         # SLURM array tasks pass an explicit manifest of realistic_id values.
         # In that mode we must fit exactly those rows; FIT_SAMPLE_SIZE is only
         # for standalone exploratory runs.
+        logger.info("Filtering realistic rows to batch manifest %s", FIT_BATCH_FILE)
         rts = filter_to_batch(rts, FIT_BATCH_FILE)
-        logger.debug("Filtered realistic rows down to %d batch rows", len(rts))
+        logger.info("Filtered realistic rows down to %d batch rows", len(rts))
 
+    logger.info("Loading existing fitted results from %s", TIMESERIES_TABLE_PATH)
     existing_results = load_fitted_timeseries()
     fitted_ids, fitted_indices = fitted_key_sets(existing_results)
-    logger.debug(
+    logger.info(
         "Loaded %d realistic rows and %d existing fitted rows",
         len(rts),
         len(existing_results),
     )
 
     if fitted_ids or fitted_indices:
+        logger.info(
+            "Filtering already fitted rows using %d ids and %d legacy indices",
+            len(fitted_ids),
+            len(fitted_indices),
+        )
         rts = rts[
             ~rts.apply(
                 lambda row: is_already_fitted(row, fitted_ids, fitted_indices),
                 axis=1,
             )
         ].copy()
-        logger.debug("Filtered realistic rows down to %d unfitted rows", len(rts))
+        logger.info("Filtered realistic rows down to %d unfitted rows", len(rts))
 
     if len(rts) == 0:
-        logger.debug("No realistic rows left to fit; exiting")
+        logger.info("No realistic rows left to fit; exiting")
         raise SystemExit
 
     if FIT_BATCH_FILE:
-        logger.debug("Using all %d manifest rows for fitting", len(rts))
+        logger.info("Using all %d manifest rows for fitting", len(rts))
     else:
         sample_size = min(FIT_SAMPLE_SIZE, len(rts))
+        logger.info(
+            "Sampling %d/%d unfitted realistic rows for standalone fitting",
+            sample_size,
+            len(rts),
+        )
         rts = rts.sample(sample_size)
-        logger.debug("Sampled %d realistic rows for fitting", len(rts))
+        logger.info("Sampled %d realistic rows for fitting", len(rts))
 
     jobs = grouped_realistic_rows(rts)
     chunks = [jobs[i : i + FIT_CHUNK_SIZE] for i in range(0, len(jobs), FIT_CHUNK_SIZE)]
-    logger.debug("Split sampled rows into %d FITS-file job chunks", len(chunks))
+    logger.info(
+        "Grouped %d rows into %d FITS-file jobs and %d chunks",
+        len(rts),
+        len(jobs),
+        len(chunks),
+    )
 
     results = (
         [row for _, row in existing_results.iterrows()]
@@ -682,8 +726,13 @@ if __name__ == "__main__":
         else []
     )
 
-    for chunk in tqdm(chunks, desc="All chunks"):
-        logger.debug("Fitting chunk with %d FITS-file jobs", len(chunk))
+    for chunk_index, chunk in enumerate(tqdm(chunks, desc="All chunks"), start=1):
+        logger.info(
+            "Fitting chunk %d/%d with %d FITS-file jobs",
+            chunk_index,
+            len(chunks),
+            len(chunk),
+        )
         grouped_new_results = process_map(
             fit_realistic_file,
             chunk,
@@ -693,11 +742,13 @@ if __name__ == "__main__":
         )
         new_results = [result for group in grouped_new_results for result in group]
         results += [r[0] for r in new_results]
-        logger.debug(
-            "Chunk produced %d fit results; cumulative results=%d",
+        logger.info(
+            "Chunk %d/%d produced %d fit results; cumulative results=%d",
+            chunk_index,
+            len(chunks),
             len(new_results),
             len(results),
         )
         save_results(results)
         logger.debug("Skipping parent-process plot saving; PDFs were saved per FITS job")
-    logger.debug("Finished fitting script")
+    logger.info("Finished fitting script")

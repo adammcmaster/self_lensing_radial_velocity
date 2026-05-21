@@ -21,6 +21,7 @@ PARAMS = {
 REALISTIC_PATH = (DATA_PATH / "realistic").resolve()
 REALISTIC_PATH.mkdir(exist_ok=True, parents=True)
 REALISTIC_METADATA_PATH = REALISTIC_PATH / "metadata.csv"
+REALISTIC_METADATA_PICKLE_PATH = REALISTIC_METADATA_PATH.with_suffix(".pkl")
 REALISTIC_ID_NAMESPACE = uuid.UUID("1d34c442-474c-5d23-83ff-c121e5ed4a73")
 
 METADATA_COLUMNS = (
@@ -124,19 +125,45 @@ def _empty_metadata_table():
     return pandas.DataFrame(columns=METADATA_COLUMNS)
 
 
+def _metadata_pickle_path(path=REALISTIC_METADATA_PATH):
+    return Path(path).with_suffix(".pkl")
+
+
+def _metadata_pickle_is_fresh(csv_path, pickle_path):
+    return pickle_path.exists() and pickle_path.stat().st_mtime >= csv_path.stat().st_mtime
+
+
+def _write_metadata_pickle(table, path=REALISTIC_METADATA_PATH):
+    pickle_path = _metadata_pickle_path(path)
+    pickle_path.parent.mkdir(exist_ok=True, parents=True)
+    logger.debug("Writing %d realistic metadata rows to %s", len(table), pickle_path)
+    table.to_pickle(pickle_path)
+
+
 def _read_metadata_cache(path=REALISTIC_METADATA_PATH):
+    path = Path(path)
     if not path.exists():
         logger.debug("Realistic metadata cache does not exist at %s", path)
         return _empty_metadata_table()
+
+    pickle_path = _metadata_pickle_path(path)
+    if _metadata_pickle_is_fresh(path, pickle_path):
+        table = pandas.read_pickle(pickle_path)
+        logger.debug("Read %d realistic metadata rows from %s", len(table), pickle_path)
+        return table
+
     table = pandas.read_csv(path)
     logger.debug("Read %d realistic metadata rows from %s", len(table), path)
+    _write_metadata_pickle(table, path)
     return table
 
 
 def _write_metadata_cache(table, path=REALISTIC_METADATA_PATH):
+    path = Path(path)
     path.parent.mkdir(exist_ok=True, parents=True)
     logger.debug("Writing %d realistic metadata rows to %s", len(table), path)
     table.to_csv(path, index=False)
+    _write_metadata_pickle(table, path)
 
 
 def _normalise_metadata_table(table):
@@ -471,7 +498,7 @@ def load_realistic_timeseries():
     removed_stale_rows = len(cached) != cached_len
 
     cached_paths = set(cached["realistic_path"]) if not cached.empty else set()
-    missing_paths = [path for path in realistic_path_set if path not in cached_paths]
+    missing_paths = sorted(realistic_path_set - cached_paths)
     logger.debug("Realistic metadata cache is missing %d paths", len(missing_paths))
 
     if missing_paths:
