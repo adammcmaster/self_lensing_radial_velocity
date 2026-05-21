@@ -160,7 +160,7 @@ def curve_from_arrays(
     noisy_rv,
     rv_err,
     lc_times,
-    noisy_lc,
+    lc,
     lc_err,
 ):
     realistic_id = realistic_id_from_params(ts, cadence, rv_accuracy, baseline)
@@ -182,7 +182,7 @@ def curve_from_arrays(
         "rv": noisy_rv,
         "rv_err": rv_err,
         "lc_times": lc_times,
-        "lc": noisy_lc,
+        "lc": lc,
         "lc_err": lc_err,
     }
 
@@ -195,13 +195,13 @@ def realistic_curves_for_sampling(
     rv_accuracies,
     pristine_rv,
     pristine_lc,
-    lc_noise,
 ):
     indices = sample_indices(pristine_rv["rv"], cadence, baseline)
     rv_times = numpy.asarray(pristine_rv["rv_times"], dtype=float)[indices]
     pristine_sample = numpy.asarray(pristine_rv["rv"], dtype=float)[indices]
     lc_times = numpy.asarray(pristine_lc["lc_times"], dtype=float)
     lc = numpy.asarray(pristine_lc["lc"], dtype=float)
+    lc_err = numpy.asarray(pristine_lc["lc_err"], dtype=float)
     stellar_noise = Spectrograph.STELLAR_NOISE.to_value(units.m / units.s)
     curves = []
 
@@ -221,18 +221,12 @@ def realistic_curves_for_sampling(
             (len(accuracy_batch), len(pristine_sample)),
         )
         noisy_rvs = pristine_sample[None, :] + rv_noise
-        noisy_lcs = lc[None, :] + numpy.random.normal(
-            0,
-            lc_noise,
-            (len(accuracy_batch), len(lc)),
-        )
         rv_errs = numpy.sqrt(stellar_noise**2 + accuracy_batch**2)
 
-        for rv_accuracy, noisy_rv, rv_err, noisy_lc in zip(
+        for rv_accuracy, noisy_rv, rv_err in zip(
             accuracy_batch,
             noisy_rvs,
             rv_errs,
-            noisy_lcs,
         ):
             curves.append(
                 curve_from_arrays(
@@ -245,8 +239,8 @@ def realistic_curves_for_sampling(
                     noisy_rv,
                     float(rv_err),
                     lc_times,
-                    noisy_lc,
-                    lc_noise,
+                    lc,
+                    lc_err,
                 )
             )
 
@@ -270,8 +264,6 @@ def gen_pristine_ts(params):
         len(pristine_lc["lc"]),
     )
 
-    lc = numpy.asarray(pristine_lc["lc"], dtype=float)
-    lc_noise = numpy.abs(numpy.median(lc[:5] - numpy.max(lc))) / 20
     curves = []
     for (cadence, baseline), rv_accuracies in grouped_params_by_sampling(
         pristine_params
@@ -285,7 +277,6 @@ def gen_pristine_ts(params):
                 rv_accuracies,
                 pristine_rv,
                 pristine_lc,
-                lc_noise,
             )
         )
 

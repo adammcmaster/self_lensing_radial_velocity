@@ -301,8 +301,10 @@ def load_pristine_lightcurve(row_or_path):
     with fits.open(photometry_path) as hdul:
         data = hdul[1].data
         flux = numpy.asarray(data["flux"], dtype=float)
+        flux_err = numpy.asarray(data["flux_err"], dtype=float)
         original_avg = numpy.median(flux)
         flux = (flux / original_avg) - 1.0
+        flux_err = flux_err / original_avg
         logger.debug(
             "Loaded lightcurve with %d samples and normalised flux median from %.6g to %.6g",
             len(flux),
@@ -312,7 +314,7 @@ def load_pristine_lightcurve(row_or_path):
         return {
             "lc_times": _jd_from_fits_time(data["time"]),
             "lc": flux,
-            "lc_err": numpy.asarray(data["flux_err"], dtype=float),
+            "lc_err": flux_err,
         }
 
 

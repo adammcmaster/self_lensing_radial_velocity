@@ -255,6 +255,18 @@ def _to_float(value):
     return float(value)
 
 
+def _representative_error(value):
+    if hasattr(value, "to_value"):
+        value = value.to_value()
+    array = numpy.asarray(value, dtype=float)
+    if array.ndim == 0:
+        return float(array)
+    finite = array[numpy.isfinite(array)]
+    if len(finite) == 0:
+        return numpy.nan
+    return float(numpy.median(finite))
+
+
 def _metadata_from_header(header, path):
     return {
         "realistic_id": header["REAL_ID"],
@@ -325,7 +337,7 @@ def metadata_row_from_params(
         "cadence": cadence,
         "baseline": baseline,
         "rv_err": rv_err,
-        "lc_err": lc_err,
+        "lc_err": _representative_error(lc_err),
     }
 
 
@@ -365,17 +377,25 @@ def _curve_table(row, rv_times, rv, rv_err, lc_times, lc, lc_err):
         array[: len(values)] = values
         return array
 
+    def error_values(error, length):
+        values = numpy.asarray(error, dtype=float)
+        if values.ndim == 0:
+            return numpy.full(length, float(values))
+        if len(values) != length:
+            raise ValueError(f"Expected {length} error values, got {len(values)}")
+        return values
+
     table = Table()
     table["rv_time"] = padded(rv_times)
     table["rv_time"].unit = "d"
     table["rv"] = padded(rv)
     table["rv"].unit = "m / s"
-    table["rv_err"] = padded(numpy.full(len(rv), _to_float(rv_err)))
+    table["rv_err"] = padded(error_values(rv_err, len(rv)))
     table["rv_err"].unit = "m / s"
     table["lc_time"] = padded(lc_times)
     table["lc_time"].unit = "d"
     table["lc"] = padded(lc)
-    table["lc_err"] = padded(numpy.full(len(lc), _to_float(lc_err)))
+    table["lc_err"] = padded(error_values(lc_err, len(lc)))
     table.meta.update(_metadata_header(row))
     return table
 
