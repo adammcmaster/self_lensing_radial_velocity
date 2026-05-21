@@ -11,6 +11,10 @@ import corner
 import numpy
 import seaborn
 
+from jax_compat import install_quax_jax_stage_patch
+
+install_quax_jax_stage_patch()
+
 from selflensing.generators import LightcurveGenerator, RVGenerator
 from selflensing.models import SelfLensingSystem
 

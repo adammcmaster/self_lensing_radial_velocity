@@ -20,6 +20,10 @@ from astropy.table import Table
 from astropy.time import Time
 from tqdm import tqdm
 
+from jax_compat import install_quax_jax_stage_patch
+
+install_quax_jax_stage_patch()
+
 from selflensing.generators import RVGenerator
 from selflensing.models import SelfLensingSystem
 

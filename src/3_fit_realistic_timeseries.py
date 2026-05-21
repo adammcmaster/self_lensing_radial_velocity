@@ -34,6 +34,10 @@ from matplotlib import pyplot
 
 from tqdm import tqdm
 
+from jax_compat import install_quax_jax_stage_patch
+
+install_quax_jax_stage_patch()
+
 from selflensing.fitting import self_lensing_system_from_fit
 from selflensing.models import DEFAULT_LIMITS, SelfLensingSystem
 
