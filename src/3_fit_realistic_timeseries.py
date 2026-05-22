@@ -41,7 +41,7 @@ from jax_compat import install_quax_jax_stage_patch
 
 install_quax_jax_stage_patch()
 
-from selflensing.fitting import self_lensing_system_from_fit
+from selflensing.fitting import self_lensing_system_from_fit_blackjax
 from selflensing.models import DEFAULT_LIMITS, SelfLensingSystem
 
 from fitting import TIMESERIES_TABLE_PATH, plot_fit, plot_emcee_diagnostics
@@ -107,9 +107,6 @@ FIT_USE_LC = os.environ.get("SLRV_FIT_USE_LC", "1").lower() in (
 )
 FIT_DEVICE = os.environ.get("SLRV_FIT_DEVICE", default_fit_device())
 FIT_LENSING_METHOD = os.environ.get("SLRV_FIT_LENSING_METHOD")
-FIT_STOP_ON_CONVERGENCE = os.environ.get(
-    "SLRV_FIT_STOP_ON_CONVERGENCE", "1"
-).lower() in ("1", "true", "yes", "on")
 FIT_MCMC_PROGRESS = os.environ.get("SLRV_FIT_MCMC_PROGRESS", "1").lower() in (
     "1",
     "true",
@@ -387,7 +384,7 @@ def fit_photometry_prefit(i, ts, curve):
         len(fit_lc["lc"]),
     )
     sls, _, walker_state = unpack_fit_result(
-        self_lensing_system_from_fit(
+        self_lensing_system_from_fit_blackjax(
             lc_times=Time(fit_lc["lc_times"], format="jd"),
             observed_lc=fit_lc["lc"] * units.dimensionless_unscaled,
             observed_lc_err=fit_lc["lc_err"] * units.dimensionless_unscaled,
@@ -399,14 +396,12 @@ def fit_photometry_prefit(i, ts, curve):
             nsteps=FIT_NSTEPS,
             nwalkers=FIT_NWALKERS,
             burn=FIT_BURN,
-            pool=False,
             progress=FIT_MCMC_PROGRESS,
             progress_desc=mcmc_desc,
             lensing_method=FIT_LENSING_METHOD,
             center_lc_model=True,
             device=FIT_DEVICE,
             prefer_gpu=FIT_DEVICE == "auto",
-            stop_on_convergence=FIT_STOP_ON_CONVERGENCE,
         )
     )
     logger.info(
@@ -456,7 +451,7 @@ def fit(a):
         ts.get("realistic_id", None),
     )
     sls, sampler, _ = unpack_fit_result(
-        self_lensing_system_from_fit(
+        self_lensing_system_from_fit_blackjax(
             rv_times=Time(curve["rv_times"], format="jd"),
             observed_rv=curve["rv"] * units.m / units.s,
             observed_rv_err=curve["rv_err"] * units.m / units.s,
@@ -475,14 +470,12 @@ def fit(a):
             nsteps=FIT_NSTEPS,
             nwalkers=FIT_NWALKERS,
             burn=FIT_BURN,
-            pool=False,
             progress=FIT_MCMC_PROGRESS,
             progress_desc=mcmc_desc,
             lensing_method=FIT_LENSING_METHOD,
             center_lc_model=True,
             device=FIT_DEVICE,
             prefer_gpu=FIT_DEVICE == "auto",
-            stop_on_convergence=FIT_STOP_ON_CONVERGENCE,
             initial_walker_state=initial_walker_state,
         )
     )
@@ -742,9 +735,8 @@ if __name__ == "__main__":
     logger.info("Fit eccentricity limits: %s", DEFAULT_LIMITS["e"])
     logger.info(
         "Fit likelihood settings: FIT_USE_LC=%s "
-        "FIT_STOP_ON_CONVERGENCE=%s FIT_MCMC_PROGRESS=%s",
+        "FIT_MCMC_PROGRESS=%s sampler=blackjax",
         FIT_USE_LC,
-        FIT_STOP_ON_CONVERGENCE,
         FIT_MCMC_PROGRESS,
     )
     logger.info("Fit device setting: FIT_DEVICE=%s", FIT_DEVICE)
