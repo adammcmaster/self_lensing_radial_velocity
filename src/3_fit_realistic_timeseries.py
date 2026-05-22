@@ -45,6 +45,12 @@ from jax_compat import install_quax_jax_stage_patch
 install_quax_jax_stage_patch()
 
 from selflensing.fitting import self_lensing_system_from_fit_blackjax
+
+try:
+    from selflensing.fitting import self_lensing_systems_from_batched_fit_blackjax
+except ImportError:
+    self_lensing_systems_from_batched_fit_blackjax = None
+
 from selflensing.models import DEFAULT_LIMITS, SelfLensingSystem
 
 from fitting import TIMESERIES_TABLE_PATH, plot_fit, plot_emcee_diagnostics
@@ -123,6 +129,12 @@ FIT_MCMC_DIAGNOSTICS = os.environ.get("SLRV_FIT_MCMC_DIAGNOSTICS", "0").lower() 
     "yes",
     "on",
 )
+FIT_BATCHED_JOINT = os.environ.get("SLRV_FIT_BATCHED_JOINT", "1").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 REQUIRE_GPU = os.environ.get("SLRV_REQUIRE_GPU", "").lower() in (
     "1",
     "true",
@@ -152,6 +164,7 @@ BLACKJAX_SUPPORTS_RETURN_WALKER_STATE = (
     "return_walker_state"
     in inspect.signature(self_lensing_system_from_fit_blackjax).parameters
 )
+BLACKJAX_SUPPORTS_BATCHED_FIT = self_lensing_systems_from_batched_fit_blackjax is not None
 BLACKJAX_UNSUPPORTED_KWARGS_WARNED = set()
 
 
@@ -159,7 +172,10 @@ def blackjax_sampler_kwargs(return_sampler, return_walker_state=True):
     kwargs = {}
     if BLACKJAX_SUPPORTS_RETURN_SAMPLER:
         kwargs["return_sampler"] = return_sampler
-    elif not return_sampler and "return_sampler" not in BLACKJAX_UNSUPPORTED_KWARGS_WARNED:
+    elif (
+        not return_sampler
+        and "return_sampler" not in BLACKJAX_UNSUPPORTED_KWARGS_WARNED
+    ):
         BLACKJAX_UNSUPPORTED_KWARGS_WARNED.add("return_sampler")
         logger.warning(
             "Installed selflensing BlackJAX fitter does not support return_sampler=False; "
@@ -609,6 +625,145 @@ def finish_pending_fit(pending_fit):
     return pending_fit.result()
 
 
+def can_use_batched_joint_fit():
+    return (
+        FIT_BATCHED_JOINT
+        and BLACKJAX_SUPPORTS_BATCHED_FIT
+        and FIT_USE_LC
+        and not return_sampler_from_fit()
+    )
+
+
+def padded_series(series, fill_value=0.0, fill_from_first=False):
+    max_len = max(len(values) for values in series)
+    data = numpy.full((len(series), max_len), fill_value, dtype=float)
+    mask = numpy.zeros((len(series), max_len), dtype=bool)
+    for index, values in enumerate(series):
+        values = numpy.asarray(values, dtype=float)
+        if fill_from_first and len(values) > 0:
+            data[index, :] = values[0]
+        data[index, : len(values)] = values
+        mask[index, : len(values)] = True
+    return data, mask
+
+
+def batched_joint_fit_inputs(rows, curves):
+    rv_times = []
+    rv = []
+    rv_err = []
+    lc_times = []
+    lc = []
+    lc_err = []
+    for _, ts in rows:
+        curve = curves[str(ts["realistic_id"])]
+        rv_times.append(curve["rv_times"])
+        rv.append(curve["rv"])
+        rv_err.append(curve["rv_err"])
+        if FIT_USE_LC:
+            fit_lc = lightcurve_fit_window(curve, ts)
+            lc_times.append(fit_lc["lc_times"])
+            lc.append(fit_lc["lc"])
+            lc_err.append(fit_lc["lc_err"])
+
+    rv_times, rv_mask = padded_series(rv_times, fill_from_first=True)
+    rv, _ = padded_series(rv)
+    rv_err, _ = padded_series(rv_err, fill_value=1.0)
+    inputs = {
+        "rv_times": rv_times,
+        "observed_rv": rv,
+        "observed_rv_err": rv_err,
+        "rv_mask": rv_mask,
+    }
+    if FIT_USE_LC:
+        lc_times, lc_mask = padded_series(lc_times, fill_from_first=True)
+        lc, _ = padded_series(lc)
+        lc_err, _ = padded_series(lc_err, fill_value=1.0)
+        inputs.update(
+            {
+                "lc_times": lc_times,
+                "observed_lc": lc,
+                "observed_lc_err": lc_err,
+                "lc_mask": lc_mask,
+            }
+        )
+    return inputs
+
+
+def fit_joint_batch(rows, curves, initial_walker_state):
+    start = time.perf_counter()
+    inputs = batched_joint_fit_inputs(rows, curves)
+    row_table = pandas.DataFrame([ts for _, ts in rows])
+    logger.info(
+        "Running batched joint MCMC for %d rows: max_rv=%d%s",
+        len(rows),
+        inputs["rv_times"].shape[1],
+        (
+            f" max_lc={inputs['lc_times'].shape[1]}"
+            if FIT_USE_LC and "lc_times" in inputs
+            else ""
+        ),
+    )
+    systems, sampler, _ = self_lensing_systems_from_batched_fit_blackjax(
+        rv_times=Time(inputs["rv_times"], format="jd"),
+        observed_rv=inputs["observed_rv"] * units.m / units.s,
+        observed_rv_err=inputs["observed_rv_err"] * units.m / units.s,
+        rv_mask=inputs["rv_mask"],
+        lc_times=(
+            Time(inputs["lc_times"], format="jd")
+            if FIT_USE_LC and "lc_times" in inputs
+            else None
+        ),
+        observed_lc=(
+            inputs["observed_lc"] * units.dimensionless_unscaled
+            if FIT_USE_LC and "observed_lc" in inputs
+            else None
+        ),
+        observed_lc_err=(
+            inputs["observed_lc_err"] * units.dimensionless_unscaled
+            if FIT_USE_LC and "observed_lc_err" in inputs
+            else None
+        ),
+        lc_mask=inputs.get("lc_mask"),
+        peak_time=Time(row_table["peak_time"].to_numpy(dtype=float), format="jd"),
+        Mcomp=row_table["Mcomp"].to_numpy(dtype=float) * units.M_sun,
+        Rcomp=row_table["Rcomp"].to_numpy(dtype=float) * units.R_sun,
+        Teff=row_table["Teff"].to_numpy(dtype=float) * units.K,
+        false_alarm_probability=0.5,
+        nsteps=FIT_NSTEPS,
+        nwalkers=FIT_NWALKERS,
+        burn=FIT_BURN,
+        progress=FIT_MCMC_PROGRESS,
+        progress_desc=f"MCMC batched joint {short_id(rows[0][1].get('pristine_id', None))}",
+        progress_chunk_size=FIT_PROGRESS_CHUNK_SIZE,
+        lensing_method=FIT_LENSING_METHOD,
+        center_lc_model=True,
+        device=FIT_DEVICE,
+        prefer_gpu=FIT_DEVICE == "auto",
+        initial_walker_state=initial_walker_state,
+        return_sampler=False,
+        return_walker_state=False,
+    )
+    logger.info(
+        "Batched joint MCMC returned %d systems in %.2f s",
+        len(systems),
+        time.perf_counter() - start,
+    )
+    if sampler is not None:
+        logger.warning("Ignoring unexpected batched sampler result")
+    results = []
+    materialize_start = time.perf_counter()
+    for (i, ts), sls in zip(rows, systems):
+        curve = curves[str(ts["realistic_id"])]
+        new_ts = fitted_timeseries_row(i, ts, truth_self_lensing_system(ts), sls)
+        results.append((new_ts, None, curve))
+    logger.info(
+        "Materialized %d batched fit results in %.2f s",
+        len(results),
+        time.perf_counter() - materialize_start,
+    )
+    return results
+
+
 def fit_realistic_file(rows):
     rows = list(rows)
     if not rows:
@@ -635,38 +790,56 @@ def fit_realistic_file(rows):
         )
         prefit_result = (prefit_ts, None, prefit_curve)
     results = []
-    file_progress_desc = (
-        f"RV joint fits {short_id(rows[0][1].get('pristine_id', Path(path).stem))}"
-    )
-    row_iterator = tqdm(
-        rows,
-        total=len(rows),
-        desc=file_progress_desc,
-        leave=False,
-        dynamic_ncols=True,
-    )
-    pending_fit = None
-    with ThreadPoolExecutor(max_workers=1) as row_executor:
-        for row_number, (i, ts) in enumerate(row_iterator, start=1):
+    if can_use_batched_joint_fit():
+        results = fit_joint_batch(rows, curves, initial_walker_state)
+    else:
+        if FIT_BATCHED_JOINT and not BLACKJAX_SUPPORTS_BATCHED_FIT:
+            logger.warning(
+                "Installed selflensing does not support batched BlackJAX fits; "
+                "falling back to per-row joint fits"
+            )
+        elif FIT_BATCHED_JOINT and return_sampler_from_fit():
             logger.info(
-                "Starting joint fit %d/%d for realistic_id=%s",
-                row_number,
-                len(rows),
-                ts.get("realistic_id", None),
+                "Falling back to per-row joint fits because sampler diagnostics "
+                "require per-fit sampler results"
             )
-            curve = curves[str(ts["realistic_id"])]
-            mcmc_desc = (
-                f"MCMC joint {row_number}/{len(rows)} "
-                f"{short_id(ts.get('realistic_id', None))}"
+        elif FIT_BATCHED_JOINT and not FIT_USE_LC:
+            logger.info(
+                "Falling back to per-row joint fits because batched joint fits "
+                "currently require FIT_USE_LC=True"
             )
-            fit_result = run_fit((i, ts, curve, initial_walker_state, mcmc_desc))
+        file_progress_desc = (
+            f"RV joint fits {short_id(rows[0][1].get('pristine_id', Path(path).stem))}"
+        )
+        row_iterator = tqdm(
+            rows,
+            total=len(rows),
+            desc=file_progress_desc,
+            leave=False,
+            dynamic_ncols=True,
+        )
+        pending_fit = None
+        with ThreadPoolExecutor(max_workers=1) as row_executor:
+            for row_number, (i, ts) in enumerate(row_iterator, start=1):
+                logger.info(
+                    "Starting joint fit %d/%d for realistic_id=%s",
+                    row_number,
+                    len(rows),
+                    ts.get("realistic_id", None),
+                )
+                curve = curves[str(ts["realistic_id"])]
+                mcmc_desc = (
+                    f"MCMC joint {row_number}/{len(rows)} "
+                    f"{short_id(ts.get('realistic_id', None))}"
+                )
+                fit_result = run_fit((i, ts, curve, initial_walker_state, mcmc_desc))
+                finished_fit = finish_pending_fit(pending_fit)
+                if finished_fit is not None:
+                    results.append(finished_fit)
+                pending_fit = row_executor.submit(materialize_fit_result, fit_result)
             finished_fit = finish_pending_fit(pending_fit)
             if finished_fit is not None:
                 results.append(finished_fit)
-            pending_fit = row_executor.submit(materialize_fit_result, fit_result)
-        finished_fit = finish_pending_fit(pending_fit)
-        if finished_fit is not None:
-            results.append(finished_fit)
     logger.info("Finished all joint fits for %s; writing diagnostic PDF", path)
     save_plots_pdf(results, prefit_result=prefit_result)
     logger.info("Finished grouped fit for %s", path)
@@ -872,6 +1045,11 @@ if __name__ == "__main__":
     )
     logger.info("Fit device setting: FIT_DEVICE=%s", FIT_DEVICE)
     logger.info("Fit lensing method: FIT_LENSING_METHOD=%s", FIT_LENSING_METHOD)
+    logger.info(
+        "Batched joint fit setting: FIT_BATCHED_JOINT=%s supported=%s",
+        FIT_BATCHED_JOINT,
+        BLACKJAX_SUPPORTS_BATCHED_FIT,
+    )
     logger.info(
         "MCMC diagnostic plot settings: return_sampler=%s plot_fit_in_worker=%s",
         return_sampler_from_fit(),
