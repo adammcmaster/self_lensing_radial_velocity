@@ -98,8 +98,20 @@ def default_fit_device():
     return "auto"
 
 
+def optional_positive_int(value):
+    if value is None:
+        return None
+    value = str(value).strip().lower()
+    if value in ("", "0", "all", "none", "false", "no"):
+        return None
+    value = int(value)
+    if value < 1:
+        return None
+    return value
+
+
 FIT_MAX_WORKERS = int(os.environ.get("SLRV_FIT_MAX_WORKERS", default_fit_max_workers()))
-FIT_SAMPLE_SIZE = int(os.environ.get("SLRV_FIT_SAMPLE_SIZE", 5000))
+FIT_SAMPLE_SIZE = optional_positive_int(os.environ.get("SLRV_FIT_SAMPLE_SIZE", "all"))
 FIT_BATCH_FILE = os.environ.get("SLRV_FIT_BATCH_FILE")
 PLOT_MAX_WORKERS = int(os.environ.get("SLRV_PLOT_MAX_WORKERS", FIT_MAX_WORKERS))
 SAVE_FIT_PLOTS = os.environ.get("SLRV_SAVE_FIT_PLOTS", "1").lower() in (
@@ -1108,11 +1120,12 @@ if __name__ == "__main__":
     logger.info("Starting realistic timeseries fitting script")
     if args.clear_results:
         clear_existing_results()
+    fit_sample_size_label = FIT_SAMPLE_SIZE if FIT_SAMPLE_SIZE is not None else "all"
     logger.info(
-        "Starting fitting script with FIT_MAX_WORKERS=%d FIT_SAMPLE_SIZE=%d "
+        "Starting fitting script with FIT_MAX_WORKERS=%d FIT_SAMPLE_SIZE=%s "
         "PLOT_MAX_WORKERS=%d SAVE_FIT_PLOTS=%s CHECKPOINT_RESULTS=%s",
         FIT_MAX_WORKERS,
-        FIT_SAMPLE_SIZE,
+        fit_sample_size_label,
         PLOT_MAX_WORKERS,
         SAVE_FIT_PLOTS,
         CHECKPOINT_RESULTS,
@@ -1197,6 +1210,8 @@ if __name__ == "__main__":
 
     if FIT_BATCH_FILE:
         logger.info("Using all %d manifest rows for fitting", len(rts))
+    elif FIT_SAMPLE_SIZE is None:
+        logger.info("Using all %d unfitted rows for standalone fitting", len(rts))
     else:
         rts = sample_realistic_path_groups(rts, FIT_SAMPLE_SIZE)
 
