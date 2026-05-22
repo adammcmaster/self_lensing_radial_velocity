@@ -9,7 +9,9 @@ import os
 import argparse
 import shutil
 import inspect
+import time
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -97,6 +99,7 @@ MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "spawn")
 FIT_NSTEPS = int(os.environ.get("SLRV_FIT_NSTEPS", 2000))
 FIT_NWALKERS = int(os.environ.get("SLRV_FIT_NWALKERS", 1024))
 FIT_BURN = int(os.environ.get("SLRV_FIT_BURN", 200))
+FIT_PROGRESS_CHUNK_SIZE = int(os.environ.get("SLRV_FIT_PROGRESS_CHUNK_SIZE", 100))
 FIT_LC_BINS = 100
 FIT_E_MIN = os.environ.get("SLRV_FIT_E_MIN")
 FIT_E_MAX = os.environ.get("SLRV_FIT_E_MAX")
@@ -145,17 +148,36 @@ BLACKJAX_SUPPORTS_RETURN_SAMPLER = (
     "return_sampler"
     in inspect.signature(self_lensing_system_from_fit_blackjax).parameters
 )
+BLACKJAX_SUPPORTS_RETURN_WALKER_STATE = (
+    "return_walker_state"
+    in inspect.signature(self_lensing_system_from_fit_blackjax).parameters
+)
+BLACKJAX_UNSUPPORTED_KWARGS_WARNED = set()
 
 
-def blackjax_sampler_kwargs(return_sampler):
+def blackjax_sampler_kwargs(return_sampler, return_walker_state=True):
+    kwargs = {}
     if BLACKJAX_SUPPORTS_RETURN_SAMPLER:
-        return {"return_sampler": return_sampler}
-    if not return_sampler:
+        kwargs["return_sampler"] = return_sampler
+    elif not return_sampler and "return_sampler" not in BLACKJAX_UNSUPPORTED_KWARGS_WARNED:
+        BLACKJAX_UNSUPPORTED_KWARGS_WARNED.add("return_sampler")
         logger.warning(
             "Installed selflensing BlackJAX fitter does not support return_sampler=False; "
             "full chains will be copied back after each fit"
         )
-    return {}
+    if BLACKJAX_SUPPORTS_RETURN_WALKER_STATE:
+        kwargs["return_walker_state"] = return_walker_state
+    elif (
+        not return_walker_state
+        and "return_walker_state" not in BLACKJAX_UNSUPPORTED_KWARGS_WARNED
+    ):
+        BLACKJAX_UNSUPPORTED_KWARGS_WARNED.add("return_walker_state")
+        logger.warning(
+            "Installed selflensing BlackJAX fitter does not support "
+            "return_walker_state=False; final walker coordinates will be copied "
+            "back after each fit"
+        )
+    return kwargs
 
 
 def process_map(fn, iterable, total=None, desc=None, max_workers=None, chunksize=1):
@@ -462,6 +484,7 @@ def fit_photometry_prefit(i, ts, curve):
             burn=FIT_BURN,
             progress=FIT_MCMC_PROGRESS,
             progress_desc=mcmc_desc,
+            progress_chunk_size=FIT_PROGRESS_CHUNK_SIZE,
             lensing_method=FIT_LENSING_METHOD,
             center_lc_model=True,
             device=FIT_DEVICE,
@@ -479,6 +502,11 @@ def fit_photometry_prefit(i, ts, curve):
 
 
 def fit(a):
+    fit_result = run_fit(a)
+    return materialize_fit_result(fit_result)
+
+
+def run_fit(a):
     if len(a) == 5:
         i, ts, curve, initial_walker_state, mcmc_desc = a
     elif len(a) == 4:
@@ -515,6 +543,7 @@ def fit(a):
         i,
         ts.get("realistic_id", None),
     )
+    fit_start = time.perf_counter()
     sls, sampler, _ = unpack_fit_result(
         self_lensing_system_from_fit_blackjax(
             rv_times=Time(curve["rv_times"], format="jd"),
@@ -537,23 +566,47 @@ def fit(a):
             burn=FIT_BURN,
             progress=FIT_MCMC_PROGRESS,
             progress_desc=mcmc_desc,
+            progress_chunk_size=FIT_PROGRESS_CHUNK_SIZE,
             lensing_method=FIT_LENSING_METHOD,
             center_lc_model=True,
             device=FIT_DEVICE,
             prefer_gpu=FIT_DEVICE == "auto",
             initial_walker_state=initial_walker_state,
-            **blackjax_sampler_kwargs(return_sampler=return_sampler_from_fit()),
+            **blackjax_sampler_kwargs(
+                return_sampler=return_sampler_from_fit(),
+                return_walker_state=False,
+            ),
         )
     )
+    logger.info(
+        "MCMC fit returned for row index=%s realistic_id=%s in %.2f s",
+        i,
+        ts.get("realistic_id", None),
+        time.perf_counter() - fit_start,
+    )
+    return i, ts, truth_sls, sls, sampler, curve
+
+
+def materialize_fit_result(fit_result):
+    i, ts, truth_sls, sls, sampler, curve = fit_result
+    materialize_start = time.perf_counter()
     new_ts = fitted_timeseries_row(i, ts, truth_sls, sls)
     logger.info(
-        "Finished fit for row index=%s: fitted_a=%.6g fitted_Macc=%.6g fitted_e=%.6g",
+        "Materialized fit result for row index=%s in %.2f s: "
+        "fitted_a=%.6g fitted_Macc=%.6g fitted_e=%.6g",
         i,
+        time.perf_counter() - materialize_start,
         new_ts["fitted_a"],
         new_ts["fitted_Macc"],
         new_ts["fitted_e"],
     )
     return new_ts, sampler, curve
+
+
+def finish_pending_fit(pending_fit):
+    if pending_fit is None:
+        return None
+    return pending_fit.result()
 
 
 def fit_realistic_file(rows):
@@ -592,19 +645,28 @@ def fit_realistic_file(rows):
         leave=False,
         dynamic_ncols=True,
     )
-    for row_number, (i, ts) in enumerate(row_iterator, start=1):
-        logger.info(
-            "Starting joint fit %d/%d for realistic_id=%s",
-            row_number,
-            len(rows),
-            ts.get("realistic_id", None),
-        )
-        curve = curves[str(ts["realistic_id"])]
-        mcmc_desc = (
-            f"MCMC joint {row_number}/{len(rows)} "
-            f"{short_id(ts.get('realistic_id', None))}"
-        )
-        results.append(fit((i, ts, curve, initial_walker_state, mcmc_desc)))
+    pending_fit = None
+    with ThreadPoolExecutor(max_workers=1) as row_executor:
+        for row_number, (i, ts) in enumerate(row_iterator, start=1):
+            logger.info(
+                "Starting joint fit %d/%d for realistic_id=%s",
+                row_number,
+                len(rows),
+                ts.get("realistic_id", None),
+            )
+            curve = curves[str(ts["realistic_id"])]
+            mcmc_desc = (
+                f"MCMC joint {row_number}/{len(rows)} "
+                f"{short_id(ts.get('realistic_id', None))}"
+            )
+            fit_result = run_fit((i, ts, curve, initial_walker_state, mcmc_desc))
+            finished_fit = finish_pending_fit(pending_fit)
+            if finished_fit is not None:
+                results.append(finished_fit)
+            pending_fit = row_executor.submit(materialize_fit_result, fit_result)
+        finished_fit = finish_pending_fit(pending_fit)
+        if finished_fit is not None:
+            results.append(finished_fit)
     logger.info("Finished all joint fits for %s; writing diagnostic PDF", path)
     save_plots_pdf(results, prefit_result=prefit_result)
     logger.info("Finished grouped fit for %s", path)
@@ -792,10 +854,12 @@ if __name__ == "__main__":
     )
     logger.info("Fit batch file: %s", FIT_BATCH_FILE)
     logger.info(
-        "MCMC settings: FIT_NSTEPS=%d FIT_NWALKERS=%d FIT_BURN=%d MP_START_METHOD=%s",
+        "MCMC settings: FIT_NSTEPS=%d FIT_NWALKERS=%d FIT_BURN=%d "
+        "FIT_PROGRESS_CHUNK_SIZE=%d MP_START_METHOD=%s",
         FIT_NSTEPS,
         FIT_NWALKERS,
         FIT_BURN,
+        FIT_PROGRESS_CHUNK_SIZE,
         MP_START_METHOD,
     )
     logger.info("Fit eccentricity limits: %s", DEFAULT_LIMITS["e"])
