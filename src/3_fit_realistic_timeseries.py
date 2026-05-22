@@ -6,7 +6,10 @@ import logging
 import multiprocessing
 import warnings
 import os
+import argparse
+import shutil
 from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
@@ -55,6 +58,18 @@ warnings.filterwarnings("ignore")
 warnings.filterwarnings("ignore", module="erfa.core")
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Fit realistic timeseries and record fitted parameters."
+    )
+    parser.add_argument(
+        "--clear-results",
+        action="store_true",
+        help="Remove saved fit results and generated fit figures before running.",
+    )
+    return parser.parse_args()
+
+
 def jax_device_summary():
     return ", ".join(
         f"{device.platform}:{device.device_kind}" for device in JAX_DEVICES
@@ -76,7 +91,6 @@ def default_fit_device():
 FIT_MAX_WORKERS = int(os.environ.get("SLRV_FIT_MAX_WORKERS", default_fit_max_workers()))
 FIT_SAMPLE_SIZE = int(os.environ.get("SLRV_FIT_SAMPLE_SIZE", 5000))
 FIT_BATCH_FILE = os.environ.get("SLRV_FIT_BATCH_FILE")
-FIT_CHUNK_SIZE = int(os.environ.get("SLRV_FIT_CHUNK_SIZE", 2 * FIT_MAX_WORKERS))
 PLOT_MAX_WORKERS = int(os.environ.get("SLRV_PLOT_MAX_WORKERS", FIT_MAX_WORKERS))
 MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "spawn")
 FIT_NSTEPS = int(os.environ.get("SLRV_FIT_NSTEPS", 2000))
@@ -314,6 +328,12 @@ def walker_state_coords(walker_state):
     return numpy.asarray(getattr(walker_state, "coords", walker_state), dtype=float)
 
 
+def short_id(value, length=8):
+    if value is None or pandas.isna(value):
+        return "unknown"
+    return str(value)[:length]
+
+
 def fitted_timeseries_row(i, ts, truth_sls, sls):
     new_ts = pandas.Series(ts)
     new_ts["realistic_idx"] = i
@@ -332,6 +352,7 @@ def fitted_timeseries_row(i, ts, truth_sls, sls):
 
 def fit_photometry_prefit(i, ts, curve):
     fit_lc = lightcurve_fit_window(curve, ts)
+    mcmc_desc = f"MCMC prefit {short_id(ts.get('realistic_id', None))}"
     logger.info(
         "Starting photometry-only prefit for realistic_id=%s with %d clipped LC samples",
         ts.get("realistic_id", None),
@@ -352,6 +373,7 @@ def fit_photometry_prefit(i, ts, curve):
             burn=FIT_BURN,
             pool=False,
             progress=FIT_MCMC_PROGRESS,
+            progress_desc=mcmc_desc,
             lensing_method=FIT_LENSING_METHOD,
             center_lc_model=True,
             device=FIT_DEVICE,
@@ -369,15 +391,20 @@ def fit_photometry_prefit(i, ts, curve):
 
 
 def fit(a):
-    if len(a) == 4:
+    if len(a) == 5:
+        i, ts, curve, initial_walker_state, mcmc_desc = a
+    elif len(a) == 4:
         i, ts, curve, initial_walker_state = a
+        mcmc_desc = f"MCMC joint {short_id(ts.get('realistic_id', None))}"
     elif len(a) == 3:
         i, ts, curve = a
         initial_walker_state = None
+        mcmc_desc = f"MCMC joint {short_id(ts.get('realistic_id', None))}"
     else:
         i, ts = a
         curve = load_realistic_timeseries_curve(ts)
         initial_walker_state = None
+        mcmc_desc = f"MCMC joint {short_id(ts.get('realistic_id', None))}"
     logger.info(
         "Starting fit for row index=%s realistic_id=%s path=%s",
         i,
@@ -422,6 +449,7 @@ def fit(a):
             burn=FIT_BURN,
             pool=False,
             progress=FIT_MCMC_PROGRESS,
+            progress_desc=mcmc_desc,
             lensing_method=FIT_LENSING_METHOD,
             center_lc_model=True,
             device=FIT_DEVICE,
@@ -467,7 +495,17 @@ def fit_realistic_file(rows):
         )
         prefit_result = (prefit_ts, None, prefit_curve)
     results = []
-    for row_number, (i, ts) in enumerate(rows, start=1):
+    file_progress_desc = (
+        f"RV joint fits {short_id(rows[0][1].get('pristine_id', Path(path).stem))}"
+    )
+    row_iterator = tqdm(
+        rows,
+        total=len(rows),
+        desc=file_progress_desc,
+        leave=False,
+        dynamic_ncols=True,
+    )
+    for row_number, (i, ts) in enumerate(row_iterator, start=1):
         logger.info(
             "Starting joint fit %d/%d for realistic_id=%s",
             row_number,
@@ -475,7 +513,11 @@ def fit_realistic_file(rows):
             ts.get("realistic_id", None),
         )
         curve = curves[str(ts["realistic_id"])]
-        results.append(fit((i, ts, curve, initial_walker_state)))
+        mcmc_desc = (
+            f"MCMC joint {row_number}/{len(rows)} "
+            f"{short_id(ts.get('realistic_id', None))}"
+        )
+        results.append(fit((i, ts, curve, initial_walker_state, mcmc_desc)))
     logger.info("Finished all joint fits for %s; writing diagnostic PDF", path)
     save_plots_pdf(results, prefit_result=prefit_result)
     logger.info("Finished grouped fit for %s", path)
@@ -494,8 +536,45 @@ def grouped_realistic_rows(table):
     return groups
 
 
+def sample_realistic_path_groups(table, sample_size):
+    if table.empty:
+        return table.copy()
+
+    paths = pandas.Series(table["realistic_path"].drop_duplicates())
+    group_sample_size = min(int(sample_size), len(paths))
+    logger.info(
+        "Sampling %d/%d realistic FITS-file groups for standalone fitting",
+        group_sample_size,
+        len(paths),
+    )
+    sampled_paths = set(paths.sample(group_sample_size))
+    sampled = table[table["realistic_path"].isin(sampled_paths)].copy()
+    logger.info(
+        "Sampled %d realistic rows across %d FITS-file groups for fitting",
+        len(sampled),
+        group_sample_size,
+    )
+    return sampled
+
+
 FIG_PATH = DATA_PATH / "figures"
 FIG_PATH.mkdir(exist_ok=True, parents=True)
+
+
+def clear_existing_results():
+    paths = [
+        TIMESERIES_TABLE_PATH,
+        Path(f"{TIMESERIES_TABLE_PATH}.new.gz"),
+    ]
+    for path in paths:
+        if path.exists():
+            logger.info("Removing saved fit results at %s", path)
+            path.unlink()
+
+    if FIG_PATH.exists():
+        logger.info("Removing generated fit figures at %s", FIG_PATH)
+        shutil.rmtree(FIG_PATH)
+    FIG_PATH.mkdir(exist_ok=True, parents=True)
 
 
 def plot_label(ts):
@@ -613,13 +692,15 @@ def save_plots(a):
 
 
 if __name__ == "__main__":
+    args = parse_args()
     configure_logging()
     logger.info("Starting realistic timeseries fitting script")
+    if args.clear_results:
+        clear_existing_results()
     logger.info(
-        "Starting fitting script with FIT_MAX_WORKERS=%d FIT_SAMPLE_SIZE=%d FIT_CHUNK_SIZE=%d PLOT_MAX_WORKERS=%d",
+        "Starting fitting script with FIT_MAX_WORKERS=%d FIT_SAMPLE_SIZE=%d PLOT_MAX_WORKERS=%d",
         FIT_MAX_WORKERS,
         FIT_SAMPLE_SIZE,
-        FIT_CHUNK_SIZE,
         PLOT_MAX_WORKERS,
     )
     logger.info("Fit batch file: %s", FIT_BATCH_FILE)
@@ -696,22 +777,13 @@ if __name__ == "__main__":
     if FIT_BATCH_FILE:
         logger.info("Using all %d manifest rows for fitting", len(rts))
     else:
-        sample_size = min(FIT_SAMPLE_SIZE, len(rts))
-        logger.info(
-            "Sampling %d/%d unfitted realistic rows for standalone fitting",
-            sample_size,
-            len(rts),
-        )
-        rts = rts.sample(sample_size)
-        logger.info("Sampled %d realistic rows for fitting", len(rts))
+        rts = sample_realistic_path_groups(rts, FIT_SAMPLE_SIZE)
 
     jobs = grouped_realistic_rows(rts)
-    chunks = [jobs[i : i + FIT_CHUNK_SIZE] for i in range(0, len(jobs), FIT_CHUNK_SIZE)]
     logger.info(
-        "Grouped %d rows into %d FITS-file jobs and %d chunks",
+        "Grouped %d rows into %d FITS-file jobs",
         len(rts),
         len(jobs),
-        len(chunks),
     )
 
     results = (
@@ -720,29 +792,20 @@ if __name__ == "__main__":
         else []
     )
 
-    for chunk_index, chunk in enumerate(tqdm(chunks, desc="All chunks"), start=1):
-        logger.info(
-            "Fitting chunk %d/%d with %d FITS-file jobs",
-            chunk_index,
-            len(chunks),
-            len(chunk),
-        )
-        grouped_new_results = process_map(
-            fit_realistic_file,
-            chunk,
-            total=len(chunk),
-            desc="Current chunk",
-            max_workers=FIT_MAX_WORKERS,
-        )
-        new_results = [result for group in grouped_new_results for result in group]
-        results += [r[0] for r in new_results]
-        logger.info(
-            "Chunk %d/%d produced %d fit results; cumulative results=%d",
-            chunk_index,
-            len(chunks),
-            len(new_results),
-            len(results),
-        )
-        save_results(results)
-        logger.debug("Skipping parent-process plot saving; PDFs were saved per FITS job")
+    grouped_new_results = process_map(
+        fit_realistic_file,
+        jobs,
+        total=len(jobs),
+        desc="FITS-file jobs",
+        max_workers=FIT_MAX_WORKERS,
+    )
+    new_results = [result for group in grouped_new_results for result in group]
+    results += [r[0] for r in new_results]
+    logger.info(
+        "Fit jobs produced %d fit results; cumulative results=%d",
+        len(new_results),
+        len(results),
+    )
+    save_results(results)
+    logger.debug("Skipping parent-process plot saving; PDFs were saved per FITS job")
     logger.info("Finished fitting script")

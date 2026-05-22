@@ -10,6 +10,20 @@ from astropy.time import Time
 import numpy
 
 
+class TqdmLoggingHandler(logging.StreamHandler):
+    """Logging handler that writes without corrupting active tqdm bars."""
+
+    def emit(self, record):
+        try:
+            from tqdm import tqdm
+
+            message = self.format(record)
+            tqdm.write(message, file=self.stream)
+            self.flush()
+        except Exception:
+            self.handleError(record)
+
+
 def _env_flag(name):
     value = os.environ.get(name, "")
     return value.lower() not in ("", "0", "false", "no", "off")
@@ -18,10 +32,11 @@ def _env_flag(name):
 def configure_logging():
     """Configure application logging from environment variables."""
     level = logging.DEBUG if _env_flag("DEBUG") else logging.INFO
-    logging.basicConfig(
-        level=logging.WARNING,
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    handler = TqdmLoggingHandler()
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
     )
+    logging.basicConfig(level=logging.WARNING, handlers=[handler], force=True)
     logging.getLogger().setLevel(logging.WARNING)
     for logger_name in (
         "__main__",

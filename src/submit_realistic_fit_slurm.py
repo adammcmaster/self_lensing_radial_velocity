@@ -111,8 +111,8 @@ def parse_args():
     parser.add_argument(
         "--fit-max-workers",
         type=positive_int,
-        default=2,
-        help="SLRV_FIT_MAX_WORKERS inside each array task.",
+        default=1,
+        help="Deprecated; SLURM fit jobs always use one worker per GPU.",
     )
     parser.add_argument(
         "--fit-nsteps",
@@ -282,9 +282,9 @@ def write_sbatch_script(args, submit_dir, n_batches):
         "",
         "export SLRV_REQUIRE_GPU=1",
         "export SLRV_FIT_DEVICE=gpu:0",
-        f"export SLRV_FIT_MAX_WORKERS={args.fit_max_workers}",
-        f"export SLRV_PLOT_MAX_WORKERS={args.fit_max_workers}",
-        f"export SLRV_FIT_CHUNK_SIZE={max(1, 2 * args.fit_max_workers)}",
+        "export SLRV_FIT_MAX_WORKERS=1",
+        "export SLRV_PLOT_MAX_WORKERS=1",
+        "export SLRV_FIT_CHUNK_SIZE=1",
         "export SLRV_MP_START_METHOD=spawn",
         "export OMP_NUM_THREADS=1",
         "export OPENBLAS_NUM_THREADS=1",
