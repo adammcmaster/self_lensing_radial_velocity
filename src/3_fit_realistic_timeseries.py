@@ -142,7 +142,8 @@ def configure_fit_parameter_limits():
 configure_fit_parameter_limits()
 
 BLACKJAX_SUPPORTS_RETURN_SAMPLER = (
-    "return_sampler" in inspect.signature(self_lensing_system_from_fit_blackjax).parameters
+    "return_sampler"
+    in inspect.signature(self_lensing_system_from_fit_blackjax).parameters
 )
 
 
@@ -320,20 +321,61 @@ def lightcurve_fit_window(curve, ts):
         )
 
     lc_times = numpy.asarray(curve["lc_times"], dtype=float)
+    logger.debug(
+        "Cutting light curve fit window for realistic_id=%s: total photometric points=%d",
+        ts.get("realistic_id", None),
+        len(lc_times),
+    )
     mask = (lc_times >= peak_time - tau_eff) & (lc_times <= peak_time + tau_eff)
     lc = numpy.asarray(curve["lc"], dtype=float)
     lc_err = numpy.asarray(curve["lc_err"], dtype=float)
+
+    # If lc_err is all NaNs, calculate from data
+    if numpy.all(~numpy.isfinite(lc_err)):
+        logger.debug(
+            "lc_err is all NaNs for realistic_id=%s, calculating from data",
+            ts.get("realistic_id", None),
+        )
+        lc_err = numpy.full_like(lc, numpy.std(lc[numpy.isfinite(lc)]))
+        logger.debug(
+            "Calculated lc_err for realistic_id=%s: %s",
+            ts.get("realistic_id", None),
+            lc_err,
+        )
+
     mask &= numpy.isfinite(lc_times) & numpy.isfinite(lc) & numpy.isfinite(lc_err)
     mask &= lc_err > 0
+
+    logger.debug(
+        "Mask for realistic_id=%s: %s (True count=%d)",
+        ts.get("realistic_id", None),
+        mask,
+        numpy.sum(mask),
+    )
+    logger.debug(
+        "lc_err for realistic_id=%s: %s",
+        ts.get("realistic_id", None),
+        lc_err,
+    )
     if not numpy.any(mask):
         raise ValueError(
             f"Light-curve fit window is empty for realistic_id={ts.get('realistic_id', None)} "
-            f"peak_time={peak_time!r} tau_eff={tau_eff!r}"
+            f"peak_time={peak_time!r} tau_eff={tau_eff!r} lc_times range={lc_times[0]} to {lc_times[-1]}"
         )
 
     lc_times = lc_times[mask]
     lc = lc[mask]
     lc_err = lc_err[mask]
+    logger.debug(
+        "After quality filtering for realistic_id=%s: %d photometric points remain",
+        ts.get("realistic_id", None),
+        len(lc_times),
+    )
+    logger.debug(
+        "Masked lc_err for realistic_id=%s: %s",
+        ts.get("realistic_id", None),
+        lc_err,
+    )
     bin_edges = numpy.linspace(
         peak_time - tau_eff, peak_time + tau_eff, FIT_LC_BINS + 1
     )
@@ -688,7 +730,7 @@ def save_plots_pdf(results, prefit_result=None):
             pdf.savefig(prefit_fig)
             pyplot.close(prefit_fig)
 
-        for ts, sampler, curve in results:
+        for ts, sampler, curve in tqdm(results, desc="Plotting fits", unit="fit"):
             if curve is None:
                 curve = load_realistic_timeseries_curve(ts)
 
