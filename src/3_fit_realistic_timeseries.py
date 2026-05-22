@@ -8,6 +8,7 @@ import warnings
 import os
 import argparse
 import shutil
+import inspect
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -113,6 +114,12 @@ FIT_MCMC_PROGRESS = os.environ.get("SLRV_FIT_MCMC_PROGRESS", "1").lower() in (
     "yes",
     "on",
 )
+FIT_MCMC_DIAGNOSTICS = os.environ.get("SLRV_FIT_MCMC_DIAGNOSTICS", "0").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 REQUIRE_GPU = os.environ.get("SLRV_REQUIRE_GPU", "").lower() in (
     "1",
     "true",
@@ -133,6 +140,21 @@ def configure_fit_parameter_limits():
 
 
 configure_fit_parameter_limits()
+
+BLACKJAX_SUPPORTS_RETURN_SAMPLER = (
+    "return_sampler" in inspect.signature(self_lensing_system_from_fit_blackjax).parameters
+)
+
+
+def blackjax_sampler_kwargs(return_sampler):
+    if BLACKJAX_SUPPORTS_RETURN_SAMPLER:
+        return {"return_sampler": return_sampler}
+    if not return_sampler:
+        logger.warning(
+            "Installed selflensing BlackJAX fitter does not support return_sampler=False; "
+            "full chains will be copied back after each fit"
+        )
+    return {}
 
 
 def process_map(fn, iterable, total=None, desc=None, max_workers=None, chunksize=1):
@@ -172,7 +194,7 @@ def process_map(fn, iterable, total=None, desc=None, max_workers=None, chunksize
 
 
 def return_sampler_from_fit():
-    return FIT_MAX_WORKERS == 1 and PLOT_MAX_WORKERS == 1
+    return FIT_MCMC_DIAGNOSTICS and FIT_MAX_WORKERS == 1 and PLOT_MAX_WORKERS == 1
 
 
 def plot_fit_in_worker():
@@ -402,6 +424,7 @@ def fit_photometry_prefit(i, ts, curve):
             center_lc_model=True,
             device=FIT_DEVICE,
             prefer_gpu=FIT_DEVICE == "auto",
+            **blackjax_sampler_kwargs(return_sampler=False),
         )
     )
     logger.info(
@@ -477,6 +500,7 @@ def fit(a):
             device=FIT_DEVICE,
             prefer_gpu=FIT_DEVICE == "auto",
             initial_walker_state=initial_walker_state,
+            **blackjax_sampler_kwargs(return_sampler=return_sampler_from_fit()),
         )
     )
     new_ts = fitted_timeseries_row(i, ts, truth_sls, sls)
@@ -735,9 +759,10 @@ if __name__ == "__main__":
     logger.info("Fit eccentricity limits: %s", DEFAULT_LIMITS["e"])
     logger.info(
         "Fit likelihood settings: FIT_USE_LC=%s "
-        "FIT_MCMC_PROGRESS=%s sampler=blackjax",
+        "FIT_MCMC_PROGRESS=%s FIT_MCMC_DIAGNOSTICS=%s sampler=blackjax",
         FIT_USE_LC,
         FIT_MCMC_PROGRESS,
+        FIT_MCMC_DIAGNOSTICS,
     )
     logger.info("Fit device setting: FIT_DEVICE=%s", FIT_DEVICE)
     logger.info("Fit lensing method: FIT_LENSING_METHOD=%s", FIT_LENSING_METHOD)
