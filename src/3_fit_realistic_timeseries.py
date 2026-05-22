@@ -42,7 +42,6 @@ from selflensing.fitting import self_lensing_system_from_fit
 from selflensing.models import DEFAULT_LIMITS, SelfLensingSystem
 
 from fitting import TIMESERIES_TABLE_PATH, plot_fit, plot_emcee_diagnostics
-from lensing_jax import install_selflensing_jax_lensing_patch
 from realistic import (
     load_realistic_timeseries,
     load_realistic_timeseries_curve,
@@ -54,8 +53,6 @@ logger = logging.getLogger(__name__)
 
 warnings.filterwarnings("ignore")
 warnings.filterwarnings("ignore", module="erfa.core")
-
-install_selflensing_jax_lensing_patch()
 
 
 def jax_device_summary():
@@ -94,14 +91,7 @@ FIT_USE_LC = os.environ.get("SLRV_FIT_USE_LC", "1").lower() in (
     "on",
 )
 FIT_DEVICE = os.environ.get("SLRV_FIT_DEVICE", default_fit_device())
-FIT_LENSING_METHOD = os.environ.get(
-    "SLRV_FIT_LENSING_METHOD",
-    (
-        "IntegratedWittMaoJax"
-        if any(device.platform == "gpu" for device in JAX_DEVICES)
-        else "IntegratedWittMao"
-    ),
-)
+FIT_LENSING_METHOD = os.environ.get("SLRV_FIT_LENSING_METHOD")
 FIT_STOP_ON_CONVERGENCE = os.environ.get(
     "SLRV_FIT_STOP_ON_CONVERGENCE", "1"
 ).lower() in ("1", "true", "yes", "on")

@@ -18,7 +18,6 @@ install_quax_jax_stage_patch()
 from selflensing.generators import LightcurveGenerator, RVGenerator
 from selflensing.models import SelfLensingSystem
 
-from lensing_jax import install_selflensing_jax_lensing_patch
 from utils import DATA_PATH
 
 logger = logging.getLogger(__name__)
@@ -28,7 +27,6 @@ TIMESERIES_TABLE_PATH = Path(
     os.environ.get("SLRV_FIT_OUTPUT_PATH", DATA_PATH / "fitted_timeseries.gz")
 )
 
-install_selflensing_jax_lensing_patch()
 logging.getLogger().addFilter(
     lambda record: record.getMessage() != "Too few points to create valid contours"
 )
@@ -68,13 +66,11 @@ def plot_fit(row):
         sls,
         times=Time(row["lc_times"], format="jd"),
         peak_time=peak_time,
-        lensing_method="IntegratedWittMaoJax",
     )
     truth_lcg = LightcurveGenerator(
         truth_sls,
         times=Time(row["lc_times"], format="jd"),
         peak_time=peak_time,
-        lensing_method="IntegratedWittMaoJax",
     )
     model_lc = numpy.array(lcg.flux_array) - 1.0
     truth_model_lc = numpy.array(truth_lcg.flux_array) - 1.0
