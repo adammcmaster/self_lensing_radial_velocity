@@ -10,6 +10,7 @@ import argparse
 import shutil
 import inspect
 import time
+import threading
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -102,6 +103,12 @@ FIT_SAMPLE_SIZE = int(os.environ.get("SLRV_FIT_SAMPLE_SIZE", 5000))
 FIT_BATCH_FILE = os.environ.get("SLRV_FIT_BATCH_FILE")
 PLOT_MAX_WORKERS = int(os.environ.get("SLRV_PLOT_MAX_WORKERS", FIT_MAX_WORKERS))
 SAVE_FIT_PLOTS = os.environ.get("SLRV_SAVE_FIT_PLOTS", "1").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+CHECKPOINT_RESULTS = os.environ.get("SLRV_FIT_CHECKPOINT_RESULTS", "1").lower() in (
     "1",
     "true",
     "yes",
@@ -204,18 +211,34 @@ def blackjax_sampler_kwargs(return_sampler, return_walker_state=True):
 
 def process_map(fn, iterable, total=None, desc=None, max_workers=None, chunksize=1):
     """Run a tqdm-wrapped process map with an explicit multiprocessing context."""
+    return list(
+        process_map_iter(
+            fn,
+            iterable,
+            total=total,
+            desc=desc,
+            max_workers=max_workers,
+            chunksize=chunksize,
+        )
+    )
+
+
+def process_map_iter(fn, iterable, total=None, desc=None, max_workers=None, chunksize=1):
+    """Run a tqdm-wrapped process map and yield results as they become available."""
     items = list(iterable)
     if total is None:
         total = len(items)
     if not items:
-        return []
+        return
     if max_workers == 1:
         logger.info(
             "Starting serial map desc=%s items=%d because max_workers=1",
             desc,
             len(items),
         )
-        return [fn(item) for item in tqdm(items, total=total, desc=desc)]
+        for item in tqdm(items, total=total, desc=desc):
+            yield fn(item)
+        return
 
     context = multiprocessing.get_context(MP_START_METHOD)
     logger.info(
@@ -227,15 +250,12 @@ def process_map(fn, iterable, total=None, desc=None, max_workers=None, chunksize
         MP_START_METHOD,
     )
     with ProcessPoolExecutor(max_workers=max_workers, mp_context=context) as executor:
-        results = list(
-            tqdm(
-                executor.map(fn, items, chunksize=chunksize),
-                total=total,
-                desc=desc,
-            )
+        yield from tqdm(
+            executor.map(fn, items, chunksize=chunksize),
+            total=total,
+            desc=desc,
         )
     logger.info("Finished process map desc=%s items=%d", desc, len(items))
-    return results
 
 
 def return_sampler_from_fit():
@@ -329,6 +349,66 @@ def save_results(results):
     table.reset_index(drop=True).to_pickle(f"{TIMESERIES_TABLE_PATH}.new.gz")
     os.replace(f"{TIMESERIES_TABLE_PATH}.new.gz", TIMESERIES_TABLE_PATH)
     logger.info("Saved fit results atomically to %s", TIMESERIES_TABLE_PATH)
+
+
+class AsyncCheckpointWriter:
+    def __init__(self, enabled=True):
+        self.enabled = enabled
+        self.condition = threading.Condition()
+        self.latest_results = None
+        self.stop_requested = False
+        self.error = None
+        self.thread = None
+        if self.enabled:
+            self.thread = threading.Thread(
+                target=self._run,
+                name="fit-checkpoint-writer",
+                daemon=True,
+            )
+            self.thread.start()
+
+    def submit(self, results):
+        if not self.enabled:
+            return
+        with self.condition:
+            self.latest_results = list(results)
+            self.condition.notify()
+
+    def check_error(self):
+        if self.error is not None:
+            raise RuntimeError("Background checkpoint writer failed") from self.error
+
+    def close(self, final_results=None):
+        if not self.enabled:
+            if final_results is not None:
+                save_results(final_results)
+            return
+        with self.condition:
+            if final_results is not None:
+                self.latest_results = list(final_results)
+            self.stop_requested = True
+            self.condition.notify()
+        self.thread.join()
+        self.check_error()
+
+    def _run(self):
+        while True:
+            with self.condition:
+                while self.latest_results is None and not self.stop_requested:
+                    self.condition.wait()
+                if self.latest_results is None and self.stop_requested:
+                    return
+                results = self.latest_results
+                self.latest_results = None
+            try:
+                save_results(results)
+            except Exception as exc:
+                self.error = exc
+                logger.exception("Background checkpoint writer failed")
+                return
+            with self.condition:
+                if self.stop_requested and self.latest_results is None:
+                    return
 
 
 def truth_self_lensing_system(ts):
@@ -1030,11 +1110,12 @@ if __name__ == "__main__":
         clear_existing_results()
     logger.info(
         "Starting fitting script with FIT_MAX_WORKERS=%d FIT_SAMPLE_SIZE=%d "
-        "PLOT_MAX_WORKERS=%d SAVE_FIT_PLOTS=%s",
+        "PLOT_MAX_WORKERS=%d SAVE_FIT_PLOTS=%s CHECKPOINT_RESULTS=%s",
         FIT_MAX_WORKERS,
         FIT_SAMPLE_SIZE,
         PLOT_MAX_WORKERS,
         SAVE_FIT_PLOTS,
+        CHECKPOINT_RESULTS,
     )
     logger.info("Fit batch file: %s", FIT_BATCH_FILE)
     logger.info(
@@ -1132,21 +1213,37 @@ if __name__ == "__main__":
         else []
     )
 
-    grouped_new_results = process_map(
-        fit_realistic_file,
-        jobs,
-        total=len(jobs),
-        desc="Realistic simulation fits",
-        max_workers=FIT_MAX_WORKERS,
-    )
-    new_results = [result for group in grouped_new_results for result in group]
-    results += [r[0] for r in new_results]
+    checkpoint_writer = AsyncCheckpointWriter(enabled=CHECKPOINT_RESULTS)
+    new_result_count = 0
+    try:
+        for group_results in process_map_iter(
+            fit_realistic_file,
+            jobs,
+            total=len(jobs),
+            desc="Realistic simulation fits",
+            max_workers=FIT_MAX_WORKERS,
+        ):
+            checkpoint_writer.check_error()
+            new_results = [result[0] for result in group_results]
+            results += new_results
+            new_result_count += len(new_results)
+            logger.info(
+                "Fit job produced %d fit results; cumulative new results=%d "
+                "cumulative results=%d",
+                len(new_results),
+                new_result_count,
+                len(results),
+            )
+            checkpoint_writer.submit(results)
+        checkpoint_writer.close(final_results=results)
+    except BaseException:
+        checkpoint_writer.close(final_results=results)
+        raise
     logger.info(
         "Fit jobs produced %d fit results; cumulative results=%d",
-        len(new_results),
+        new_result_count,
         len(results),
     )
-    save_results(results)
     if SAVE_FIT_PLOTS:
         logger.debug("Skipping parent-process plot saving; PDFs were saved per FITS job")
     else:
