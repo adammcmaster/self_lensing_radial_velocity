@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 PARAMS = {
     "cadences": [30, 150, 300],
     "campaign_baselines": 365 * numpy.array([1, 3, 5]),
-    "rv_accuracies": numpy.logspace(-1, 3, 50),
+    "rv_accuracies": [10**n for n in (-1, 0, 1, 2, 3)],
 }
 PARAM_GRID = tuple(
     (
@@ -180,7 +180,9 @@ def _metadata_pickle_path(path=REALISTIC_METADATA_PATH):
 
 
 def _metadata_pickle_is_fresh(csv_path, pickle_path):
-    return pickle_path.exists() and pickle_path.stat().st_mtime >= csv_path.stat().st_mtime
+    return (
+        pickle_path.exists() and pickle_path.stat().st_mtime >= csv_path.stat().st_mtime
+    )
 
 
 def _metadata_csv_has_storage_schema(path=REALISTIC_METADATA_PATH):
@@ -247,7 +249,9 @@ def _normalise_metadata_table(table):
     table["realistic_path"] = table["realistic_path"].map(path_map)
     if table["realistic_id"].duplicated().any():
         table.drop_duplicates(subset="realistic_id", keep="last", inplace=True)
-    table.sort_values(["pristine_id", "cadence", "RV accuracy", "baseline"], inplace=True)
+    table.sort_values(
+        ["pristine_id", "cadence", "RV accuracy", "baseline"], inplace=True
+    )
     table.reset_index(drop=True, inplace=True)
     logger.debug(
         "Normalised realistic metadata table from %d to %d rows", before, len(table)
@@ -276,7 +280,9 @@ def _expanded_metadata_from_pristine(realistic, pristine):
     table = table.reindex(columns=METADATA_COLUMNS)
     missing_pristine = table["a"].isna() if "a" in table else []
     if numpy.any(missing_pristine):
-        missing_ids = sorted(table.loc[missing_pristine, "pristine_id"].dropna().unique())
+        missing_ids = sorted(
+            table.loc[missing_pristine, "pristine_id"].dropna().unique()
+        )
         raise KeyError(
             "Could not expand realistic metadata because pristine metadata is missing "
             f"for pristine_id values: {missing_ids[:10]}"
@@ -347,9 +353,7 @@ def metadata_rows_from_realistic_paths(paths):
         return []
     if REALISTIC_METADATA_MAX_WORKERS == 1 or len(paths) == 1:
         return [
-            row
-            for path in paths
-            for row in metadata_rows_from_realistic_path(path)
+            row for path in paths for row in metadata_rows_from_realistic_path(path)
         ]
 
     max_workers = min(REALISTIC_METADATA_MAX_WORKERS, len(paths))
@@ -567,9 +571,7 @@ def write_realistic_timeseries_file(curves, path):
         with fits.open(path) as hdul:
             hdus = fits.HDUList(hdul)
             existing_ids = {
-                hdu.header.get("REAL_ID")
-                for hdu in hdus[1:]
-                if "REAL_ID" in hdu.header
+                hdu.header.get("REAL_ID") for hdu in hdus[1:] if "REAL_ID" in hdu.header
             }
             next_index = len(hdus)
             for curve in curves:
