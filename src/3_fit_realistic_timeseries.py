@@ -96,6 +96,7 @@ MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "spawn")
 FIT_NSTEPS = int(os.environ.get("SLRV_FIT_NSTEPS", 2000))
 FIT_NWALKERS = int(os.environ.get("SLRV_FIT_NWALKERS", 1024))
 FIT_BURN = int(os.environ.get("SLRV_FIT_BURN", 200))
+FIT_LC_BINS = 100
 FIT_E_MIN = os.environ.get("SLRV_FIT_E_MIN")
 FIT_E_MAX = os.environ.get("SLRV_FIT_E_MAX")
 FIT_USE_LC = os.environ.get("SLRV_FIT_USE_LC", "1").lower() in (
@@ -301,16 +302,43 @@ def lightcurve_fit_window(curve, ts):
 
     lc_times = numpy.asarray(curve["lc_times"], dtype=float)
     mask = (lc_times >= peak_time - tau_eff) & (lc_times <= peak_time + tau_eff)
+    lc = numpy.asarray(curve["lc"], dtype=float)
+    lc_err = numpy.asarray(curve["lc_err"], dtype=float)
+    mask &= numpy.isfinite(lc_times) & numpy.isfinite(lc) & numpy.isfinite(lc_err)
+    mask &= lc_err > 0
     if not numpy.any(mask):
         raise ValueError(
             f"Light-curve fit window is empty for realistic_id={ts.get('realistic_id', None)} "
             f"peak_time={peak_time!r} tau_eff={tau_eff!r}"
         )
 
+    lc_times = lc_times[mask]
+    lc = lc[mask]
+    lc_err = lc_err[mask]
+    bin_edges = numpy.linspace(
+        peak_time - tau_eff, peak_time + tau_eff, FIT_LC_BINS + 1
+    )
+    bin_indices = numpy.searchsorted(bin_edges, lc_times, side="right") - 1
+    bin_indices = numpy.clip(bin_indices, 0, FIT_LC_BINS - 1)
+
+    binned_lc_times = []
+    binned_lc = []
+    binned_lc_err = []
+    for bin_index in range(FIT_LC_BINS):
+        bin_mask = bin_indices == bin_index
+        if not numpy.any(bin_mask):
+            continue
+
+        weights = 1.0 / numpy.square(lc_err[bin_mask])
+        weight_sum = numpy.sum(weights)
+        binned_lc_times.append(numpy.average(lc_times[bin_mask], weights=weights))
+        binned_lc.append(numpy.average(lc[bin_mask], weights=weights))
+        binned_lc_err.append(numpy.sqrt(1.0 / weight_sum))
+
     return {
-        "lc_times": lc_times[mask],
-        "lc": numpy.asarray(curve["lc"], dtype=float)[mask],
-        "lc_err": numpy.asarray(curve["lc_err"], dtype=float)[mask],
+        "lc_times": numpy.asarray(binned_lc_times, dtype=float),
+        "lc": numpy.asarray(binned_lc, dtype=float),
+        "lc_err": numpy.asarray(binned_lc_err, dtype=float),
     }
 
 
@@ -354,7 +382,7 @@ def fit_photometry_prefit(i, ts, curve):
     fit_lc = lightcurve_fit_window(curve, ts)
     mcmc_desc = f"MCMC prefit {short_id(ts.get('realistic_id', None))}"
     logger.info(
-        "Starting photometry-only prefit for realistic_id=%s with %d clipped LC samples",
+        "Starting photometry-only prefit for realistic_id=%s with %d binned LC samples",
         ts.get("realistic_id", None),
         len(fit_lc["lc"]),
     )
@@ -418,7 +446,7 @@ def fit(a):
         i,
         len(curve["rv"]),
         len(curve["lc"]),
-        f" clipped to {len(fit_lc['lc'])}" if fit_lc is not None else "",
+        f" binned to {len(fit_lc['lc'])}" if fit_lc is not None else "",
     )
     if initial_walker_state is not None:
         initial_walker_state = numpy.array(initial_walker_state, copy=True)
@@ -796,7 +824,7 @@ if __name__ == "__main__":
         fit_realistic_file,
         jobs,
         total=len(jobs),
-        desc="FITS-file jobs",
+        desc="Realistic simulation fits",
         max_workers=FIT_MAX_WORKERS,
     )
     new_results = [result for group in grouped_new_results for result in group]
