@@ -284,6 +284,7 @@ def write_sbatch_script(args, submit_dir, n_batches):
         "export SLRV_FIT_DEVICE=gpu:0",
         "export SLRV_FIT_MAX_WORKERS=1",
         "export SLRV_PLOT_MAX_WORKERS=1",
+        "export SLRV_SAVE_FIT_PLOTS=0",
         "export SLRV_FIT_CHUNK_SIZE=1",
         "export SLRV_MP_START_METHOD=spawn",
         "export OMP_NUM_THREADS=1",

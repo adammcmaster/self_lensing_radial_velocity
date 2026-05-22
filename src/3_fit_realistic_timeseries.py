@@ -101,6 +101,12 @@ FIT_MAX_WORKERS = int(os.environ.get("SLRV_FIT_MAX_WORKERS", default_fit_max_wor
 FIT_SAMPLE_SIZE = int(os.environ.get("SLRV_FIT_SAMPLE_SIZE", 5000))
 FIT_BATCH_FILE = os.environ.get("SLRV_FIT_BATCH_FILE")
 PLOT_MAX_WORKERS = int(os.environ.get("SLRV_PLOT_MAX_WORKERS", FIT_MAX_WORKERS))
+SAVE_FIT_PLOTS = os.environ.get("SLRV_SAVE_FIT_PLOTS", "1").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "spawn")
 FIT_NSTEPS = int(os.environ.get("SLRV_FIT_NSTEPS", 2000))
 FIT_NWALKERS = int(os.environ.get("SLRV_FIT_NWALKERS", 1024))
@@ -840,8 +846,11 @@ def fit_realistic_file(rows):
             finished_fit = finish_pending_fit(pending_fit)
             if finished_fit is not None:
                 results.append(finished_fit)
-    logger.info("Finished all joint fits for %s; writing diagnostic PDF", path)
-    save_plots_pdf(results, prefit_result=prefit_result)
+    if SAVE_FIT_PLOTS:
+        logger.info("Finished all joint fits for %s; writing diagnostic PDF", path)
+        save_plots_pdf(results, prefit_result=prefit_result)
+    else:
+        logger.info("Finished all joint fits for %s; skipping diagnostic PDF", path)
     logger.info("Finished grouped fit for %s", path)
     if return_sampler_from_fit():
         return results
@@ -1020,10 +1029,12 @@ if __name__ == "__main__":
     if args.clear_results:
         clear_existing_results()
     logger.info(
-        "Starting fitting script with FIT_MAX_WORKERS=%d FIT_SAMPLE_SIZE=%d PLOT_MAX_WORKERS=%d",
+        "Starting fitting script with FIT_MAX_WORKERS=%d FIT_SAMPLE_SIZE=%d "
+        "PLOT_MAX_WORKERS=%d SAVE_FIT_PLOTS=%s",
         FIT_MAX_WORKERS,
         FIT_SAMPLE_SIZE,
         PLOT_MAX_WORKERS,
+        SAVE_FIT_PLOTS,
     )
     logger.info("Fit batch file: %s", FIT_BATCH_FILE)
     logger.info(
@@ -1136,5 +1147,8 @@ if __name__ == "__main__":
         len(results),
     )
     save_results(results)
-    logger.debug("Skipping parent-process plot saving; PDFs were saved per FITS job")
+    if SAVE_FIT_PLOTS:
+        logger.debug("Skipping parent-process plot saving; PDFs were saved per FITS job")
+    else:
+        logger.debug("Skipping parent-process plot saving; fit plots are disabled")
     logger.info("Finished fitting script")
