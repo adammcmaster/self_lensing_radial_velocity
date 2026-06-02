@@ -8,7 +8,6 @@ import warnings
 import os
 import argparse
 import shutil
-import inspect
 import time
 import threading
 from concurrent.futures import ProcessPoolExecutor
@@ -45,12 +44,10 @@ from jax_compat import install_quax_jax_stage_patch
 
 install_quax_jax_stage_patch()
 
-from selflensing.fitting import self_lensing_system_from_fit_blackjax
-
-try:
-    from selflensing.fitting import self_lensing_systems_from_batched_fit_blackjax
-except ImportError:
-    self_lensing_systems_from_batched_fit_blackjax = None
+from selflensing.fitting import (
+    self_lensing_system_from_fit_blackjax,
+    self_lensing_systems_from_batched_fit_blackjax,
+)
 
 from selflensing.models import DEFAULT_LIMITS, SelfLensingSystem
 
@@ -181,44 +178,11 @@ def configure_fit_parameter_limits():
 
 configure_fit_parameter_limits()
 
-BLACKJAX_SUPPORTS_RETURN_SAMPLER = (
-    "return_sampler"
-    in inspect.signature(self_lensing_system_from_fit_blackjax).parameters
-)
-BLACKJAX_SUPPORTS_RETURN_WALKER_STATE = (
-    "return_walker_state"
-    in inspect.signature(self_lensing_system_from_fit_blackjax).parameters
-)
-BLACKJAX_SUPPORTS_BATCHED_FIT = self_lensing_systems_from_batched_fit_blackjax is not None
-BLACKJAX_UNSUPPORTED_KWARGS_WARNED = set()
-
-
 def blackjax_sampler_kwargs(return_sampler, return_walker_state=True):
-    kwargs = {}
-    if BLACKJAX_SUPPORTS_RETURN_SAMPLER:
-        kwargs["return_sampler"] = return_sampler
-    elif (
-        not return_sampler
-        and "return_sampler" not in BLACKJAX_UNSUPPORTED_KWARGS_WARNED
-    ):
-        BLACKJAX_UNSUPPORTED_KWARGS_WARNED.add("return_sampler")
-        logger.warning(
-            "Installed selflensing BlackJAX fitter does not support return_sampler=False; "
-            "full chains will be copied back after each fit"
-        )
-    if BLACKJAX_SUPPORTS_RETURN_WALKER_STATE:
-        kwargs["return_walker_state"] = return_walker_state
-    elif (
-        not return_walker_state
-        and "return_walker_state" not in BLACKJAX_UNSUPPORTED_KWARGS_WARNED
-    ):
-        BLACKJAX_UNSUPPORTED_KWARGS_WARNED.add("return_walker_state")
-        logger.warning(
-            "Installed selflensing BlackJAX fitter does not support "
-            "return_walker_state=False; final walker coordinates will be copied "
-            "back after each fit"
-        )
-    return kwargs
+    return {
+        "return_sampler": return_sampler,
+        "return_walker_state": return_walker_state,
+    }
 
 
 def process_map(fn, iterable, total=None, desc=None, max_workers=None, chunksize=1):
@@ -726,8 +690,6 @@ def finish_pending_fit(pending_fit):
 def can_use_batched_joint_fit():
     return (
         FIT_BATCHED_JOINT
-        and BLACKJAX_SUPPORTS_BATCHED_FIT
-        and FIT_USE_LC
         and not return_sampler_from_fit()
     )
 
@@ -891,20 +853,10 @@ def fit_realistic_file(rows):
     if can_use_batched_joint_fit():
         results = fit_joint_batch(rows, curves, initial_walker_state)
     else:
-        if FIT_BATCHED_JOINT and not BLACKJAX_SUPPORTS_BATCHED_FIT:
-            logger.warning(
-                "Installed selflensing does not support batched BlackJAX fits; "
-                "falling back to per-row joint fits"
-            )
-        elif FIT_BATCHED_JOINT and return_sampler_from_fit():
+        if FIT_BATCHED_JOINT and return_sampler_from_fit():
             logger.info(
                 "Falling back to per-row joint fits because sampler diagnostics "
                 "require per-fit sampler results"
-            )
-        elif FIT_BATCHED_JOINT and not FIT_USE_LC:
-            logger.info(
-                "Falling back to per-row joint fits because batched joint fits "
-                "currently require FIT_USE_LC=True"
             )
         file_progress_desc = (
             f"RV joint fits {short_id(rows[0][1].get('pristine_id', Path(path).stem))}"
@@ -1151,9 +1103,8 @@ if __name__ == "__main__":
     logger.info("Fit device setting: FIT_DEVICE=%s", FIT_DEVICE)
     logger.info("Fit lensing method: FIT_LENSING_METHOD=%s", FIT_LENSING_METHOD)
     logger.info(
-        "Batched joint fit setting: FIT_BATCHED_JOINT=%s supported=%s",
+        "Batched joint fit setting: FIT_BATCHED_JOINT=%s",
         FIT_BATCHED_JOINT,
-        BLACKJAX_SUPPORTS_BATCHED_FIT,
     )
     logger.info(
         "MCMC diagnostic plot settings: return_sampler=%s plot_fit_in_worker=%s",
