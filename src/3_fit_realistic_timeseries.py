@@ -125,7 +125,7 @@ CHECKPOINT_RESULTS = os.environ.get("SLRV_FIT_CHECKPOINT_RESULTS", "1").lower() 
 )
 MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "spawn")
 FIT_NSTEPS = int(os.environ.get("SLRV_FIT_NSTEPS", 2000))
-FIT_NWALKERS = int(os.environ.get("SLRV_FIT_NWALKERS", 512))
+FIT_NWALKERS = int(os.environ.get("SLRV_FIT_NWALKERS", 128))
 FIT_BURN = int(os.environ.get("SLRV_FIT_BURN", 200))
 FIT_PROGRESS_CHUNK_SIZE = int(os.environ.get("SLRV_FIT_PROGRESS_CHUNK_SIZE", 10))
 FIT_LC_BINS = 100
@@ -157,7 +157,7 @@ FIT_BATCHED_JOINT = os.environ.get("SLRV_FIT_BATCHED_JOINT", "1").lower() in (
     "yes",
     "on",
 )
-FIT_BATCH_SIZE = optional_positive_int(os.environ.get("SLRV_FIT_BATCH_SIZE", 10))
+FIT_BATCH_SIZE = optional_positive_int(os.environ.get("SLRV_FIT_BATCH_SIZE", 50))
 REQUIRE_GPU = os.environ.get("SLRV_REQUIRE_GPU", "").lower() in (
     "1",
     "true",
