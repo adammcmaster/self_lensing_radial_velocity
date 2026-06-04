@@ -7,7 +7,6 @@ import multiprocessing
 import warnings
 import os
 import argparse
-import shutil
 import time
 import threading
 from concurrent.futures import ProcessPoolExecutor
@@ -35,9 +34,6 @@ import pandas
 
 from astropy import units
 from astropy.time import Time
-from matplotlib.backends.backend_pdf import PdfPages
-from matplotlib import pyplot
-
 from tqdm import tqdm
 
 from jax_compat import install_quax_jax_stage_patch
@@ -51,13 +47,13 @@ from selflensing.fitting import (
 
 from selflensing.models import DEFAULT_LIMITS, SelfLensingSystem
 
-from fitting import TIMESERIES_TABLE_PATH, plot_fit, plot_emcee_diagnostics
+from fitting import TIMESERIES_TABLE_PATH
 from realistic import (
     load_realistic_timeseries,
     load_realistic_timeseries_curve,
     load_realistic_timeseries_curves,
 )
-from utils import DATA_PATH, configure_logging
+from utils import configure_logging
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +68,7 @@ def parse_args():
     parser.add_argument(
         "--clear-results",
         action="store_true",
-        help="Remove saved fit results and generated fit figures before running.",
+        help="Remove saved fit results before running.",
     )
     return parser.parse_args()
 
@@ -110,13 +106,6 @@ def optional_positive_int(value):
 FIT_MAX_WORKERS = int(os.environ.get("SLRV_FIT_MAX_WORKERS", default_fit_max_workers()))
 FIT_SAMPLE_SIZE = optional_positive_int(os.environ.get("SLRV_FIT_SAMPLE_SIZE", "all"))
 FIT_BATCH_FILE = os.environ.get("SLRV_FIT_BATCH_FILE")
-PLOT_MAX_WORKERS = int(os.environ.get("SLRV_PLOT_MAX_WORKERS", FIT_MAX_WORKERS))
-SAVE_FIT_PLOTS = os.environ.get("SLRV_SAVE_FIT_PLOTS", "1").lower() in (
-    "1",
-    "true",
-    "yes",
-    "on",
-)
 CHECKPOINT_RESULTS = os.environ.get("SLRV_FIT_CHECKPOINT_RESULTS", "1").lower() in (
     "1",
     "true",
@@ -140,12 +129,6 @@ FIT_USE_LC = os.environ.get("SLRV_FIT_USE_LC", "1").lower() in (
 FIT_DEVICE = os.environ.get("SLRV_FIT_DEVICE", default_fit_device())
 FIT_LENSING_METHOD = os.environ.get("SLRV_FIT_LENSING_METHOD")
 FIT_MCMC_PROGRESS = os.environ.get("SLRV_FIT_MCMC_PROGRESS", "1").lower() in (
-    "1",
-    "true",
-    "yes",
-    "on",
-)
-FIT_MCMC_DIAGNOSTICS = os.environ.get("SLRV_FIT_MCMC_DIAGNOSTICS", "0").lower() in (
     "1",
     "true",
     "yes",
@@ -233,14 +216,6 @@ def process_map_iter(fn, iterable, total=None, desc=None, max_workers=None, chun
             desc=desc,
         )
     logger.info("Finished process map desc=%s items=%d", desc, len(items))
-
-
-def return_sampler_from_fit():
-    return FIT_MCMC_DIAGNOSTICS and FIT_MAX_WORKERS == 1 and PLOT_MAX_WORKERS == 1
-
-
-def plot_fit_in_worker():
-    return not return_sampler_from_fit()
 
 
 def load_fitted_timeseries():
@@ -652,7 +627,7 @@ def run_fit(a):
             prefer_gpu=FIT_DEVICE == "auto",
             initial_walker_state=initial_walker_state,
             **blackjax_sampler_kwargs(
-                return_sampler=return_sampler_from_fit(),
+                return_sampler=False,
                 return_walker_state=False,
             ),
         )
@@ -689,10 +664,7 @@ def finish_pending_fit(pending_fit):
 
 
 def can_use_batched_joint_fit():
-    return (
-        FIT_BATCHED_JOINT
-        and not return_sampler_from_fit()
-    )
+    return FIT_BATCHED_JOINT
 
 
 def padded_series(series, fill_value=0.0, fill_from_first=False):
@@ -845,7 +817,6 @@ def fit_realistic_file(rows):
     curves = load_realistic_timeseries_curves(rows)
     logger.info("Loaded %d grouped realistic curves from %s", len(curves), path)
     initial_walker_state = None
-    prefit_result = None
     if FIT_USE_LC:
         prefit_i, prefit_ts = rows[0]
         prefit_curve = curves[str(prefit_ts["realistic_id"])]
@@ -858,7 +829,6 @@ def fit_realistic_file(rows):
         prefit_ts, initial_walker_state = fit_photometry_prefit(
             prefit_i, prefit_ts, prefit_curve
         )
-        prefit_result = (prefit_ts, None, prefit_curve)
     results = []
     if can_use_batched_joint_fit():
         batches = list(batched_row_chunks(rows))
@@ -880,11 +850,6 @@ def fit_realistic_file(rows):
                 )
             results.extend(fit_joint_batch(batch_rows, curves, initial_walker_state))
     else:
-        if FIT_BATCHED_JOINT and return_sampler_from_fit():
-            logger.info(
-                "Falling back to per-row joint fits because sampler diagnostics "
-                "require per-fit sampler results"
-            )
         file_progress_desc = (
             f"RV joint fits {short_id(rows[0][1].get('pristine_id', Path(path).stem))}"
         )
@@ -917,14 +882,8 @@ def fit_realistic_file(rows):
             finished_fit = finish_pending_fit(pending_fit)
             if finished_fit is not None:
                 results.append(finished_fit)
-    if SAVE_FIT_PLOTS:
-        logger.info("Finished all joint fits for %s; writing diagnostic PDF", path)
-        save_plots_pdf(results, prefit_result=prefit_result)
-    else:
-        logger.info("Finished all joint fits for %s; skipping diagnostic PDF", path)
+    logger.info("Finished all joint fits for %s", path)
     logger.info("Finished grouped fit for %s", path)
-    if return_sampler_from_fit():
-        return results
     return [(ts, None, None) for ts, _, _ in results]
 
 
@@ -959,10 +918,6 @@ def sample_realistic_path_groups(table, sample_size):
     return sampled
 
 
-FIG_PATH = DATA_PATH / "figures"
-FIG_PATH.mkdir(exist_ok=True, parents=True)
-
-
 def clear_existing_results():
     paths = [
         TIMESERIES_TABLE_PATH,
@@ -972,125 +927,6 @@ def clear_existing_results():
         if path.exists():
             logger.info("Removing saved fit results at %s", path)
             path.unlink()
-
-    if FIG_PATH.exists():
-        logger.info("Removing generated fit figures at %s", FIG_PATH)
-        shutil.rmtree(FIG_PATH)
-    FIG_PATH.mkdir(exist_ok=True, parents=True)
-
-
-def plot_label(ts):
-    return (
-        f"realistic_id={ts.get('realistic_id')} | "
-        f"baseline={float(ts['baseline']):g} d | "
-        f"cadence={float(ts['cadence']):g} d | "
-        f"RV accuracy={float(ts['RV accuracy']):g} m/s"
-    )
-
-
-def add_pdf_page_title(fig, ts, label):
-    fig.suptitle(f"{label}\n{plot_label(ts)}", fontsize=10)
-    fig.subplots_adjust(top=0.9)
-
-
-def figure_shard_keys(ts):
-    return (
-        f"a1e{int(numpy.floor(numpy.log10(ts['a'])))}",
-        f"b{int(ts['b'])}",
-        f"Macc{int(ts['Macc'])}",
-    )
-
-
-def pdf_path_for_results(results):
-    ts = results[0][0]
-    pristine_id = str(ts.get("pristine_id", "unknown"))
-    a_key, b_key, macc_key = figure_shard_keys(ts)
-    name = f"{a_key}_{b_key}_{macc_key}_{pristine_id}.pdf"
-    return FIG_PATH / a_key / b_key / macc_key / name
-
-
-def plot_ts_with_curve(ts, curve):
-    plot_ts = pandas.Series(ts)
-    plot_ts["rv_times"] = curve["rv_times"]
-    plot_ts["rv"] = curve["rv"]
-    plot_ts["rv_err"] = curve["rv_err"]
-    plot_ts["lc_times"] = curve["lc_times"]
-    plot_ts["lc"] = curve["lc"]
-    plot_ts["lc_err"] = curve["lc_err"]
-    if "b_max" not in plot_ts or pandas.isna(plot_ts["b_max"]):
-        plot_ts["b_max"] = truth_self_lensing_system(plot_ts).b_max.value
-    return plot_ts
-
-
-def save_plots_pdf(results, prefit_result=None):
-    if not results:
-        return
-
-    out_path = pdf_path_for_results(results)
-    out_path.parent.mkdir(exist_ok=True, parents=True)
-    logger.info("Writing %d fit diagnostic plot sets to %s", len(results), out_path)
-    params = ["a", "i", "Macc", "e", "periapsis_phase"]
-    with PdfPages(out_path) as pdf:
-        if prefit_result is not None:
-            ts, _, curve = prefit_result
-            if curve is None:
-                curve = load_realistic_timeseries_curve(ts)
-            logger.info(
-                "Writing photometry prefit page for realistic_id=%s to %s",
-                ts.get("realistic_id", None),
-                out_path,
-            )
-            prefit_fig = plot_fit(plot_ts_with_curve(ts, curve))
-            add_pdf_page_title(prefit_fig, ts, "Photometry Prefit")
-            pdf.savefig(prefit_fig)
-            pyplot.close(prefit_fig)
-
-        for ts, sampler, curve in tqdm(results, desc="Plotting fits", unit="fit"):
-            if curve is None:
-                curve = load_realistic_timeseries_curve(ts)
-
-            plot_ts = plot_ts_with_curve(ts, curve)
-            fit_fig = plot_fit(plot_ts)
-            add_pdf_page_title(fit_fig, ts, "Fit")
-            pdf.savefig(fit_fig)
-            pyplot.close(fit_fig)
-
-            if sampler is None:
-                logger.debug(
-                    "Skipping MCMC diagnostic pages for realistic_id=%s because sampler is unavailable",
-                    ts.get("realistic_id", None),
-                )
-                continue
-
-            walker_fig, corner_fig = plot_emcee_diagnostics(
-                sampler,
-                param_names=params,
-                truths=ts[params],
-                axes_scale=["log", "linear", "linear", "linear", "linear"],
-            )
-            add_pdf_page_title(walker_fig, ts, "Walkers")
-            add_pdf_page_title(corner_fig, ts, "Corner")
-            pdf.savefig(walker_fig)
-            pdf.savefig(corner_fig)
-            pyplot.close(walker_fig)
-            pyplot.close(corner_fig)
-    logger.info("Saved fit diagnostic PDF to %s", out_path)
-
-
-def save_plots(a):
-    if len(a) == 3:
-        ts, sampler, curve = a
-        if curve is None:
-            curve = load_realistic_timeseries_curve(ts)
-    else:
-        ts, sampler = a
-        curve = load_realistic_timeseries_curve(ts)
-    logger.debug(
-        "Saving plots for realistic_idx=%s realistic_id=%s",
-        ts.get("realistic_idx", None),
-        ts.get("realistic_id", None),
-    )
-    save_plots_pdf([(ts, sampler, curve)])
 
 
 if __name__ == "__main__":
@@ -1102,11 +938,9 @@ if __name__ == "__main__":
     fit_sample_size_label = FIT_SAMPLE_SIZE if FIT_SAMPLE_SIZE is not None else "all"
     logger.info(
         "Starting fitting script with FIT_MAX_WORKERS=%d FIT_SAMPLE_SIZE=%s "
-        "PLOT_MAX_WORKERS=%d SAVE_FIT_PLOTS=%s CHECKPOINT_RESULTS=%s",
+        "CHECKPOINT_RESULTS=%s",
         FIT_MAX_WORKERS,
         fit_sample_size_label,
-        PLOT_MAX_WORKERS,
-        SAVE_FIT_PLOTS,
         CHECKPOINT_RESULTS,
     )
     logger.info("Fit batch file: %s", FIT_BATCH_FILE)
@@ -1123,21 +957,15 @@ if __name__ == "__main__":
     logger.info("Fit eccentricity limits: %s", DEFAULT_LIMITS["e"])
     logger.info(
         "Fit likelihood settings: FIT_USE_LC=%s "
-        "FIT_MCMC_PROGRESS=%s FIT_MCMC_DIAGNOSTICS=%s sampler=blackjax",
+        "FIT_MCMC_PROGRESS=%s sampler=blackjax",
         FIT_USE_LC,
         FIT_MCMC_PROGRESS,
-        FIT_MCMC_DIAGNOSTICS,
     )
     logger.info("Fit device setting: FIT_DEVICE=%s", FIT_DEVICE)
     logger.info("Fit lensing method: FIT_LENSING_METHOD=%s", FIT_LENSING_METHOD)
     logger.info(
         "Batched joint fit setting: FIT_BATCHED_JOINT=%s",
         FIT_BATCHED_JOINT,
-    )
-    logger.info(
-        "MCMC diagnostic plot settings: return_sampler=%s plot_fit_in_worker=%s",
-        return_sampler_from_fit(),
-        plot_fit_in_worker(),
     )
     logger.info(
         "JAX backend: default=%s devices=[%s]",
@@ -1238,8 +1066,4 @@ if __name__ == "__main__":
         new_result_count,
         len(results),
     )
-    if SAVE_FIT_PLOTS:
-        logger.debug("Skipping parent-process plot saving; PDFs were saved per FITS job")
-    else:
-        logger.debug("Skipping parent-process plot saving; fit plots are disabled")
     logger.info("Finished fitting script")
