@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 PARAMS = {
-    "cadences": [30, 150, 300],
+    "cadences": [1, 30, 300],
     "campaign_baselines": 365 * numpy.array([1, 3, 5]),
     "rv_accuracies": [10**n for n in (-1, 0, 1, 2, 3)],
 }
