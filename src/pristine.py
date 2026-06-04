@@ -27,7 +27,7 @@ install_quax_jax_stage_patch()
 from selflensing.generators import RVGenerator
 from selflensing.models import SelfLensingSystem
 
-from utils import DATA_PATH, default_rv_times
+from utils import DATA_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,11 @@ PRISTINE_MAX_WORKERS = int(
     os.environ.get("SLRV_PRISTINE_MAX_WORKERS", min(8, os.cpu_count() or 1))
 )
 PRISTINE_MP_START_METHOD = os.environ.get("SLRV_PRISTINE_MP_START_METHOD", "spawn")
+RV_START_OFFSET_MIN_YEARS = 1.0
+RV_START_OFFSET_MAX_YEARS = 10.0
+RV_DURATION_YEARS = 5.0
+RV_CADENCE_DAYS = 1.0
+DAYS_PER_YEAR = 365.25
 
 
 def process_map(fn, iterable, desc=None, max_workers=PRISTINE_MAX_WORKERS):
@@ -136,6 +141,31 @@ def _jd_from_fits_time(time_column):
         return time.sum(axis=1)
     logger.debug("Converting 1D FITS time column with shape %s to float JD", time.shape)
     return time.astype(float)
+
+
+def _rv_times_after_photometry(photometry_times, rng=None):
+    photometry_times = numpy.asarray(photometry_times, dtype=float)
+    photometry_times = photometry_times[numpy.isfinite(photometry_times)]
+    if photometry_times.size == 0:
+        raise ValueError("Photometry file has no finite observation times")
+
+    rng = rng or numpy.random.default_rng()
+    offset_years = rng.uniform(RV_START_OFFSET_MIN_YEARS, RV_START_OFFSET_MAX_YEARS)
+    rv_start = Time(photometry_times.max(), format="jd") + (
+        offset_years * DAYS_PER_YEAR * units.day
+    )
+    rv_duration_days = RV_DURATION_YEARS * DAYS_PER_YEAR
+    rv_end = rv_start + (rv_duration_days * units.day)
+    sample_count = int(rv_duration_days / RV_CADENCE_DAYS)
+
+    logger.debug(
+        "Generated %d pristine RV times from %.6f to %.6f; photometry ended at %.6f",
+        sample_count,
+        rv_start.jd,
+        rv_end.jd,
+        photometry_times.max(),
+    )
+    return Time(numpy.linspace(rv_start.jd, rv_end.jd, sample_count), format="jd")
 
 
 def _self_lensing_system_from_metadata(metadata):
@@ -335,12 +365,13 @@ def calc_rv(photometry_path, save_curve=True):
     with fits.open(photometry_path) as hdul:
         header = hdul[1].header
         metadata = _metadata_from_header(header)
+        rv_times = _rv_times_after_photometry(_jd_from_fits_time(hdul[1].data["time"]))
 
     sls = _self_lensing_system_from_metadata(metadata)
     peak_time = Time(metadata["PEAK_T"], format="jd")
     rvg = RVGenerator(
         sls,
-        times=default_rv_times,
+        times=rv_times,
         peak_time=peak_time,
     )
 
