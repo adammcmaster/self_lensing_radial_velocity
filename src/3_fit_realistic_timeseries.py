@@ -7,6 +7,8 @@ import multiprocessing
 import warnings
 import os
 import argparse
+import re
+import shutil
 import time
 import threading
 from concurrent.futures import ProcessPoolExecutor
@@ -47,7 +49,7 @@ from selflensing.fitting import (
 
 from selflensing.models import DEFAULT_LIMITS, SelfLensingSystem
 
-from fitting import TIMESERIES_TABLE_PATH
+from fitting import SAMPLER_STATE_PATH, TIMESERIES_TABLE_PATH
 from realistic import (
     load_realistic_timeseries,
     load_realistic_timeseries_curve,
@@ -140,6 +142,12 @@ FIT_BATCHED_JOINT = os.environ.get("SLRV_FIT_BATCHED_JOINT", "1").lower() in (
     "yes",
     "on",
 )
+FIT_SAVE_SAMPLERS = os.environ.get("SLRV_FIT_SAVE_SAMPLERS", "0").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 FIT_BATCH_SIZE = optional_positive_int(os.environ.get("SLRV_FIT_BATCH_SIZE", 50))
 REQUIRE_GPU = os.environ.get("SLRV_REQUIRE_GPU", "").lower() in (
     "1",
@@ -167,6 +175,71 @@ def blackjax_sampler_kwargs(return_sampler, return_walker_state=True):
         "return_sampler": return_sampler,
         "return_walker_state": return_walker_state,
     }
+
+
+FIT_PARAMETER_NAMES = numpy.asarray(
+    ["a", "i", "Macc", "e", "periapsis_phase"], dtype=str
+)
+
+
+def safe_path_token(value):
+    token = "unknown" if value is None or pandas.isna(value) else str(value)
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", token)
+
+
+def sampler_state_path_for_row(ts):
+    if "realistic_id" in ts and not pandas.isna(ts["realistic_id"]):
+        token = safe_path_token(ts["realistic_id"])
+    elif "realistic_idx" in ts and not pandas.isna(ts["realistic_idx"]):
+        token = f"idx_{safe_path_token(ts['realistic_idx'])}"
+    else:
+        token = f"row_{safe_path_token(getattr(ts, 'name', None))}"
+    return SAMPLER_STATE_PATH / f"{token}.npz"
+
+
+def save_sampler_state(ts, sampler, walker_state):
+    if not FIT_SAVE_SAMPLERS:
+        return None
+    if sampler is None:
+        logger.warning(
+            "Sampler saving is enabled, but no sampler was returned for realistic_id=%s",
+            ts.get("realistic_id", None),
+        )
+        return None
+
+    path = sampler_state_path_for_row(ts)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    final_coords = walker_state_coords(walker_state)
+    logger.info(
+        "Saving sampler state for realistic_id=%s to %s",
+        ts.get("realistic_id", None),
+        path,
+    )
+    numpy.savez_compressed(
+        path,
+        chain=numpy.asarray(sampler.get_chain(), dtype=float),
+        log_prob=numpy.asarray(sampler.get_log_prob(), dtype=float),
+        acceptance=(
+            numpy.asarray(sampler.acceptance, dtype=bool)
+            if sampler.acceptance is not None
+            else numpy.asarray([], dtype=bool)
+        ),
+        final_walker_coords=(
+            numpy.asarray(final_coords, dtype=float)
+            if final_coords is not None
+            else numpy.asarray([], dtype=float)
+        ),
+        parameter_names=FIT_PARAMETER_NAMES,
+        burn=numpy.asarray(FIT_BURN, dtype=int),
+        nsteps=numpy.asarray(FIT_NSTEPS, dtype=int),
+        nwalkers=numpy.asarray(FIT_NWALKERS, dtype=int),
+        realistic_id=numpy.asarray(str(ts.get("realistic_id", ""))),
+        pristine_id=numpy.asarray(str(ts.get("pristine_id", ""))),
+        realistic_idx=numpy.asarray(
+            str(ts.get("realistic_idx", getattr(ts, "name", "")))
+        ),
+    )
+    return path
 
 
 def process_map(fn, iterable, total=None, desc=None, max_workers=None, chunksize=1):
@@ -598,7 +671,7 @@ def run_fit(a):
         ts.get("realistic_id", None),
     )
     fit_start = time.perf_counter()
-    sls, sampler, _ = unpack_fit_result(
+    sls, sampler, walker_state = unpack_fit_result(
         self_lensing_system_from_fit_blackjax(
             rv_times=Time(curve["rv_times"], format="jd"),
             observed_rv=curve["rv"] * units.m / units.s,
@@ -627,8 +700,8 @@ def run_fit(a):
             prefer_gpu=FIT_DEVICE == "auto",
             initial_walker_state=initial_walker_state,
             **blackjax_sampler_kwargs(
-                return_sampler=False,
-                return_walker_state=False,
+                return_sampler=FIT_SAVE_SAMPLERS,
+                return_walker_state=FIT_SAVE_SAMPLERS,
             ),
         )
     )
@@ -638,13 +711,16 @@ def run_fit(a):
         ts.get("realistic_id", None),
         time.perf_counter() - fit_start,
     )
-    return i, ts, truth_sls, sls, sampler, curve
+    return i, ts, truth_sls, sls, sampler, walker_state, curve
 
 
 def materialize_fit_result(fit_result):
-    i, ts, truth_sls, sls, sampler, curve = fit_result
+    i, ts, truth_sls, sls, sampler, walker_state, curve = fit_result
     materialize_start = time.perf_counter()
     new_ts = fitted_timeseries_row(i, ts, truth_sls, sls)
+    sampler_state_path = save_sampler_state(new_ts, sampler, walker_state)
+    if sampler_state_path is not None:
+        new_ts["fit_sampler_state_path"] = str(sampler_state_path)
     logger.info(
         "Materialized fit result for row index=%s in %.2f s: "
         "fitted_a=%.6g fitted_Macc=%.6g fitted_e=%.6g",
@@ -665,6 +741,13 @@ def finish_pending_fit(pending_fit):
 
 def can_use_batched_joint_fit():
     return FIT_BATCHED_JOINT
+
+
+def walker_state_for_batch_row(walker_state, batch_index):
+    coords = walker_state_coords(walker_state)
+    if coords is None:
+        return None
+    return coords[batch_index]
 
 
 def padded_series(series, fill_value=0.0, fill_from_first=False):
@@ -736,7 +819,7 @@ def fit_joint_batch(rows, curves, initial_walker_state):
             else ""
         ),
     )
-    systems, sampler, _ = self_lensing_systems_from_batched_fit_blackjax(
+    systems, sampler, walker_state = self_lensing_systems_from_batched_fit_blackjax(
         rv_times=Time(inputs["rv_times"], format="jd"),
         observed_rv=inputs["observed_rv"] * units.m / units.s,
         observed_rv_err=inputs["observed_rv_err"] * units.m / units.s,
@@ -773,21 +856,29 @@ def fit_joint_batch(rows, curves, initial_walker_state):
         device=FIT_DEVICE,
         prefer_gpu=FIT_DEVICE == "auto",
         initial_walker_state=initial_walker_state,
-        return_sampler=False,
-        return_walker_state=False,
+        return_sampler=FIT_SAVE_SAMPLERS,
+        return_walker_state=FIT_SAVE_SAMPLERS,
     )
     logger.info(
         "Batched joint MCMC returned %d systems in %.2f s",
         len(systems),
         time.perf_counter() - start,
     )
-    if sampler is not None:
-        logger.warning("Ignoring unexpected batched sampler result")
+    if FIT_SAVE_SAMPLERS and sampler is None:
+        logger.warning("Sampler saving is enabled, but batched fit returned no sampler")
     results = []
     materialize_start = time.perf_counter()
-    for (i, ts), sls in zip(rows, systems):
+    for batch_index, ((i, ts), sls) in enumerate(zip(rows, systems)):
         curve = curves[str(ts["realistic_id"])]
         new_ts = fitted_timeseries_row(i, ts, truth_self_lensing_system(ts), sls)
+        row_sampler = sampler[batch_index] if sampler is not None else None
+        sampler_state_path = save_sampler_state(
+            new_ts,
+            row_sampler,
+            walker_state_for_batch_row(walker_state, batch_index),
+        )
+        if sampler_state_path is not None:
+            new_ts["fit_sampler_state_path"] = str(sampler_state_path)
         results.append((new_ts, None, curve))
     logger.info(
         "Materialized %d batched fit results in %.2f s",
@@ -927,6 +1018,9 @@ def clear_existing_results():
         if path.exists():
             logger.info("Removing saved fit results at %s", path)
             path.unlink()
+    if SAMPLER_STATE_PATH.exists():
+        logger.info("Removing saved sampler states at %s", SAMPLER_STATE_PATH)
+        shutil.rmtree(SAMPLER_STATE_PATH)
 
 
 if __name__ == "__main__":
@@ -966,6 +1060,11 @@ if __name__ == "__main__":
     logger.info(
         "Batched joint fit setting: FIT_BATCHED_JOINT=%s",
         FIT_BATCHED_JOINT,
+    )
+    logger.info(
+        "Sampler state saving: FIT_SAVE_SAMPLERS=%s SAMPLER_STATE_PATH=%s",
+        FIT_SAVE_SAMPLERS,
+        SAMPLER_STATE_PATH,
     )
     logger.info(
         "JAX backend: default=%s devices=[%s]",
