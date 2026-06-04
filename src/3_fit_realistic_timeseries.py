@@ -125,9 +125,9 @@ CHECKPOINT_RESULTS = os.environ.get("SLRV_FIT_CHECKPOINT_RESULTS", "1").lower() 
 )
 MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "spawn")
 FIT_NSTEPS = int(os.environ.get("SLRV_FIT_NSTEPS", 2000))
-FIT_NWALKERS = int(os.environ.get("SLRV_FIT_NWALKERS", 1024))
+FIT_NWALKERS = int(os.environ.get("SLRV_FIT_NWALKERS", 512))
 FIT_BURN = int(os.environ.get("SLRV_FIT_BURN", 200))
-FIT_PROGRESS_CHUNK_SIZE = int(os.environ.get("SLRV_FIT_PROGRESS_CHUNK_SIZE", 100))
+FIT_PROGRESS_CHUNK_SIZE = int(os.environ.get("SLRV_FIT_PROGRESS_CHUNK_SIZE", 10))
 FIT_LC_BINS = 100
 FIT_E_MIN = os.environ.get("SLRV_FIT_E_MIN")
 FIT_E_MAX = os.environ.get("SLRV_FIT_E_MAX")
@@ -157,6 +157,7 @@ FIT_BATCHED_JOINT = os.environ.get("SLRV_FIT_BATCHED_JOINT", "1").lower() in (
     "yes",
     "on",
 )
+FIT_BATCH_SIZE = optional_positive_int(os.environ.get("SLRV_FIT_BATCH_SIZE", 10))
 REQUIRE_GPU = os.environ.get("SLRV_REQUIRE_GPU", "").lower() in (
     "1",
     "true",
@@ -824,6 +825,15 @@ def fit_joint_batch(rows, curves, initial_walker_state):
     return results
 
 
+def batched_row_chunks(rows):
+    if FIT_BATCH_SIZE is None or FIT_BATCH_SIZE >= len(rows):
+        yield rows
+        return
+
+    for start in range(0, len(rows), FIT_BATCH_SIZE):
+        yield rows[start : start + FIT_BATCH_SIZE]
+
+
 def fit_realistic_file(rows):
     rows = list(rows)
     if not rows:
@@ -851,7 +861,24 @@ def fit_realistic_file(rows):
         prefit_result = (prefit_ts, None, prefit_curve)
     results = []
     if can_use_batched_joint_fit():
-        results = fit_joint_batch(rows, curves, initial_walker_state)
+        batches = list(batched_row_chunks(rows))
+        if len(batches) > 1:
+            logger.info(
+                "Splitting %d realistic rows into %d batched joint chunks of up to %d",
+                len(rows),
+                len(batches),
+                FIT_BATCH_SIZE,
+            )
+        for batch_number, batch_rows in enumerate(batches, start=1):
+            if len(batches) > 1:
+                logger.info(
+                    "Starting batched joint chunk %d/%d with %d rows from %s",
+                    batch_number,
+                    len(batches),
+                    len(batch_rows),
+                    path,
+                )
+            results.extend(fit_joint_batch(batch_rows, curves, initial_walker_state))
     else:
         if FIT_BATCHED_JOINT and return_sampler_from_fit():
             logger.info(
@@ -1085,11 +1112,12 @@ if __name__ == "__main__":
     logger.info("Fit batch file: %s", FIT_BATCH_FILE)
     logger.info(
         "MCMC settings: FIT_NSTEPS=%d FIT_NWALKERS=%d FIT_BURN=%d "
-        "FIT_PROGRESS_CHUNK_SIZE=%d MP_START_METHOD=%s",
+        "FIT_PROGRESS_CHUNK_SIZE=%d FIT_BATCH_SIZE=%s MP_START_METHOD=%s",
         FIT_NSTEPS,
         FIT_NWALKERS,
         FIT_BURN,
         FIT_PROGRESS_CHUNK_SIZE,
+        FIT_BATCH_SIZE if FIT_BATCH_SIZE is not None else "all",
         MP_START_METHOD,
     )
     logger.info("Fit eccentricity limits: %s", DEFAULT_LIMITS["e"])
