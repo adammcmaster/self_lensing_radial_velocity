@@ -86,9 +86,18 @@ def parse_args():
     parser.add_argument(
         "--plot-types",
         nargs="+",
-        choices=("fit", "trace", "walkers", "corner", "all"),
+        choices=(
+            "fit",
+            "prefit",
+            "prefit_walkers",
+            "prefit_corner",
+            "trace",
+            "walkers",
+            "corner",
+            "all",
+        ),
         default=("fit",),
-        help="Plot types to render. 'trace' is accepted as an alias for walkers. Default: fit.",
+        help="Plot types to render. 'trace' is accepted as an alias for walkers; 'prefit' renders all prefit diagnostics. Default: fit.",
     )
     return parser.parse_args()
 
@@ -248,10 +257,30 @@ def safe_path_token(value):
 def normalized_plot_types(plot_types):
     plot_types = set(plot_types)
     if "all" in plot_types:
-        return ("fit", "walkers", "corner")
+        return (
+            "fit",
+            "prefit",
+            "prefit_walkers",
+            "prefit_corner",
+            "walkers",
+            "corner",
+        )
     if "trace" in plot_types:
         plot_types.add("walkers")
-    return tuple(plot_type for plot_type in ("fit", "walkers", "corner") if plot_type in plot_types)
+    if "prefit" in plot_types:
+        plot_types.update(("prefit_walkers", "prefit_corner"))
+    return tuple(
+        plot_type
+        for plot_type in (
+            "fit",
+            "prefit",
+            "prefit_walkers",
+            "prefit_corner",
+            "walkers",
+            "corner",
+        )
+        if plot_type in plot_types
+    )
 
 
 def sorted_xy(x, y):
@@ -475,6 +504,167 @@ def plot_fit(row):
     return fig
 
 
+def plot_prefit(row):
+    logger.debug(
+        "Plotting photometry prefit for pristine_id=%s realistic_id=%s",
+        row.get("pristine_id"),
+        row.get("realistic_id"),
+    )
+    truth_sls = truth_self_lensing_system(row)
+    prefit_sls = self_lensing_system_from_fit_values(row, prefit_parameter_values(row))
+    peak_time = Time(row["peak_time"], format="jd")
+    truth_lcg = LightcurveGenerator(
+        truth_sls,
+        times=Time(row["lc_times"], format="jd"),
+        peak_time=peak_time,
+    )
+    prefit_lcg = LightcurveGenerator(
+        prefit_sls,
+        times=Time(row["lc_times"], format="jd"),
+        peak_time=peak_time,
+    )
+    lc_times = quantity_values(row["lc_times"])
+    lc_data = quantity_values(row["lc"])
+    time_zero = numpy.nanmin(lc_times)
+    lc_plot_times = lc_times - time_zero
+    prefit_lc = align_lc_model_to_data(
+        quantity_values(prefit_lcg.flux_array) - 1.0,
+        lc_data,
+    )
+    truth_model_lc = align_lc_model_to_data(
+        quantity_values(truth_lcg.flux_array) - 1.0,
+        lc_data,
+    )
+    lc_model_times, prefit_lc_sorted = sorted_xy(lc_plot_times, prefit_lc)
+    _, truth_model_lc_sorted = sorted_xy(lc_plot_times, truth_model_lc)
+
+    fig, (
+        lc_axis,
+        lc_resid_axis,
+        lc_window_axis,
+        lc_window_resid_axis,
+    ) = pyplot.subplots(
+        4,
+        1,
+        figsize=(14, 10),
+        gridspec_kw={"height_ratios": (4, 1, 3, 1)},
+    )
+
+    seaborn.scatterplot(
+        x=lc_plot_times, y=lc_data, color="green", ax=lc_axis, label="Data"
+    )
+    lc_axis.plot(lc_model_times, prefit_lc_sorted, color="magenta", label="Prefit")
+    lc_axis.plot(lc_model_times, truth_model_lc_sorted, color="blue", label="Truth")
+    lc_axis.set_title("Photometry Prefit")
+    lc_axis.set_xlabel("Days Since Photometry Start")
+    lc_axis.set_ylabel("LC")
+    lc_axis.legend()
+
+    fit_window_start = row["peak_time"] - row["tau_eff"]
+    fit_window_end = row["peak_time"] + row["tau_eff"]
+    fit_window_start_plot = fit_window_start - time_zero
+    fit_window_end_plot = fit_window_end - time_zero
+    inset_lc_mask = (lc_times >= fit_window_start) & (lc_times <= fit_window_end)
+    window_fit_times, window_prefit_lc = sorted_xy(
+        lc_plot_times[inset_lc_mask], prefit_lc[inset_lc_mask]
+    )
+    _, window_truth_lc = sorted_xy(
+        lc_plot_times[inset_lc_mask], truth_model_lc[inset_lc_mask]
+    )
+
+    prefit_residuals = lc_data - prefit_lc
+    seaborn.scatterplot(
+        x=lc_plot_times,
+        y=prefit_residuals,
+        color="green",
+        ax=lc_resid_axis,
+    )
+    lc_resid_axis.axhline(0, color="black", linestyle="--", linewidth=1)
+    lc_resid_axis.set_ylabel("LC Residuals")
+
+    seaborn.scatterplot(
+        x=lc_plot_times[inset_lc_mask],
+        y=lc_data[inset_lc_mask],
+        color="green",
+        ax=lc_window_axis,
+        label="Data",
+    )
+    lc_window_axis.plot(
+        window_fit_times, window_prefit_lc, color="magenta", label="Prefit"
+    )
+    lc_window_axis.plot(window_fit_times, window_truth_lc, color="blue", label="Truth")
+    lc_window_axis.axvline(
+        fit_window_start_plot, color="black", linestyle="--", linewidth=0.8
+    )
+    lc_window_axis.axvline(
+        fit_window_end_plot, color="black", linestyle="--", linewidth=0.8
+    )
+    lc_window_axis.set_xlim(fit_window_start_plot, fit_window_end_plot)
+    lc_window_axis.set_title("Prefit Window")
+    lc_window_axis.set_xlabel("Days Since Photometry Start")
+    lc_window_axis.set_ylabel("LC")
+    lc_window_axis.legend()
+
+    seaborn.scatterplot(
+        x=lc_plot_times[inset_lc_mask],
+        y=prefit_residuals[inset_lc_mask],
+        color="green",
+        ax=lc_window_resid_axis,
+    )
+    lc_window_resid_axis.axhline(0, color="black", linestyle="--", linewidth=1)
+    lc_window_resid_axis.axvline(
+        fit_window_start_plot, color="black", linestyle="--", linewidth=0.8
+    )
+    lc_window_resid_axis.axvline(
+        fit_window_end_plot, color="black", linestyle="--", linewidth=0.8
+    )
+    lc_window_resid_axis.set_xlim(fit_window_start_plot, fit_window_end_plot)
+    lc_window_resid_axis.set_ylabel("Window Residuals")
+
+    truth_text = (
+        "Truth\n"
+        f"$a$={scalar_value(row['a']):.2f} AU\n"
+        f"$M_\\text{{BH}}$={scalar_value(row['Macc']):.2f} M$_\\odot$\n"
+        f"$P_\\text{{orb}}$={scalar_value(row['Porb']):.2f} d\n"
+        f"$\\tau_\\text{{eff}}$={scalar_value(row['tau_eff']):.2f} d\n"
+        f"$i$={scalar_value(row['i']):.2f}\n"
+        f"$e$={scalar_value(row['e']):.2f}\n"
+        f"$\\varphi$={scalar_value(row['periapsis_phase']):.2f} rad"
+    )
+    prefit_text = (
+        "Prefit\n"
+        f"$a$={prefit_sls.a.value:.2f} AU\n"
+        f"$M_\\text{{BH}}$={prefit_sls.Macc.value:.2f} M$_\\odot$\n"
+        f"$P_\\text{{orb}}$={prefit_sls.porb.value:.2f} d\n"
+        f"$\\tau_\\text{{eff}}$={prefit_sls.tau_eff.value:.2f} d\n"
+        f"$i$={prefit_sls.i.value:.2f}\n"
+        f"$e$={prefit_sls.e.value:.2f}\n"
+        f"$\\varphi$={prefit_sls.periapsis_phase.value:.2f} rad"
+    )
+    pyplot.subplots_adjust(right=0.74, hspace=0.38)
+    fig.text(
+        0.755,
+        0.5,
+        truth_text,
+        ha="left",
+        va="center",
+        fontsize=12,
+        wrap=True,
+        color="blue",
+    )
+    fig.text(
+        0.875,
+        0.5,
+        prefit_text,
+        ha="left",
+        va="center",
+        fontsize=12,
+        wrap=True,
+        color="magenta",
+    )
+    return fig
+
+
 def figure_shard_keys(ts):
     return (
         f"a1e{int(numpy.floor(numpy.log10(ts['a'])))}",
@@ -501,10 +691,29 @@ def realistic_plot_dir_name(ts):
     return "_".join((observational_token_for_row(ts), target_id_for_row(ts)))
 
 
+def original_id_for_row(ts):
+    return safe_path_token(ts.get("pristine_id", "unknown"))
+
+
+def original_plot_dir_for_row(ts):
+    a_key, b_key, macc_key = figure_shard_keys(ts)
+    return FIG_PATH / a_key / b_key / macc_key / original_id_for_row(ts)
+
+
 def target_plot_dir_for_row(ts):
     pristine_id = safe_path_token(ts.get("pristine_id", "unknown"))
     a_key, b_key, macc_key = figure_shard_keys(ts)
     return FIG_PATH / a_key / b_key / macc_key / pristine_id / realistic_plot_dir_name(ts)
+
+
+def prefit_plot_path_for_row(ts):
+    original_id = original_id_for_row(ts)
+    return original_plot_dir_for_row(ts) / f"prefit_{original_id}.png"
+
+
+def prefit_sampler_plot_path_for_row(ts, plot_type):
+    original_id = original_id_for_row(ts)
+    return original_plot_dir_for_row(ts) / f"prefit_{plot_type}_{original_id}.png"
 
 
 def plot_path_for_row(ts, plot_type):
@@ -633,6 +842,59 @@ def fitted_parameter_values(row):
     )
 
 
+def has_prefit_fit_columns(row):
+    return all(
+        column in row and not pandas.isna(row[column])
+        for column in (
+            "prefit_fitted_a",
+            "prefit_fitted_i",
+            "prefit_fitted_Macc",
+            "prefit_fitted_e",
+            "prefit_fitted_periapsis_phase",
+        )
+    )
+
+
+def prefit_parameter_values(row):
+    if has_prefit_fit_columns(row):
+        return numpy.asarray(
+            [
+                scalar_value(row["prefit_fitted_a"]),
+                scalar_value(row["prefit_fitted_i"]),
+                scalar_value(row["prefit_fitted_Macc"]),
+                scalar_value(row["prefit_fitted_e"]),
+                scalar_value(row["prefit_fitted_periapsis_phase"]),
+            ]
+        )
+
+    state = load_sampler_state(row)
+    if "prefit_chain" not in state:
+        raise FileNotFoundError(
+            f"No prefit fit columns or prefit sampler chain found for pristine_id={row.get('pristine_id', None)}"
+        )
+    parameter_indices = sampler_param_indices(
+        state.get("prefit_parameter_names", state["parameter_names"])
+    )
+    prefit_chain = numpy.asarray(state["prefit_chain"], dtype=float)
+    samples = prefit_chain[:, :, parameter_indices].reshape(
+        (-1, len(parameter_indices))
+    )
+    return numpy.nanmedian(samples, axis=0)
+
+
+def self_lensing_system_from_fit_values(row, values):
+    return SelfLensingSystem(
+        a=scalar_value(values[0]) * units.au,
+        i=scalar_value(values[1]) * units.rad,
+        Macc=scalar_value(values[2]) * units.M_sun,
+        e=scalar_value(values[3]) * units.dimensionless_unscaled,
+        periapsis_phase=scalar_value(values[4]) * units.rad,
+        Mcomp=scalar_value(row["Mcomp"]) * units.M_sun,
+        Rcomp=scalar_value(row["Rcomp"]) * units.R_sun,
+        Teff=scalar_value(row["Teff"]) * units.K,
+    )
+
+
 def plot_label(ts):
     return (
         f"realistic_id={ts.get('realistic_id')} | "
@@ -644,6 +906,14 @@ def plot_label(ts):
 
 def add_plot_title(fig, ts):
     fig.suptitle(f"Fit\n{plot_label(ts)}", fontsize=10)
+    fig.subplots_adjust(top=0.9)
+
+
+def add_prefit_plot_title(fig, ts):
+    fig.suptitle(
+        f"Photometry Prefit\npristine_id={ts.get('pristine_id')}",
+        fontsize=10,
+    )
     fig.subplots_adjust(top=0.9)
 
 
@@ -710,6 +980,100 @@ def plot_walker_traces(row, state):
             axis.legend(loc="upper right")
     axes[-1].set_xlabel("MCMC step")
     add_sampler_plot_title(fig, row, "walker traces")
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    return fig
+
+
+def prefit_chain_for_state(state):
+    if "prefit_chain" not in state:
+        raise FileNotFoundError(
+            f"No prefit sampler chain found in sampler state {state.get('path', 'unknown')}"
+        )
+    parameter_names = state.get("prefit_parameter_names", state["parameter_names"])
+    parameter_indices = sampler_param_indices(parameter_names)
+    return numpy.asarray(state["prefit_chain"], dtype=float)[:, :, parameter_indices]
+
+
+def prefit_posterior_samples(state):
+    chain = prefit_chain_for_state(state)
+    return chain.reshape((-1, chain.shape[-1]))
+
+
+def plot_prefit_walker_traces(row, state):
+    chain = prefit_chain_for_state(state)
+    truth_values = truth_parameter_values(row)
+    prefit_values = prefit_parameter_values(row)
+    fig, axes = pyplot.subplots(
+        len(FIT_PARAMETER_NAMES),
+        1,
+        figsize=(13, 10),
+        sharex=True,
+    )
+    steps = numpy.arange(chain.shape[0])
+    for index, axis in enumerate(numpy.ravel(axes)):
+        axis.plot(steps, chain[:, :, index], color="black", alpha=0.18, linewidth=0.5)
+        axis.axhline(truth_values[index], color="blue", linewidth=1.4, label="Truth")
+        axis.axhline(
+            prefit_values[index],
+            color="magenta",
+            linewidth=1.4,
+            label="Prefit",
+        )
+        axis.set_ylabel(FIT_PARAMETER_LABELS[index])
+        if index == 0:
+            axis.legend(loc="upper right")
+    axes[-1].set_xlabel("MCMC prefit step")
+    add_sampler_plot_title(fig, row, "prefit walker traces")
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    return fig
+
+
+def plot_prefit_corner(row, state):
+    samples = prefit_posterior_samples(state)
+    truth_values = truth_parameter_values(row)
+    prefit_values = prefit_parameter_values(row)
+    if samples.shape[0] <= samples.shape[1]:
+        fig, axis = pyplot.subplots(figsize=(8, 4))
+        axis.axis("off")
+        axis.text(
+            0.5,
+            0.5,
+            (
+                "Not enough prefit posterior samples for a corner plot\n"
+                f"samples={samples.shape[0]}, dimensions={samples.shape[1]}"
+            ),
+            ha="center",
+            va="center",
+            fontsize=12,
+        )
+        add_sampler_plot_title(fig, row, "prefit corner")
+        fig.tight_layout(rect=(0, 0, 1, 0.9))
+        return fig
+    fig = corner.corner(
+        samples,
+        labels=FIT_PARAMETER_LABELS,
+        truths=truth_values,
+        truth_color="blue",
+        color="black",
+        show_titles=True,
+        title_fmt=".3g",
+        title_kwargs={"fontsize": 10},
+    )
+    axes = numpy.asarray(fig.axes).reshape((len(FIT_PARAMETER_NAMES), -1))
+    for row_index in range(len(FIT_PARAMETER_NAMES)):
+        for col_index in range(row_index + 1):
+            axis = axes[row_index, col_index]
+            if row_index == col_index:
+                axis.axvline(prefit_values[col_index], color="magenta", linewidth=1.2)
+            else:
+                axis.plot(
+                    prefit_values[col_index],
+                    prefit_values[row_index],
+                    marker="o",
+                    color="magenta",
+                    markersize=4,
+                )
+    add_sampler_plot_title(fig, row, "prefit corner")
     fig.tight_layout(rect=(0, 0, 1, 0.94))
     return fig
 
@@ -786,10 +1150,51 @@ def save_corner_png(ts):
     return out_path
 
 
+def save_prefit_png(ts):
+    curve = load_realistic_timeseries_curve(ts)
+    out_path = prefit_plot_path_for_row(ts)
+    out_path.parent.mkdir(exist_ok=True, parents=True)
+    logger.debug("Writing photometry prefit diagnostic plot to %s", out_path)
+    fig = plot_prefit(plot_ts_with_curve(ts, curve))
+    add_prefit_plot_title(fig, ts)
+    fig.canvas.draw()
+    fig.savefig(out_path, dpi=150)
+    pyplot.close(fig)
+    return out_path
+
+
+def save_prefit_trace_png(ts):
+    state = load_sampler_state(ts)
+    out_path = prefit_sampler_plot_path_for_row(ts, "walkers")
+    out_path.parent.mkdir(exist_ok=True, parents=True)
+    fig = plot_prefit_walker_traces(ts, state)
+    fig.canvas.draw()
+    fig.savefig(out_path, dpi=150)
+    pyplot.close(fig)
+    return out_path
+
+
+def save_prefit_corner_png(ts):
+    state = load_sampler_state(ts)
+    out_path = prefit_sampler_plot_path_for_row(ts, "corner")
+    out_path.parent.mkdir(exist_ok=True, parents=True)
+    fig = plot_prefit_corner(ts, state)
+    fig.canvas.draw()
+    fig.savefig(out_path, dpi=150)
+    pyplot.close(fig)
+    return out_path
+
+
 def save_requested_plots(ts, plot_types):
     output_paths = []
     if "fit" in plot_types:
         output_paths.append(save_plot_png(ts, None))
+    if "prefit" in plot_types:
+        output_paths.append(save_prefit_png(ts))
+    if "prefit_walkers" in plot_types:
+        output_paths.append(save_prefit_trace_png(ts))
+    if "prefit_corner" in plot_types:
+        output_paths.append(save_prefit_corner_png(ts))
     if "walkers" in plot_types:
         output_paths.append(save_trace_png(ts))
     if "corner" in plot_types:
@@ -872,6 +1277,14 @@ def row_groups(rows):
     return [group for _, group in rows.groupby("realistic_path", sort=True)]
 
 
+def rows_for_unique_prefits(rows):
+    if "pristine_id" in rows.columns:
+        return rows.drop_duplicates(subset="pristine_id", keep="last").copy()
+    if "realistic_path" in rows.columns:
+        return rows.drop_duplicates(subset="realistic_path", keep="last").copy()
+    return rows.head(1).copy()
+
+
 def plot_rows_serial(rows, plot_types):
     load_plotting_stack()
     output_paths = []
@@ -929,9 +1342,34 @@ def plot_rows_parallel(rows, max_workers, plot_types):
 
 
 def plot_rows(rows, max_workers, plot_types):
+    output_paths = []
+    regular_plot_types = tuple(
+        plot_type for plot_type in plot_types if not plot_type.startswith("prefit")
+    )
+    prefit_plot_types = tuple(
+        plot_type for plot_type in plot_types if plot_type.startswith("prefit")
+    )
+    if regular_plot_types:
+        if max_workers == 1:
+            output_paths.extend(plot_rows_serial(rows, regular_plot_types))
+        else:
+            output_paths.extend(plot_rows_parallel(rows, max_workers, regular_plot_types))
+    if not prefit_plot_types:
+        return output_paths
+
+    prefit_rows = rows_for_unique_prefits(rows)
+    logger.info(
+        "Selected %d unique photometry prefit row(s) from %d fitted row(s)",
+        len(prefit_rows),
+        len(rows),
+    )
     if max_workers == 1:
-        return plot_rows_serial(rows, plot_types)
-    return plot_rows_parallel(rows, max_workers, plot_types)
+        output_paths.extend(plot_rows_serial(prefit_rows, prefit_plot_types))
+    else:
+        output_paths.extend(
+            plot_rows_parallel(prefit_rows, max_workers, prefit_plot_types)
+        )
+    return output_paths
 
 
 def main():

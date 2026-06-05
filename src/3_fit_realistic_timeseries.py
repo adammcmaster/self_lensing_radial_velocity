@@ -731,6 +731,26 @@ def fitted_timeseries_row(i, ts, truth_sls, sls):
     return new_ts
 
 
+def add_prefit_columns(ts, prefit_ts):
+    if prefit_ts is None:
+        return ts
+    new_ts = pandas.Series(ts)
+    for column in (
+        "fitted_a",
+        "fitted_b",
+        "fitted_b_max",
+        "fitted_i",
+        "fitted_Macc",
+        "fitted_e",
+        "fitted_periapsis_phase",
+        "fitted_porb",
+        "fitted_tau_eff",
+    ):
+        if column in prefit_ts:
+            new_ts[f"prefit_{column}"] = prefit_ts[column]
+    return new_ts
+
+
 def fit_photometry_prefit(i, ts, curve):
     fit_lc = lightcurve_fit_window(curve, ts)
     mcmc_desc = f"MCMC prefit {short_id(ts.get('realistic_id', None))}"
@@ -861,10 +881,12 @@ def materialize_fit_result(
     fit_result,
     sampler_writer=None,
     prefit_sampler_state_path=None,
+    prefit_ts=None,
 ):
     i, ts, truth_sls, sls, sampler, walker_state, curve = fit_result
     materialize_start = time.perf_counter()
     new_ts = fitted_timeseries_row(i, ts, truth_sls, sls)
+    new_ts = add_prefit_columns(new_ts, prefit_ts)
     if sampler_writer is None:
         sampler_writer = SamplerStateWriter()
         close_sampler_writer = True
@@ -972,6 +994,7 @@ def fit_joint_batch(
     initial_walker_state,
     sampler_writer,
     prefit_sampler_state_path=None,
+    prefit_ts=None,
 ):
     start = time.perf_counter()
     inputs = batched_joint_fit_inputs(rows, curves)
@@ -1038,6 +1061,7 @@ def fit_joint_batch(
     for batch_index, ((i, ts), sls) in enumerate(zip(rows, systems)):
         curve = curves[str(ts["realistic_id"])]
         new_ts = fitted_timeseries_row(i, ts, truth_self_lensing_system(ts), sls)
+        new_ts = add_prefit_columns(new_ts, prefit_ts)
         row_sampler = sampler[batch_index] if sampler is not None else None
         sampler_state_path = sampler_writer.submit(
             new_ts,
@@ -1127,6 +1151,7 @@ def fit_realistic_file(rows):
                     initial_walker_state,
                     sampler_writer,
                     prefit_sampler_state_path=prefit_sampler_state_path,
+                    prefit_ts=prefit_ts,
                 )
             )
     else:
@@ -1163,6 +1188,7 @@ def fit_realistic_file(rows):
                     fit_result,
                     sampler_writer,
                     prefit_sampler_state_path,
+                    prefit_ts,
                 )
             finished_fit = finish_pending_fit(pending_fit)
             if finished_fit is not None:
