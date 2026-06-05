@@ -307,14 +307,17 @@ def plot_fit(row):
     rv_model = quantity_values(rvg.rv, units.m / units.s)
     lc_times = quantity_values(row["lc_times"])
     lc_data = quantity_values(row["lc"])
+    time_zero = numpy.nanmin(lc_times)
+    rv_plot_times = rv_times - time_zero
+    lc_plot_times = lc_times - time_zero
     model_lc = align_lc_model_to_data(quantity_values(lcg.flux_array) - 1.0, lc_data)
     truth_model_lc = align_lc_model_to_data(
         quantity_values(truth_lcg.flux_array) - 1.0,
         lc_data,
     )
-    rv_model_times, rv_model_sorted = sorted_xy(rv_times, rv_model)
-    lc_model_times, model_lc_sorted = sorted_xy(lc_times, model_lc)
-    _, truth_model_lc_sorted = sorted_xy(lc_times, truth_model_lc)
+    rv_model_times, rv_model_sorted = sorted_xy(rv_plot_times, rv_model)
+    lc_model_times, model_lc_sorted = sorted_xy(lc_plot_times, model_lc)
+    _, truth_model_lc_sorted = sorted_xy(lc_plot_times, truth_model_lc)
 
     fig, (
         rv_axis,
@@ -330,9 +333,9 @@ def plot_fit(row):
         gridspec_kw={"height_ratios": (4, 1, 4, 1, 2, 1)},
     )
 
-    seaborn.scatterplot(x=rv_times, y=rv_data, color="blue", ax=rv_axis)
+    seaborn.scatterplot(x=rv_plot_times, y=rv_data, color="blue", ax=rv_axis)
     rv_axis.errorbar(
-        rv_times,
+        rv_plot_times,
         rv_data,
         yerr=row["RV accuracy"],
         fmt="none",
@@ -341,48 +344,50 @@ def plot_fit(row):
     )
     rv_axis.plot(rv_model_times, rv_model_sorted, color="red")
     rv_axis.set_title("Radial Velocity")
-    rv_axis.set_xlabel("RV Times")
+    rv_axis.set_xlabel("Days Since Photometry Start")
     rv_axis.set_ylabel("RV")
 
     seaborn.scatterplot(
-        x=lc_times, y=lc_data, color="green", ax=lc_axis, label="Data"
+        x=lc_plot_times, y=lc_data, color="green", ax=lc_axis, label="Data"
     )
     lc_axis.plot(lc_model_times, model_lc_sorted, color="red", label="Fit")
     lc_axis.plot(lc_model_times, truth_model_lc_sorted, color="blue", label="Truth")
     lc_axis.set_title("Lightcurve")
-    lc_axis.set_xlabel("LC Times")
+    lc_axis.set_xlabel("Days Since Photometry Start")
     lc_axis.set_ylabel("LC")
     lc_axis.legend()
 
     fit_window_start = row["peak_time"] - row["tau_eff"]
     fit_window_end = row["peak_time"] + row["tau_eff"]
+    fit_window_start_plot = fit_window_start - time_zero
+    fit_window_end_plot = fit_window_end - time_zero
     inset_lc_mask = (lc_times >= fit_window_start) & (lc_times <= fit_window_end)
     seaborn.scatterplot(
-        x=lc_times[inset_lc_mask],
+        x=lc_plot_times[inset_lc_mask],
         y=lc_data[inset_lc_mask],
         color="green",
         ax=lc_window_axis,
         label="Data",
     )
     window_fit_times, window_fit_lc = sorted_xy(
-        lc_times[inset_lc_mask], model_lc[inset_lc_mask]
+        lc_plot_times[inset_lc_mask], model_lc[inset_lc_mask]
     )
     _, window_truth_lc = sorted_xy(
-        lc_times[inset_lc_mask], truth_model_lc[inset_lc_mask]
+        lc_plot_times[inset_lc_mask], truth_model_lc[inset_lc_mask]
     )
     lc_window_axis.plot(window_fit_times, window_fit_lc, color="red", label="Fit")
     lc_window_axis.plot(
         window_fit_times, window_truth_lc, color="blue", label="Truth"
     )
     lc_window_axis.axvline(
-        fit_window_start, color="black", linestyle="--", linewidth=0.8
+        fit_window_start_plot, color="black", linestyle="--", linewidth=0.8
     )
     lc_window_axis.axvline(
-        fit_window_end, color="black", linestyle="--", linewidth=0.8
+        fit_window_end_plot, color="black", linestyle="--", linewidth=0.8
     )
-    lc_window_axis.set_xlim(fit_window_start, fit_window_end)
+    lc_window_axis.set_xlim(fit_window_start_plot, fit_window_end_plot)
     lc_window_axis.set_title("Lightcurve Fit Window")
-    lc_window_axis.set_xlabel("LC Times")
+    lc_window_axis.set_xlabel("Days Since Photometry Start")
     lc_window_axis.set_ylabel("LC")
     lc_window_axis.legend()
 
@@ -390,31 +395,31 @@ def plot_fit(row):
     lc_residuals = lc_data - model_lc
 
     seaborn.scatterplot(
-        x=rv_times, y=rv_residuals, color="blue", ax=rv_resid_axis
+        x=rv_plot_times, y=rv_residuals, color="blue", ax=rv_resid_axis
     )
     rv_resid_axis.axhline(0, color="black", linestyle="--", linewidth=1)
     rv_resid_axis.set_ylabel("RV Residuals")
 
     seaborn.scatterplot(
-        x=lc_times, y=lc_residuals, color="green", ax=lc_full_resid_axis
+        x=lc_plot_times, y=lc_residuals, color="green", ax=lc_full_resid_axis
     )
     lc_full_resid_axis.axhline(0, color="black", linestyle="--", linewidth=1)
     lc_full_resid_axis.set_ylabel("LC Residuals")
 
     seaborn.scatterplot(
-        x=lc_times[inset_lc_mask],
+        x=lc_plot_times[inset_lc_mask],
         y=lc_residuals[inset_lc_mask],
         color="green",
         ax=lc_window_resid_axis,
     )
     lc_window_resid_axis.axhline(0, color="black", linestyle="--", linewidth=1)
     lc_window_resid_axis.axvline(
-        fit_window_start, color="black", linestyle="--", linewidth=0.8
+        fit_window_start_plot, color="black", linestyle="--", linewidth=0.8
     )
     lc_window_resid_axis.axvline(
-        fit_window_end, color="black", linestyle="--", linewidth=0.8
+        fit_window_end_plot, color="black", linestyle="--", linewidth=0.8
     )
-    lc_window_resid_axis.set_xlim(fit_window_start, fit_window_end)
+    lc_window_resid_axis.set_xlim(fit_window_start_plot, fit_window_end_plot)
     lc_window_resid_axis.set_ylabel("Window Residuals")
 
     b_max = row.get("b_max", numpy.nan)
