@@ -261,6 +261,16 @@ def sorted_xy(x, y):
     return x[order], y[order]
 
 
+def align_lc_model_to_data(model_lc, lc_data):
+    model_lc = quantity_values(model_lc)
+    lc_data = quantity_values(lc_data)
+    finite_model = numpy.isfinite(model_lc)
+    finite_data = numpy.isfinite(lc_data)
+    if not finite_model.any() or not finite_data.any():
+        return model_lc
+    return model_lc - numpy.nanmedian(model_lc) + numpy.nanmedian(lc_data)
+
+
 def plot_fit(row):
     logger.debug(
         "Plotting fit for realistic_idx=%s realistic_id=%s",
@@ -297,8 +307,11 @@ def plot_fit(row):
     rv_model = quantity_values(rvg.rv, units.m / units.s)
     lc_times = quantity_values(row["lc_times"])
     lc_data = quantity_values(row["lc"])
-    model_lc = quantity_values(lcg.flux_array) - 1.0
-    truth_model_lc = quantity_values(truth_lcg.flux_array) - 1.0
+    model_lc = align_lc_model_to_data(quantity_values(lcg.flux_array) - 1.0, lc_data)
+    truth_model_lc = align_lc_model_to_data(
+        quantity_values(truth_lcg.flux_array) - 1.0,
+        lc_data,
+    )
     rv_model_times, rv_model_sorted = sorted_xy(rv_times, rv_model)
     lc_model_times, model_lc_sorted = sorted_xy(lc_times, model_lc)
     _, truth_model_lc_sorted = sorted_xy(lc_times, truth_model_lc)
@@ -469,9 +482,24 @@ def target_id_for_row(ts):
     return safe_path_token(ts.get("realistic_id", ts.get("realistic_idx", "unknown")))
 
 
+def observational_token_for_row(ts):
+    return "_".join(
+        (
+            format_filename_token("baseline", ts["baseline"], "d"),
+            format_filename_token("cadence", ts["cadence"], "d"),
+            format_filename_token("rv", ts["RV accuracy"], "ms"),
+        )
+    )
+
+
+def realistic_plot_dir_name(ts):
+    return "_".join((observational_token_for_row(ts), target_id_for_row(ts)))
+
+
 def target_plot_dir_for_row(ts):
+    pristine_id = safe_path_token(ts.get("pristine_id", "unknown"))
     a_key, b_key, macc_key = figure_shard_keys(ts)
-    return FIG_PATH / a_key / b_key / macc_key / target_id_for_row(ts)
+    return FIG_PATH / a_key / b_key / macc_key / pristine_id / realistic_plot_dir_name(ts)
 
 
 def plot_path_for_row(ts, plot_type):
@@ -479,9 +507,7 @@ def plot_path_for_row(ts, plot_type):
     name = "_".join(
         (
             plot_type,
-            format_filename_token("baseline", ts["baseline"], "d"),
-            format_filename_token("cadence", ts["cadence"], "d"),
-            format_filename_token("rv", ts["RV accuracy"], "ms"),
+            observational_token_for_row(ts),
             target_id,
         )
     )
