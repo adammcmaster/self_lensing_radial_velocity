@@ -148,6 +148,9 @@ FIT_SAVE_SAMPLERS = os.environ.get("SLRV_FIT_SAVE_SAMPLERS", "0").lower() in (
     "yes",
     "on",
 )
+FIT_SAMPLER_WRITE_MAX_WORKERS = int(
+    os.environ.get("SLRV_FIT_SAMPLER_WRITE_MAX_WORKERS", 16)
+)
 FIT_BATCH_SIZE = optional_positive_int(os.environ.get("SLRV_FIT_BATCH_SIZE", 50))
 REQUIRE_GPU = os.environ.get("SLRV_REQUIRE_GPU", "").lower() in (
     "1",
@@ -187,6 +190,16 @@ def safe_path_token(value):
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", token)
 
 
+def sampler_state_shard_keys(ts):
+    a = float(ts["a"]) if "a" in ts and not pandas.isna(ts["a"]) else numpy.nan
+    b = float(ts["b"]) if "b" in ts and not pandas.isna(ts["b"]) else numpy.nan
+    macc = float(ts["Macc"]) if "Macc" in ts and not pandas.isna(ts["Macc"]) else numpy.nan
+    a_key = f"a1e{int(numpy.floor(numpy.log10(a)))}" if a > 0 else "a_unknown"
+    b_key = f"b{int(b)}" if numpy.isfinite(b) else "b_unknown"
+    macc_key = f"Macc{int(macc)}" if numpy.isfinite(macc) else "Macc_unknown"
+    return a_key, b_key, macc_key
+
+
 def sampler_state_path_for_row(ts):
     if "realistic_id" in ts and not pandas.isna(ts["realistic_id"]):
         token = safe_path_token(ts["realistic_id"])
@@ -194,10 +207,12 @@ def sampler_state_path_for_row(ts):
         token = f"idx_{safe_path_token(ts['realistic_idx'])}"
     else:
         token = f"row_{safe_path_token(getattr(ts, 'name', None))}"
-    return SAMPLER_STATE_PATH / f"{token}.npz"
+    pristine_id = safe_path_token(ts.get("pristine_id", "unknown"))
+    a_key, b_key, macc_key = sampler_state_shard_keys(ts)
+    return SAMPLER_STATE_PATH / a_key / b_key / macc_key / pristine_id / f"{token}.npz"
 
 
-def save_sampler_state(ts, sampler, walker_state):
+def sampler_state_payload(ts, sampler, walker_state):
     if not FIT_SAVE_SAMPLERS:
         return None
     if sampler is None:
@@ -208,38 +223,92 @@ def save_sampler_state(ts, sampler, walker_state):
         return None
 
     path = sampler_state_path_for_row(ts)
-    path.parent.mkdir(parents=True, exist_ok=True)
     final_coords = walker_state_coords(walker_state)
-    logger.info(
-        "Saving sampler state for realistic_id=%s to %s",
-        ts.get("realistic_id", None),
-        path,
-    )
-    numpy.savez_compressed(
-        path,
-        chain=numpy.asarray(sampler.get_chain(), dtype=float),
-        log_prob=numpy.asarray(sampler.get_log_prob(), dtype=float),
-        acceptance=(
+    return {
+        "path": path,
+        "chain": numpy.asarray(sampler.get_chain(), dtype=float),
+        "log_prob": numpy.asarray(sampler.get_log_prob(), dtype=float),
+        "acceptance": (
             numpy.asarray(sampler.acceptance, dtype=bool)
             if sampler.acceptance is not None
             else numpy.asarray([], dtype=bool)
         ),
-        final_walker_coords=(
+        "final_walker_coords": (
             numpy.asarray(final_coords, dtype=float)
             if final_coords is not None
             else numpy.asarray([], dtype=float)
         ),
-        parameter_names=FIT_PARAMETER_NAMES,
-        burn=numpy.asarray(FIT_BURN, dtype=int),
-        nsteps=numpy.asarray(FIT_NSTEPS, dtype=int),
-        nwalkers=numpy.asarray(FIT_NWALKERS, dtype=int),
-        realistic_id=numpy.asarray(str(ts.get("realistic_id", ""))),
-        pristine_id=numpy.asarray(str(ts.get("pristine_id", ""))),
-        realistic_idx=numpy.asarray(
+        "parameter_names": FIT_PARAMETER_NAMES,
+        "burn": numpy.asarray(FIT_BURN, dtype=int),
+        "nsteps": numpy.asarray(FIT_NSTEPS, dtype=int),
+        "nwalkers": numpy.asarray(FIT_NWALKERS, dtype=int),
+        "realistic_id": numpy.asarray(str(ts.get("realistic_id", ""))),
+        "pristine_id": numpy.asarray(str(ts.get("pristine_id", ""))),
+        "realistic_idx": numpy.asarray(
             str(ts.get("realistic_idx", getattr(ts, "name", "")))
         ),
+    }
+
+
+def write_sampler_state_payload(payload):
+    path = payload["path"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    logger.info(
+        "Saving sampler state to %s",
+        path,
+    )
+    numpy.savez_compressed(
+        path,
+        chain=payload["chain"],
+        log_prob=payload["log_prob"],
+        acceptance=payload["acceptance"],
+        final_walker_coords=payload["final_walker_coords"],
+        parameter_names=payload["parameter_names"],
+        burn=payload["burn"],
+        nsteps=payload["nsteps"],
+        nwalkers=payload["nwalkers"],
+        realistic_id=payload["realistic_id"],
+        pristine_id=payload["pristine_id"],
+        realistic_idx=payload["realistic_idx"],
     )
     return path
+
+
+class SamplerStateWriter:
+    def __init__(self):
+        self.executor = None
+        self.futures = []
+        if FIT_SAVE_SAMPLERS:
+            self.executor = ThreadPoolExecutor(
+                max_workers=max(1, FIT_SAMPLER_WRITE_MAX_WORKERS)
+            )
+
+    def submit(self, ts, sampler, walker_state):
+        payload = sampler_state_payload(ts, sampler, walker_state)
+        if payload is None:
+            return None
+        path = payload["path"]
+        if self.executor is None:
+            write_sampler_state_payload(payload)
+        else:
+            logger.debug("Queueing sampler state write to %s", path)
+            self.futures.append(self.executor.submit(write_sampler_state_payload, payload))
+        return path
+
+    def close(self):
+        if self.futures:
+            logger.info("Waiting for %d queued sampler state write(s)", len(self.futures))
+        for future in self.futures:
+            future.result()
+        if self.executor is not None:
+            self.executor.shutdown()
+
+
+ACTIVE_SAMPLER_WRITER = None
+
+
+def shared_sampler_writer():
+    return ACTIVE_SAMPLER_WRITER
 
 
 def process_map(fn, iterable, total=None, desc=None, max_workers=None, chunksize=1):
@@ -714,11 +783,18 @@ def run_fit(a):
     return i, ts, truth_sls, sls, sampler, walker_state, curve
 
 
-def materialize_fit_result(fit_result):
+def materialize_fit_result(fit_result, sampler_writer=None):
     i, ts, truth_sls, sls, sampler, walker_state, curve = fit_result
     materialize_start = time.perf_counter()
     new_ts = fitted_timeseries_row(i, ts, truth_sls, sls)
-    sampler_state_path = save_sampler_state(new_ts, sampler, walker_state)
+    if sampler_writer is None:
+        sampler_writer = SamplerStateWriter()
+        close_sampler_writer = True
+    else:
+        close_sampler_writer = False
+    sampler_state_path = sampler_writer.submit(new_ts, sampler, walker_state)
+    if close_sampler_writer:
+        sampler_writer.close()
     if sampler_state_path is not None:
         new_ts["fit_sampler_state_path"] = str(sampler_state_path)
     logger.info(
@@ -805,7 +881,7 @@ def batched_joint_fit_inputs(rows, curves):
     return inputs
 
 
-def fit_joint_batch(rows, curves, initial_walker_state):
+def fit_joint_batch(rows, curves, initial_walker_state, sampler_writer):
     start = time.perf_counter()
     inputs = batched_joint_fit_inputs(rows, curves)
     row_table = pandas.DataFrame([ts for _, ts in rows])
@@ -872,7 +948,7 @@ def fit_joint_batch(rows, curves, initial_walker_state):
         curve = curves[str(ts["realistic_id"])]
         new_ts = fitted_timeseries_row(i, ts, truth_self_lensing_system(ts), sls)
         row_sampler = sampler[batch_index] if sampler is not None else None
-        sampler_state_path = save_sampler_state(
+        sampler_state_path = sampler_writer.submit(
             new_ts,
             row_sampler,
             walker_state_for_batch_row(walker_state, batch_index),
@@ -908,6 +984,11 @@ def fit_realistic_file(rows):
     curves = load_realistic_timeseries_curves(rows)
     logger.info("Loaded %d grouped realistic curves from %s", len(curves), path)
     initial_walker_state = None
+    sampler_writer = shared_sampler_writer()
+    close_sampler_writer = False
+    if sampler_writer is None:
+        sampler_writer = SamplerStateWriter()
+        close_sampler_writer = True
     if FIT_USE_LC:
         prefit_i, prefit_ts = rows[0]
         prefit_curve = curves[str(prefit_ts["realistic_id"])]
@@ -939,7 +1020,14 @@ def fit_realistic_file(rows):
                     len(batch_rows),
                     path,
                 )
-            results.extend(fit_joint_batch(batch_rows, curves, initial_walker_state))
+            results.extend(
+                fit_joint_batch(
+                    batch_rows,
+                    curves,
+                    initial_walker_state,
+                    sampler_writer,
+                )
+            )
     else:
         file_progress_desc = (
             f"RV joint fits {short_id(rows[0][1].get('pristine_id', Path(path).stem))}"
@@ -969,11 +1057,17 @@ def fit_realistic_file(rows):
                 finished_fit = finish_pending_fit(pending_fit)
                 if finished_fit is not None:
                     results.append(finished_fit)
-                pending_fit = row_executor.submit(materialize_fit_result, fit_result)
+                pending_fit = row_executor.submit(
+                    materialize_fit_result,
+                    fit_result,
+                    sampler_writer,
+                )
             finished_fit = finish_pending_fit(pending_fit)
             if finished_fit is not None:
                 results.append(finished_fit)
     logger.info("Finished all joint fits for %s", path)
+    if close_sampler_writer:
+        sampler_writer.close()
     logger.info("Finished grouped fit for %s", path)
     return [(ts, None, None) for ts, _, _ in results]
 
@@ -1134,6 +1228,10 @@ if __name__ == "__main__":
         else []
     )
 
+    if FIT_MAX_WORKERS == 1:
+        ACTIVE_SAMPLER_WRITER = SamplerStateWriter()
+        logger.info("Using one shared sampler state writer across serial fit jobs")
+
     checkpoint_writer = AsyncCheckpointWriter(enabled=CHECKPOINT_RESULTS)
     new_result_count = 0
     try:
@@ -1156,8 +1254,14 @@ if __name__ == "__main__":
                 len(results),
             )
             checkpoint_writer.submit(results)
+        if ACTIVE_SAMPLER_WRITER is not None:
+            ACTIVE_SAMPLER_WRITER.close()
+            ACTIVE_SAMPLER_WRITER = None
         checkpoint_writer.close(final_results=results)
     except BaseException:
+        if ACTIVE_SAMPLER_WRITER is not None:
+            ACTIVE_SAMPLER_WRITER.close()
+            ACTIVE_SAMPLER_WRITER = None
         checkpoint_writer.close(final_results=results)
         raise
     logger.info(

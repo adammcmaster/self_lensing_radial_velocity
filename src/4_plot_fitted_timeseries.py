@@ -25,6 +25,14 @@ DEFAULT_FIG_PATH = Path(__file__).parent / Path("../data/figures")
 FIG_PATH = Path(os.environ.get("SLRV_FIG_PATH", DEFAULT_FIG_PATH))
 PLOT_MAX_WORKERS = int(os.environ.get("SLRV_PLOT_MAX_WORKERS", min(os.cpu_count(), 16) or 1))
 MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "spawn")
+FIT_PARAMETER_NAMES = ("a", "i", "Macc", "e", "periapsis_phase")
+FIT_PARAMETER_LABELS = (
+    "$a$ [AU]",
+    "$i$ [rad]",
+    "$M_\\mathrm{BH}$ [$M_\\odot$]",
+    "$e$",
+    "$\\varphi$ [rad]",
+)
 
 
 def positive_int(value):
@@ -75,6 +83,13 @@ def parse_args():
         default=PLOT_MAX_WORKERS,
         help=f"Maximum plot rendering worker processes. Default: {PLOT_MAX_WORKERS}.",
     )
+    parser.add_argument(
+        "--plot-types",
+        nargs="+",
+        choices=("fit", "trace", "corner", "all"),
+        default=("fit",),
+        help="Plot types to render. Default: fit.",
+    )
     return parser.parse_args()
 
 
@@ -86,11 +101,13 @@ def load_plotting_stack():
     global seaborn
     global tqdm
     global units
+    global corner
     global LightcurveGenerator
     global RVGenerator
     global SelfLensingSystem
     global load_realistic_timeseries_curve
 
+    import corner
     import numpy
     import pandas
     import seaborn
@@ -220,6 +237,19 @@ def format_value_token(value):
 
 def format_filename_token(name, value, suffix=""):
     return f"{name}{format_value_token(value)}{suffix}"
+
+
+def safe_path_token(value):
+    if value is None or pandas.isna(value):
+        return "unknown"
+    return str(value).replace("/", "_")
+
+
+def normalized_plot_types(plot_types):
+    plot_types = set(plot_types)
+    if "all" in plot_types:
+        return ("fit", "trace", "corner")
+    return tuple(plot_type for plot_type in ("fit", "trace", "corner") if plot_type in plot_types)
 
 
 def sorted_xy(x, y):
@@ -448,6 +478,90 @@ def plot_path_for_row(ts):
     return FIG_PATH / a_key / b_key / macc_key / pristine_id / f"{name}.png"
 
 
+def sampler_plot_path_for_row(ts, plot_type):
+    pristine_id = str(ts.get("pristine_id", "unknown"))
+    realistic_id = str(ts.get("realistic_id", ts.get("realistic_idx", "unknown")))
+    a_key, b_key, macc_key = figure_shard_keys(ts)
+    name = "_".join(
+        (
+            format_filename_token("baseline", ts["baseline"], "d"),
+            format_filename_token("cadence", ts["cadence"], "d"),
+            format_filename_token("rv", ts["RV accuracy"], "ms"),
+            realistic_id,
+            plot_type,
+        )
+    )
+    return FIG_PATH / plot_type / a_key / b_key / macc_key / pristine_id / f"{name}.png"
+
+
+def default_sampler_state_path(ts):
+    from fitting import SAMPLER_STATE_PATH
+
+    if "realistic_id" in ts and not pandas.isna(ts["realistic_id"]):
+        token = safe_path_token(ts["realistic_id"])
+    elif "realistic_idx" in ts and not pandas.isna(ts["realistic_idx"]):
+        token = f"idx_{safe_path_token(ts['realistic_idx'])}"
+    else:
+        token = f"row_{safe_path_token(getattr(ts, 'name', None))}"
+    pristine_id = safe_path_token(ts.get("pristine_id", "unknown"))
+    a_key, b_key, macc_key = figure_shard_keys(ts)
+    return SAMPLER_STATE_PATH / a_key / b_key / macc_key / pristine_id / f"{token}.npz"
+
+
+def legacy_sampler_state_path(ts):
+    from fitting import SAMPLER_STATE_PATH
+
+    if "realistic_id" in ts and not pandas.isna(ts["realistic_id"]):
+        token = safe_path_token(ts["realistic_id"])
+    elif "realistic_idx" in ts and not pandas.isna(ts["realistic_idx"]):
+        token = f"idx_{safe_path_token(ts['realistic_idx'])}"
+    else:
+        token = f"row_{safe_path_token(getattr(ts, 'name', None))}"
+    return SAMPLER_STATE_PATH / f"{token}.npz"
+
+
+def sampler_state_path_for_row(ts):
+    if "fit_sampler_state_path" in ts and not pandas.isna(ts["fit_sampler_state_path"]):
+        path = Path(ts["fit_sampler_state_path"])
+        if path.exists():
+            return path
+    for path in (default_sampler_state_path(ts), legacy_sampler_state_path(ts)):
+        if path.exists():
+            return path
+    raise FileNotFoundError(
+        f"No sampler state found for realistic_id={ts.get('realistic_id', None)}"
+    )
+
+
+def load_sampler_state(ts):
+    path = sampler_state_path_for_row(ts)
+    with numpy.load(path) as data:
+        state = {key: data[key].copy() for key in data.files}
+    state["path"] = path
+    return state
+
+
+def sampler_param_indices(parameter_names):
+    names = [str(name) for name in parameter_names]
+    return [names.index(name) for name in FIT_PARAMETER_NAMES]
+
+
+def truth_parameter_values(row):
+    return numpy.asarray([scalar_value(row[name]) for name in FIT_PARAMETER_NAMES])
+
+
+def fitted_parameter_values(row):
+    return numpy.asarray(
+        [
+            scalar_value(row["fitted_a"]),
+            scalar_value(row["fitted_i"]),
+            scalar_value(row["fitted_Macc"]),
+            scalar_value(row["fitted_e"]),
+            scalar_value(row["fitted_periapsis_phase"]),
+        ]
+    )
+
+
 def plot_label(ts):
     return (
         f"realistic_id={ts.get('realistic_id')} | "
@@ -460,6 +574,128 @@ def plot_label(ts):
 def add_plot_title(fig, ts):
     fig.suptitle(f"Fit\n{plot_label(ts)}", fontsize=10)
     fig.subplots_adjust(top=0.9)
+
+
+def add_sampler_plot_title(fig, ts, plot_type):
+    fig.suptitle(f"{plot_type.title()}\n{plot_label(ts)}", fontsize=10)
+
+
+def posterior_samples(state):
+    chain = numpy.asarray(state["chain"], dtype=float)
+    parameter_indices = sampler_param_indices(state["parameter_names"])
+    burn = int(numpy.asarray(state.get("burn", 0)))
+    if burn < 0 or burn >= chain.shape[0]:
+        burn = 0
+    return chain[burn:, :, :][:, :, parameter_indices].reshape((-1, len(parameter_indices)))
+
+
+def plot_walker_traces(row, state):
+    chain = numpy.asarray(state["chain"], dtype=float)
+    parameter_indices = sampler_param_indices(state["parameter_names"])
+    chain = chain[:, :, parameter_indices]
+    truth_values = truth_parameter_values(row)
+    fit_values = fitted_parameter_values(row)
+    fig, axes = pyplot.subplots(
+        len(FIT_PARAMETER_NAMES),
+        1,
+        figsize=(13, 10),
+        sharex=True,
+    )
+    steps = numpy.arange(chain.shape[0])
+    for index, axis in enumerate(numpy.ravel(axes)):
+        axis.plot(steps, chain[:, :, index], color="black", alpha=0.18, linewidth=0.5)
+        axis.axhline(truth_values[index], color="blue", linewidth=1.4, label="Truth")
+        axis.axhline(fit_values[index], color="red", linewidth=1.4, label="Fit")
+        axis.set_ylabel(FIT_PARAMETER_LABELS[index])
+        if index == 0:
+            axis.legend(loc="upper right")
+    axes[-1].set_xlabel("MCMC step")
+    add_sampler_plot_title(fig, row, "walker traces")
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    return fig
+
+
+def plot_corner(row, state):
+    samples = posterior_samples(state)
+    truth_values = truth_parameter_values(row)
+    fit_values = fitted_parameter_values(row)
+    if samples.shape[0] <= samples.shape[1]:
+        fig, axis = pyplot.subplots(figsize=(8, 4))
+        axis.axis("off")
+        axis.text(
+            0.5,
+            0.5,
+            (
+                "Not enough posterior samples for a corner plot\n"
+                f"samples={samples.shape[0]}, dimensions={samples.shape[1]}"
+            ),
+            ha="center",
+            va="center",
+            fontsize=12,
+        )
+        add_sampler_plot_title(fig, row, "corner")
+        fig.tight_layout(rect=(0, 0, 1, 0.9))
+        return fig
+    fig = corner.corner(
+        samples,
+        labels=FIT_PARAMETER_LABELS,
+        truths=truth_values,
+        truth_color="blue",
+        color="black",
+        show_titles=True,
+        title_fmt=".3g",
+        title_kwargs={"fontsize": 10},
+    )
+    axes = numpy.asarray(fig.axes).reshape((len(FIT_PARAMETER_NAMES), -1))
+    for row_index in range(len(FIT_PARAMETER_NAMES)):
+        for col_index in range(row_index + 1):
+            axis = axes[row_index, col_index]
+            if row_index == col_index:
+                axis.axvline(fit_values[col_index], color="red", linewidth=1.2)
+            else:
+                axis.plot(
+                    fit_values[col_index],
+                    fit_values[row_index],
+                    marker="o",
+                    color="red",
+                    markersize=4,
+                )
+    add_sampler_plot_title(fig, row, "corner")
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    return fig
+
+
+def save_trace_png(ts):
+    state = load_sampler_state(ts)
+    out_path = sampler_plot_path_for_row(ts, "trace")
+    out_path.parent.mkdir(exist_ok=True, parents=True)
+    fig = plot_walker_traces(ts, state)
+    fig.canvas.draw()
+    fig.savefig(out_path, dpi=150)
+    pyplot.close(fig)
+    return out_path
+
+
+def save_corner_png(ts):
+    state = load_sampler_state(ts)
+    out_path = sampler_plot_path_for_row(ts, "corner")
+    out_path.parent.mkdir(exist_ok=True, parents=True)
+    fig = plot_corner(ts, state)
+    fig.canvas.draw()
+    fig.savefig(out_path, dpi=150)
+    pyplot.close(fig)
+    return out_path
+
+
+def save_requested_plots(ts, plot_types):
+    output_paths = []
+    if "fit" in plot_types:
+        output_paths.append(save_plot_png(ts, None))
+    if "trace" in plot_types:
+        output_paths.append(save_trace_png(ts))
+    if "corner" in plot_types:
+        output_paths.append(save_corner_png(ts))
+    return output_paths
 
 
 def plot_ts_with_curve(ts, curve):
@@ -496,7 +732,7 @@ def save_plot_pngs(results):
     output_paths = []
     for ts, curve in tqdm(
         results,
-        desc="Plotting fits",
+        desc="Plotting diagnostics",
         unit="fit",
         position=0,
         dynamic_ncols=True,
@@ -518,6 +754,11 @@ def plot_row_worker(ts):
     return save_plot_png(ts, curve)
 
 
+def requested_plot_row_worker(args):
+    ts, plot_types = args
+    return save_requested_plots(ts, plot_types)
+
+
 def plot_group(rows):
     results = []
     for _, row in rows.iterrows():
@@ -532,7 +773,7 @@ def row_groups(rows):
     return [group for _, group in rows.groupby("realistic_path", sort=True)]
 
 
-def plot_rows_serial(rows):
+def plot_rows_serial(rows, plot_types):
     load_plotting_stack()
     output_paths = []
     row_items = [row for _, row in rows.iterrows()]
@@ -540,19 +781,20 @@ def plot_rows_serial(rows):
     for row in tqdm(
         row_items,
         total=len(row_items),
-        desc="Plotting fits",
+        desc="Plotting diagnostics",
         unit="fit",
         position=0,
         dynamic_ncols=True,
         file=sys.stderr,
     ):
-        output_path = save_plot_png(row, None)
-        output_paths.append(output_path)
-        tqdm.write(str(output_path), file=sys.stderr)
+        row_paths = save_requested_plots(row, plot_types)
+        output_paths.extend(row_paths)
+        for output_path in row_paths:
+            tqdm.write(str(output_path), file=sys.stderr)
     return output_paths
 
 
-def plot_rows_parallel(rows, max_workers):
+def plot_rows_parallel(rows, max_workers, plot_types):
     from tqdm import tqdm
 
     row_items = [row for _, row in rows.iterrows()]
@@ -571,24 +813,26 @@ def plot_rows_parallel(rows, max_workers):
         mp_context=context,
         initializer=init_plot_worker,
     ) as executor:
-        for output_path in tqdm(
-            executor.map(plot_row_worker, row_items),
+        worker_args = [(row, plot_types) for row in row_items]
+        for row_paths in tqdm(
+            executor.map(requested_plot_row_worker, worker_args),
             total=len(row_items),
-            desc="Plotting fits",
+            desc="Plotting diagnostics",
             unit="fit",
             position=0,
             dynamic_ncols=True,
             file=sys.stderr,
         ):
-            output_paths.append(output_path)
-            tqdm.write(str(output_path), file=sys.stderr)
+            output_paths.extend(row_paths)
+            for output_path in row_paths:
+                tqdm.write(str(output_path), file=sys.stderr)
     return output_paths
 
 
-def plot_rows(rows, max_workers):
+def plot_rows(rows, max_workers, plot_types):
     if max_workers == 1:
-        return plot_rows_serial(rows)
-    return plot_rows_parallel(rows, max_workers)
+        return plot_rows_serial(rows, plot_types)
+    return plot_rows_parallel(rows, max_workers, plot_types)
 
 
 def main():
@@ -603,7 +847,8 @@ def main():
     if rows.empty:
         logger.info("No fitted rows selected; exiting")
         return
-    output_paths = plot_rows(rows, args.max_workers)
+    plot_types = normalized_plot_types(args.plot_types)
+    output_paths = plot_rows(rows, args.max_workers, plot_types)
     logger.info("Generated %d diagnostic PNG(s)", len(output_paths))
 
 
