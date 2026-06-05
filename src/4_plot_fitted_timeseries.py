@@ -326,7 +326,7 @@ def plot_fit(row):
     ) = pyplot.subplots(
         6,
         1,
-        figsize=(14, 13),
+        figsize=(14, 15),
         gridspec_kw={"height_ratios": (4, 1, 4, 1, 2, 1)},
     )
 
@@ -446,7 +446,7 @@ def plot_fit(row):
         "\n"
         f"RV acc.={scalar_value(row['RV accuracy']):.2g} m/s"
     )
-    pyplot.subplots_adjust(right=0.74, hspace=0.08)
+    pyplot.subplots_adjust(right=0.74, hspace=0.32)
     fig.text(
         0.755,
         0.5,
