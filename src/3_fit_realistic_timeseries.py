@@ -212,7 +212,27 @@ def sampler_state_path_for_row(ts):
     return SAMPLER_STATE_PATH / a_key / b_key / macc_key / pristine_id / f"{token}.npz"
 
 
-def sampler_state_payload(ts, sampler, walker_state):
+def prefit_sampler_state_path_for_row(ts):
+    pristine_id = safe_path_token(ts.get("pristine_id", "unknown"))
+    a_key, b_key, macc_key = sampler_state_shard_keys(ts)
+    return SAMPLER_STATE_PATH / a_key / b_key / macc_key / pristine_id / "_prefit.npz"
+
+
+def sampler_arrays(sampler):
+    if sampler is None:
+        return None
+    return {
+        "chain": numpy.asarray(sampler.get_chain(), dtype=float),
+        "log_prob": numpy.asarray(sampler.get_log_prob(), dtype=float),
+        "acceptance": (
+            numpy.asarray(sampler.acceptance, dtype=bool)
+            if sampler.acceptance is not None
+            else numpy.asarray([], dtype=bool)
+        ),
+    }
+
+
+def sampler_state_payload(ts, sampler, walker_state, prefit_sampler_state_path=None):
     if not FIT_SAVE_SAMPLERS:
         return None
     if sampler is None:
@@ -222,17 +242,14 @@ def sampler_state_payload(ts, sampler, walker_state):
         )
         return None
 
+    joint_sampler_state = sampler_arrays(sampler)
     path = sampler_state_path_for_row(ts)
     final_coords = walker_state_coords(walker_state)
-    return {
+    payload = {
         "path": path,
-        "chain": numpy.asarray(sampler.get_chain(), dtype=float),
-        "log_prob": numpy.asarray(sampler.get_log_prob(), dtype=float),
-        "acceptance": (
-            numpy.asarray(sampler.acceptance, dtype=bool)
-            if sampler.acceptance is not None
-            else numpy.asarray([], dtype=bool)
-        ),
+        "chain": joint_sampler_state["chain"],
+        "log_prob": joint_sampler_state["log_prob"],
+        "acceptance": joint_sampler_state["acceptance"],
         "final_walker_coords": (
             numpy.asarray(final_coords, dtype=float)
             if final_coords is not None
@@ -247,6 +264,25 @@ def sampler_state_payload(ts, sampler, walker_state):
         "realistic_idx": numpy.asarray(
             str(ts.get("realistic_idx", getattr(ts, "name", "")))
         ),
+    }
+    if prefit_sampler_state_path is not None:
+        payload["prefit_sampler_state_path"] = numpy.asarray(
+            str(prefit_sampler_state_path)
+        )
+    return payload
+
+
+def prefit_sampler_state_payload(ts, prefit_sampler_state):
+    if not FIT_SAVE_SAMPLERS or prefit_sampler_state is None:
+        return None
+    return {
+        "path": prefit_sampler_state_path_for_row(ts),
+        "chain": prefit_sampler_state["chain"],
+        "log_prob": prefit_sampler_state["log_prob"],
+        "acceptance": prefit_sampler_state["acceptance"],
+        "parameter_names": FIT_PARAMETER_NAMES,
+        "nsteps": numpy.asarray(prefit_sampler_state["chain"].shape[0], dtype=int),
+        "pristine_id": numpy.asarray(str(ts.get("pristine_id", ""))),
     }
 
 
@@ -270,6 +306,25 @@ def write_sampler_state_payload(payload):
         realistic_id=payload["realistic_id"],
         pristine_id=payload["pristine_id"],
         realistic_idx=payload["realistic_idx"],
+        **({"prefit_sampler_state_path": payload["prefit_sampler_state_path"]}
+           if "prefit_sampler_state_path" in payload
+           else {}),
+    )
+    return path
+
+
+def write_prefit_sampler_state_payload(payload):
+    path = payload["path"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    logger.info("Saving prefit sampler state to %s", path)
+    numpy.savez_compressed(
+        path,
+        chain=payload["chain"],
+        log_prob=payload["log_prob"],
+        acceptance=payload["acceptance"],
+        parameter_names=payload["parameter_names"],
+        nsteps=payload["nsteps"],
+        pristine_id=payload["pristine_id"],
     )
     return path
 
@@ -283,8 +338,13 @@ class SamplerStateWriter:
                 max_workers=max(1, FIT_SAMPLER_WRITE_MAX_WORKERS)
             )
 
-    def submit(self, ts, sampler, walker_state):
-        payload = sampler_state_payload(ts, sampler, walker_state)
+    def submit(self, ts, sampler, walker_state, prefit_sampler_state_path=None):
+        payload = sampler_state_payload(
+            ts,
+            sampler,
+            walker_state,
+            prefit_sampler_state_path=prefit_sampler_state_path,
+        )
         if payload is None:
             return None
         path = payload["path"]
@@ -293,6 +353,20 @@ class SamplerStateWriter:
         else:
             logger.debug("Queueing sampler state write to %s", path)
             self.futures.append(self.executor.submit(write_sampler_state_payload, payload))
+        return path
+
+    def submit_prefit(self, ts, prefit_sampler_state):
+        payload = prefit_sampler_state_payload(ts, prefit_sampler_state)
+        if payload is None:
+            return None
+        path = payload["path"]
+        if self.executor is None:
+            write_prefit_sampler_state_payload(payload)
+        else:
+            logger.debug("Queueing prefit sampler state write to %s", path)
+            self.futures.append(
+                self.executor.submit(write_prefit_sampler_state_payload, payload)
+            )
         return path
 
     def close(self):
@@ -665,7 +739,7 @@ def fit_photometry_prefit(i, ts, curve):
         ts.get("realistic_id", None),
         len(fit_lc["lc"]),
     )
-    sls, _, walker_state = unpack_fit_result(
+    sls, prefit_sampler, walker_state = unpack_fit_result(
         self_lensing_system_from_fit_blackjax(
             lc_times=Time(fit_lc["lc_times"], format="jd"),
             observed_lc=fit_lc["lc"] * units.dimensionless_unscaled,
@@ -685,7 +759,7 @@ def fit_photometry_prefit(i, ts, curve):
             center_lc_model=True,
             device=FIT_DEVICE,
             prefer_gpu=FIT_DEVICE == "auto",
-            **blackjax_sampler_kwargs(return_sampler=False),
+            **blackjax_sampler_kwargs(return_sampler=FIT_SAVE_SAMPLERS),
         )
     )
     logger.info(
@@ -694,7 +768,7 @@ def fit_photometry_prefit(i, ts, curve):
         walker_state is not None,
     )
     prefit_ts = fitted_timeseries_row(i, ts, truth_self_lensing_system(ts), sls)
-    return prefit_ts, walker_state_coords(walker_state)
+    return prefit_ts, walker_state_coords(walker_state), sampler_arrays(prefit_sampler)
 
 
 def fit(a):
@@ -783,7 +857,11 @@ def run_fit(a):
     return i, ts, truth_sls, sls, sampler, walker_state, curve
 
 
-def materialize_fit_result(fit_result, sampler_writer=None):
+def materialize_fit_result(
+    fit_result,
+    sampler_writer=None,
+    prefit_sampler_state_path=None,
+):
     i, ts, truth_sls, sls, sampler, walker_state, curve = fit_result
     materialize_start = time.perf_counter()
     new_ts = fitted_timeseries_row(i, ts, truth_sls, sls)
@@ -792,11 +870,18 @@ def materialize_fit_result(fit_result, sampler_writer=None):
         close_sampler_writer = True
     else:
         close_sampler_writer = False
-    sampler_state_path = sampler_writer.submit(new_ts, sampler, walker_state)
+    sampler_state_path = sampler_writer.submit(
+        new_ts,
+        sampler,
+        walker_state,
+        prefit_sampler_state_path=prefit_sampler_state_path,
+    )
     if close_sampler_writer:
         sampler_writer.close()
     if sampler_state_path is not None:
         new_ts["fit_sampler_state_path"] = str(sampler_state_path)
+    if prefit_sampler_state_path is not None:
+        new_ts["fit_prefit_sampler_state_path"] = str(prefit_sampler_state_path)
     logger.info(
         "Materialized fit result for row index=%s in %.2f s: "
         "fitted_a=%.6g fitted_Macc=%.6g fitted_e=%.6g",
@@ -881,7 +966,13 @@ def batched_joint_fit_inputs(rows, curves):
     return inputs
 
 
-def fit_joint_batch(rows, curves, initial_walker_state, sampler_writer):
+def fit_joint_batch(
+    rows,
+    curves,
+    initial_walker_state,
+    sampler_writer,
+    prefit_sampler_state_path=None,
+):
     start = time.perf_counter()
     inputs = batched_joint_fit_inputs(rows, curves)
     row_table = pandas.DataFrame([ts for _, ts in rows])
@@ -952,9 +1043,12 @@ def fit_joint_batch(rows, curves, initial_walker_state, sampler_writer):
             new_ts,
             row_sampler,
             walker_state_for_batch_row(walker_state, batch_index),
+            prefit_sampler_state_path=prefit_sampler_state_path,
         )
         if sampler_state_path is not None:
             new_ts["fit_sampler_state_path"] = str(sampler_state_path)
+        if prefit_sampler_state_path is not None:
+            new_ts["fit_prefit_sampler_state_path"] = str(prefit_sampler_state_path)
         results.append((new_ts, None, curve))
     logger.info(
         "Materialized %d batched fit results in %.2f s",
@@ -984,6 +1078,8 @@ def fit_realistic_file(rows):
     curves = load_realistic_timeseries_curves(rows)
     logger.info("Loaded %d grouped realistic curves from %s", len(curves), path)
     initial_walker_state = None
+    prefit_sampler_state = None
+    prefit_sampler_state_path = None
     sampler_writer = shared_sampler_writer()
     close_sampler_writer = False
     if sampler_writer is None:
@@ -998,8 +1094,12 @@ def fit_realistic_file(rows):
             path,
             prefit_i,
         )
-        prefit_ts, initial_walker_state = fit_photometry_prefit(
+        prefit_ts, initial_walker_state, prefit_sampler_state = fit_photometry_prefit(
             prefit_i, prefit_ts, prefit_curve
+        )
+        prefit_sampler_state_path = sampler_writer.submit_prefit(
+            prefit_ts,
+            prefit_sampler_state,
         )
     results = []
     if can_use_batched_joint_fit():
@@ -1026,6 +1126,7 @@ def fit_realistic_file(rows):
                     curves,
                     initial_walker_state,
                     sampler_writer,
+                    prefit_sampler_state_path=prefit_sampler_state_path,
                 )
             )
     else:
@@ -1061,6 +1162,7 @@ def fit_realistic_file(rows):
                     materialize_fit_result,
                     fit_result,
                     sampler_writer,
+                    prefit_sampler_state_path,
                 )
             finished_fit = finish_pending_fit(pending_fit)
             if finished_fit is not None:

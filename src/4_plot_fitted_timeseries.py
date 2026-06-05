@@ -86,9 +86,9 @@ def parse_args():
     parser.add_argument(
         "--plot-types",
         nargs="+",
-        choices=("fit", "trace", "corner", "all"),
+        choices=("fit", "trace", "walkers", "corner", "all"),
         default=("fit",),
-        help="Plot types to render. Default: fit.",
+        help="Plot types to render. 'trace' is accepted as an alias for walkers. Default: fit.",
     )
     return parser.parse_args()
 
@@ -248,8 +248,10 @@ def safe_path_token(value):
 def normalized_plot_types(plot_types):
     plot_types = set(plot_types)
     if "all" in plot_types:
-        return ("fit", "trace", "corner")
-    return tuple(plot_type for plot_type in ("fit", "trace", "corner") if plot_type in plot_types)
+        return ("fit", "walkers", "corner")
+    if "trace" in plot_types:
+        plot_types.add("walkers")
+    return tuple(plot_type for plot_type in ("fit", "walkers", "corner") if plot_type in plot_types)
 
 
 def sorted_xy(x, y):
@@ -463,35 +465,27 @@ def figure_shard_keys(ts):
     )
 
 
-def plot_path_for_row(ts):
-    pristine_id = str(ts.get("pristine_id", "unknown"))
-    realistic_id = str(ts.get("realistic_id", ts.get("realistic_idx", "unknown")))
-    a_key, b_key, macc_key = figure_shard_keys(ts)
-    name = "_".join(
-        (
-            format_filename_token("baseline", ts["baseline"], "d"),
-            format_filename_token("cadence", ts["cadence"], "d"),
-            format_filename_token("rv", ts["RV accuracy"], "ms"),
-            realistic_id,
-        )
-    )
-    return FIG_PATH / a_key / b_key / macc_key / pristine_id / f"{name}.png"
+def target_id_for_row(ts):
+    return safe_path_token(ts.get("realistic_id", ts.get("realistic_idx", "unknown")))
 
 
-def sampler_plot_path_for_row(ts, plot_type):
-    pristine_id = str(ts.get("pristine_id", "unknown"))
-    realistic_id = str(ts.get("realistic_id", ts.get("realistic_idx", "unknown")))
+def target_plot_dir_for_row(ts):
     a_key, b_key, macc_key = figure_shard_keys(ts)
+    return FIG_PATH / a_key / b_key / macc_key / target_id_for_row(ts)
+
+
+def plot_path_for_row(ts, plot_type):
+    target_id = target_id_for_row(ts)
     name = "_".join(
         (
-            format_filename_token("baseline", ts["baseline"], "d"),
-            format_filename_token("cadence", ts["cadence"], "d"),
-            format_filename_token("rv", ts["RV accuracy"], "ms"),
-            realistic_id,
             plot_type,
+            format_filename_token("baseline", ts["baseline"], "d"),
+            format_filename_token("cadence", ts["cadence"], "d"),
+            format_filename_token("rv", ts["RV accuracy"], "ms"),
+            target_id,
         )
     )
-    return FIG_PATH / plot_type / a_key / b_key / macc_key / pristine_id / f"{name}.png"
+    return target_plot_dir_for_row(ts) / f"{name}.png"
 
 
 def default_sampler_state_path(ts):
@@ -506,6 +500,14 @@ def default_sampler_state_path(ts):
     pristine_id = safe_path_token(ts.get("pristine_id", "unknown"))
     a_key, b_key, macc_key = figure_shard_keys(ts)
     return SAMPLER_STATE_PATH / a_key / b_key / macc_key / pristine_id / f"{token}.npz"
+
+
+def default_prefit_sampler_state_path(ts):
+    from fitting import SAMPLER_STATE_PATH
+
+    pristine_id = safe_path_token(ts.get("pristine_id", "unknown"))
+    a_key, b_key, macc_key = figure_shard_keys(ts)
+    return SAMPLER_STATE_PATH / a_key / b_key / macc_key / pristine_id / "_prefit.npz"
 
 
 def legacy_sampler_state_path(ts):
@@ -533,12 +535,50 @@ def sampler_state_path_for_row(ts):
     )
 
 
+def path_string(value):
+    return str(numpy.asarray(value).item())
+
+
+def prefit_sampler_state_path_for_row(ts, state):
+    if (
+        "fit_prefit_sampler_state_path" in ts
+        and not pandas.isna(ts["fit_prefit_sampler_state_path"])
+    ):
+        path = Path(ts["fit_prefit_sampler_state_path"])
+        if path.exists():
+            return path
+    if "prefit_sampler_state_path" in state:
+        path = Path(path_string(state["prefit_sampler_state_path"]))
+        if path.exists():
+            return path
+    path = default_prefit_sampler_state_path(ts)
+    if path.exists():
+        return path
+    return None
+
+
+def attach_prefit_sampler_state(ts, state):
+    if "prefit_chain" in state:
+        return state
+    path = prefit_sampler_state_path_for_row(ts, state)
+    if path is None:
+        return state
+    with numpy.load(path) as data:
+        state["prefit_chain"] = data["chain"].copy()
+        state["prefit_log_prob"] = data["log_prob"].copy()
+        state["prefit_acceptance"] = data["acceptance"].copy()
+        state["prefit_parameter_names"] = data["parameter_names"].copy()
+        state["prefit_nsteps"] = data["nsteps"].copy()
+    state["prefit_path"] = path
+    return state
+
+
 def load_sampler_state(ts):
     path = sampler_state_path_for_row(ts)
     with numpy.load(path) as data:
         state = {key: data[key].copy() for key in data.files}
     state["path"] = path
-    return state
+    return attach_prefit_sampler_state(ts, state)
 
 
 def sampler_param_indices(parameter_names):
@@ -589,10 +629,30 @@ def posterior_samples(state):
     return chain[burn:, :, :][:, :, parameter_indices].reshape((-1, len(parameter_indices)))
 
 
-def plot_walker_traces(row, state):
+def walker_trace_chain_and_prefit_end(state):
     chain = numpy.asarray(state["chain"], dtype=float)
     parameter_indices = sampler_param_indices(state["parameter_names"])
-    chain = chain[:, :, parameter_indices]
+    joint_chain = chain[:, :, parameter_indices]
+    if "prefit_chain" not in state:
+        return joint_chain, None
+
+    prefit_chain = numpy.asarray(state["prefit_chain"], dtype=float)
+    prefit_parameter_names = state.get("prefit_parameter_names", state["parameter_names"])
+    prefit_parameter_indices = sampler_param_indices(prefit_parameter_names)
+    prefit_chain = prefit_chain[:, :, prefit_parameter_indices]
+    if prefit_chain.shape[1:] != joint_chain.shape[1:]:
+        logger.warning(
+            "Skipping prefit trace overlay for %s because prefit shape %s does not match joint shape %s",
+            state.get("path", "unknown"),
+            prefit_chain.shape,
+            joint_chain.shape,
+        )
+        return joint_chain, None
+    return numpy.concatenate((prefit_chain, joint_chain), axis=0), prefit_chain.shape[0]
+
+
+def plot_walker_traces(row, state):
+    chain, prefit_end = walker_trace_chain_and_prefit_end(state)
     truth_values = truth_parameter_values(row)
     fit_values = fitted_parameter_values(row)
     fig, axes = pyplot.subplots(
@@ -604,6 +664,14 @@ def plot_walker_traces(row, state):
     steps = numpy.arange(chain.shape[0])
     for index, axis in enumerate(numpy.ravel(axes)):
         axis.plot(steps, chain[:, :, index], color="black", alpha=0.18, linewidth=0.5)
+        if prefit_end is not None:
+            axis.axvline(
+                prefit_end - 0.5,
+                color="black",
+                linestyle="--",
+                linewidth=1.0,
+                label="Prefit ends" if index == 0 else None,
+            )
         axis.axhline(truth_values[index], color="blue", linewidth=1.4, label="Truth")
         axis.axhline(fit_values[index], color="red", linewidth=1.4, label="Fit")
         axis.set_ylabel(FIT_PARAMETER_LABELS[index])
@@ -667,7 +735,7 @@ def plot_corner(row, state):
 
 def save_trace_png(ts):
     state = load_sampler_state(ts)
-    out_path = sampler_plot_path_for_row(ts, "trace")
+    out_path = plot_path_for_row(ts, "walkers")
     out_path.parent.mkdir(exist_ok=True, parents=True)
     fig = plot_walker_traces(ts, state)
     fig.canvas.draw()
@@ -678,7 +746,7 @@ def save_trace_png(ts):
 
 def save_corner_png(ts):
     state = load_sampler_state(ts)
-    out_path = sampler_plot_path_for_row(ts, "corner")
+    out_path = plot_path_for_row(ts, "corner")
     out_path.parent.mkdir(exist_ok=True, parents=True)
     fig = plot_corner(ts, state)
     fig.canvas.draw()
@@ -691,7 +759,7 @@ def save_requested_plots(ts, plot_types):
     output_paths = []
     if "fit" in plot_types:
         output_paths.append(save_plot_png(ts, None))
-    if "trace" in plot_types:
+    if "walkers" in plot_types:
         output_paths.append(save_trace_png(ts))
     if "corner" in plot_types:
         output_paths.append(save_corner_png(ts))
@@ -714,7 +782,7 @@ def plot_ts_with_curve(ts, curve):
 def save_plot_png(ts, curve):
     if curve is None:
         curve = load_realistic_timeseries_curve(ts)
-    out_path = plot_path_for_row(ts)
+    out_path = plot_path_for_row(ts, "fit")
     out_path.parent.mkdir(exist_ok=True, parents=True)
     logger.debug("Writing fit diagnostic plot to %s", out_path)
     fit_fig = plot_fit(plot_ts_with_curve(ts, curve))
