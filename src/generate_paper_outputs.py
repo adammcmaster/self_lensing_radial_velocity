@@ -376,10 +376,6 @@ def plot_prefit_improvement_by_n_rv(results):
         bbox_to_anchor=(0.5, 1.04),
         frameon=False,
     )
-    fig.suptitle(
-        "Photometry-only prefit accuracy and improvement from RV follow-up",
-        y=1.10,
-    )
     for suffix in ("pdf", "png"):
         fig.savefig(
             FIGURE_DIR / f"prefit_improvement_by_n_rv.{suffix}",
@@ -424,11 +420,6 @@ def plot_mass_recovery_by_strategy(strategy_summary):
         axis.set_xlabel(r"RV accuracy [m s$^{-1}$]")
         axis.set_ylabel("Cadence [d]" if axis is axes[0] else "")
 
-    fig.suptitle(
-        r"Lens mass recovery "
-        r"($|\Delta M_\mathrm{acc}|/M_\mathrm{acc} \leq 0.1$)",
-        y=1.08,
-    )
     for suffix in ("pdf", "png"):
         fig.savefig(FIGURE_DIR / f"mass_recovery_by_strategy.{suffix}", bbox_inches="tight")
     pyplot.close(fig)
@@ -521,7 +512,6 @@ def plot_recovery_by_truth_range(
     value_column,
     unit,
     filename,
-    title,
     x_label,
     bins=None,
     labels=None,
@@ -608,7 +598,6 @@ def plot_recovery_by_truth_range(
             shrink=0.78,
             label="Recovered systems [per cent]",
         )
-    fig.suptitle(title, y=1.02)
     for suffix in ("pdf", "png"):
         fig.savefig(FIGURE_DIR / f"{filename}.{suffix}", bbox_inches="tight")
     pyplot.close(fig)
@@ -621,10 +610,6 @@ def plot_lens_mass_recovery_by_mass(results):
         value_column="Macc",
         unit=r"$M_\odot$",
         filename="lens_mass_recovery_by_lens_mass",
-        title=(
-            r"Lens mass recovery by true lens mass "
-            r"($|\Delta M_\mathrm{acc}|/M_\mathrm{acc} \leq 0.1$)"
-        ),
         x_label=r"True lens mass range",
         bins=[0.0, 3.0, 5.0, 20.0, 50.0],
         labels=[
@@ -643,10 +628,6 @@ def plot_orbital_period_recovery_by_period(results):
         value_column="Porb",
         unit="d",
         filename="orbital_period_recovery_by_period",
-        title=(
-            r"Orbital period recovery by true orbital period "
-            r"($|\Delta P_\mathrm{orb}|/P_\mathrm{orb} \leq 0.1$)"
-        ),
         x_label=r"True orbital period range",
         label_formatter=period_range_label,
     )
@@ -699,8 +680,7 @@ def plot_parameter_recovery_curves(strategy_summary):
         axis.grid(True, which="both", axis="x", alpha=0.25)
     if figure._legend is not None:
         figure._legend.set_title("Cadence [d]")
-    figure.fig.subplots_adjust(top=0.88)
-    figure.fig.suptitle(r"Parameter recovery for $|\Delta x|/x \leq 0.1$", y=0.99)
+    figure.fig.subplots_adjust(top=0.95)
     for suffix in ("pdf", "png"):
         figure.fig.savefig(
             FIGURE_DIR / f"parameter_recovery_curves.{suffix}",
