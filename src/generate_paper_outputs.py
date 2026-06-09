@@ -6,7 +6,9 @@ Re-run after the fit completes to refresh the paper outputs.
 """
 
 from pathlib import Path
+import logging
 import os
+import time
 
 os.environ.setdefault("MPLBACKEND", "Agg")
 os.environ.setdefault("MPLCONFIGDIR", "/tmp")
@@ -16,7 +18,12 @@ import numpy
 import pandas
 import seaborn
 from matplotlib import pyplot
+from matplotlib.lines import Line2D
 
+from utils import configure_logging
+
+
+logger = logging.getLogger(__name__)
 
 seaborn.set_theme(context="paper", style="whitegrid", font_scale=1.0)
 pyplot.rcParams.update(
@@ -98,7 +105,29 @@ def relative_error(truth, fitted):
     return numpy.abs(fitted - truth) / scale
 
 
+def scalar_number(value):
+    if value is None:
+        return numpy.nan
+    try:
+        array = numpy.asarray(value)
+        if array.shape == ():
+            return float(array)
+        if array.size == 1:
+            return float(array.reshape(-1)[0])
+    except (TypeError, ValueError):
+        pass
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return numpy.nan
+
+
+def numeric_scalar_series(values):
+    return pandas.to_numeric(values.map(scalar_number), errors="coerce")
+
+
 def load_results(path):
+    logger.info("Loading fitted results from %s", path)
     results = pandas.read_pickle(path).copy()
 
     required_columns = {"pristine_id", "baseline", "cadence", "RV accuracy"}
@@ -116,7 +145,7 @@ def load_results(path):
         *(spec["fitted"] for spec in PARAMETERS.values()),
     ]
     for column in numeric_columns:
-        results[column] = pandas.to_numeric(results[column], errors="coerce")
+        results[column] = numeric_scalar_series(results[column])
 
     results = results.dropna(subset=["baseline", "cadence", "RV accuracy"]).copy()
     results["baseline_years"] = results["baseline"] / 365.0
@@ -126,7 +155,20 @@ def load_results(path):
         + ", "
         + results["cadence"].map(lambda value: f"{value:g} d")
     )
+    logger.info(
+        "Loaded %d fitted rows across %d pristine systems",
+        len(results),
+        results["pristine_id"].nunique(),
+    )
     return results
+
+
+def run_step(label, fn, *args, **kwargs):
+    logger.info("Starting %s", label)
+    start = time.perf_counter()
+    result = fn(*args, **kwargs)
+    logger.info("Finished %s in %.1f s", label, time.perf_counter() - start)
+    return result
 
 
 def summarise_strategy_recovery(results):
@@ -155,6 +197,195 @@ def summarise_strategy_recovery(results):
         .reset_index()
         .sort_values(strategy_columns)
     )
+
+
+def prefit_comparison_parameters(results):
+    parameters = {}
+    for param, spec in PARAMETERS.items():
+        prefit_column = f"prefit_{spec['fitted']}"
+        if prefit_column in results.columns:
+            parameters[param] = {**spec, "prefit": prefit_column}
+    if not parameters:
+        raise KeyError(
+            "Fitted results table has no photometry-only prefit columns. "
+            "Expected columns such as prefit_fitted_Macc."
+        )
+    return parameters
+
+
+def prefit_joint_error_rows(results):
+    parameters = prefit_comparison_parameters(results)
+
+    rows = []
+    for param, spec in parameters.items():
+        needed = [param, spec["fitted"], spec["prefit"], "pristine_id", "n_rv"]
+        finite = results.dropna(subset=needed).copy()
+        if finite.empty:
+            continue
+
+        finite[param] = numeric_scalar_series(finite[param])
+        finite[spec["fitted"]] = numeric_scalar_series(finite[spec["fitted"]])
+        finite[spec["prefit"]] = numeric_scalar_series(finite[spec["prefit"]])
+        finite = finite[
+            numpy.isfinite(finite[param])
+            & numpy.isfinite(finite[spec["fitted"]])
+            & numpy.isfinite(finite[spec["prefit"]])
+        ]
+        if finite.empty:
+            continue
+
+        for fit_stage, value_column in (
+            ("Photometry only", spec["prefit"]),
+            ("Photometry + RV", spec["fitted"]),
+        ):
+            errors = relative_error(finite[param], finite[value_column])
+            stage_rows = pandas.DataFrame(
+                {
+                    "parameter": param,
+                    "parameter_label": spec["label"],
+                    "fit_stage": fit_stage,
+                    "n_rv": finite["n_rv"].astype(int).to_numpy(),
+                    "pristine_id": finite["pristine_id"].astype(str).to_numpy(),
+                    "relative_error": errors,
+                    "recovered": errors <= RECOVERY_THRESHOLD,
+                }
+            )
+            rows.append(stage_rows)
+
+    if not rows:
+        raise ValueError(
+            "No finite paired photometry-only prefit and joint-fit values were "
+            "available in the fitted results table."
+        )
+    return pandas.concat(rows, ignore_index=True)
+
+
+def summarise_prefit_joint_errors(error_rows):
+    return (
+        error_rows.groupby(
+            ["parameter", "parameter_label", "fit_stage", "n_rv"],
+            dropna=False,
+        )
+        .agg(
+            median_relative_error=pandas.NamedAgg(
+                column="relative_error", aggfunc="median"
+            ),
+            q25_relative_error=pandas.NamedAgg(
+                column="relative_error", aggfunc=lambda values: numpy.nanpercentile(values, 25)
+            ),
+            q75_relative_error=pandas.NamedAgg(
+                column="relative_error", aggfunc=lambda values: numpy.nanpercentile(values, 75)
+            ),
+            recovery_fraction=pandas.NamedAgg(column="recovered", aggfunc="mean"),
+            n_rows=pandas.NamedAgg(column="relative_error", aggfunc="size"),
+            n_systems=pandas.NamedAgg(column="pristine_id", aggfunc="nunique"),
+        )
+        .reset_index()
+        .sort_values(["parameter", "fit_stage", "n_rv"])
+    )
+
+
+def plot_prefit_improvement_by_n_rv(results):
+    error_rows = prefit_joint_error_rows(results)
+    summary = summarise_prefit_joint_errors(error_rows)
+    summary.to_csv(TABLE_DIR / "prefit_improvement_by_n_rv.csv", index=False)
+
+    plot_params = [
+        param for param in ("Macc", "a", "Porb", "b") if param in set(summary["parameter"])
+    ]
+    if not plot_params:
+        raise ValueError("No configured parameters are available for prefit comparison")
+
+    ncols = min(2, len(plot_params))
+    nrows = int(numpy.ceil(len(plot_params) / ncols))
+    fig, axes = pyplot.subplots(
+        nrows,
+        ncols,
+        figsize=(7.2, 2.9 * nrows),
+        sharex=True,
+        constrained_layout=True,
+    )
+    axes = numpy.atleast_1d(axes).ravel()
+
+    stage_styles = {
+        "Photometry only": {"color": "#CC79A7", "marker": None, "linestyle": "--"},
+        "Photometry + RV": {"color": "#0072B2", "marker": "o", "linestyle": "-"},
+    }
+    for axis, param in zip(axes, plot_params):
+        param_data = summary[summary["parameter"] == param]
+        for stage, style in stage_styles.items():
+            stage_data = param_data[param_data["fit_stage"] == stage].sort_values("n_rv")
+            if stage_data.empty:
+                continue
+            x = stage_data["n_rv"].to_numpy(dtype=float)
+            median = stage_data["median_relative_error"].to_numpy(dtype=float)
+            q25 = stage_data["q25_relative_error"].to_numpy(dtype=float)
+            q75 = stage_data["q75_relative_error"].to_numpy(dtype=float)
+            axis.plot(
+                x,
+                median,
+                label=stage,
+                color=style["color"],
+                marker=style["marker"],
+                linestyle=style["linestyle"],
+                linewidth=1.2,
+                markersize=4,
+            )
+            axis.fill_between(x, q25, q75, color=style["color"], alpha=0.16, linewidth=0)
+
+        label = param_data["parameter_label"].iloc[0]
+        axis.set_title(label)
+        axis.set_xscale("log")
+        axis.set_yscale("log")
+        axis.axhline(RECOVERY_THRESHOLD, color="0.35", linestyle=":", linewidth=0.9)
+        axis.grid(True, which="both", axis="both", alpha=0.25)
+        axis.set_ylabel("Relative error")
+
+    for axis in axes[len(plot_params):]:
+        axis.set_visible(False)
+    for axis in axes[-ncols:]:
+        axis.set_xlabel(r"$N_\mathrm{RV}$")
+
+    legend_handles = [
+        Line2D(
+            [0],
+            [0],
+            color=style["color"],
+            marker=style["marker"],
+            linestyle=style["linestyle"],
+            linewidth=1.2,
+            markersize=4,
+            label=stage,
+        )
+        for stage, style in stage_styles.items()
+    ]
+    legend_handles.append(
+        Line2D(
+            [0],
+            [0],
+            color="0.35",
+            linestyle=":",
+            linewidth=0.9,
+            label=rf"{RECOVERY_THRESHOLD:g} recovery threshold",
+        )
+    )
+    fig.legend(
+        handles=legend_handles,
+        loc="upper center",
+        ncol=3,
+        bbox_to_anchor=(0.5, 1.04),
+        frameon=False,
+    )
+    fig.suptitle(
+        "Photometry-only prefit accuracy and improvement from RV follow-up",
+        y=1.10,
+    )
+    for suffix in ("pdf", "png"):
+        fig.savefig(
+            FIGURE_DIR / f"prefit_improvement_by_n_rv.{suffix}",
+            bbox_inches="tight",
+        )
+    pyplot.close(fig)
 
 
 def percent_matrix(table, value_column, baseline):
@@ -644,22 +875,59 @@ def write_rv_accuracy_requirement_table(strategy_summary):
 
 
 def main():
+    configure_logging()
     FIGURE_DIR.mkdir(parents=True, exist_ok=True)
     TABLE_DIR.mkdir(parents=True, exist_ok=True)
+    logger.info("Writing paper figures to %s", FIGURE_DIR)
+    logger.info("Writing paper tables to %s", TABLE_DIR)
 
-    results = load_results(result_path())
-    strategy_summary = summarise_strategy_recovery(results)
-    strategy_summary.to_csv(TABLE_DIR / "recovery_strategy_summary.csv", index=False)
+    results_path = result_path()
+    logger.info("Using fitted results table %s", results_path)
+    results = run_step("load fitted results", load_results, results_path)
+    strategy_summary = run_step(
+        "summarise strategy recovery",
+        summarise_strategy_recovery,
+        results,
+    )
+    strategy_summary_path = TABLE_DIR / "recovery_strategy_summary.csv"
+    strategy_summary.to_csv(strategy_summary_path, index=False)
+    logger.info("Wrote %s", strategy_summary_path.relative_to(PROJECT_ROOT))
 
-    plot_mass_recovery_by_strategy(strategy_summary)
-    plot_lens_mass_recovery_by_mass(results)
-    plot_orbital_period_recovery_by_period(results)
-    plot_parameter_recovery_curves(strategy_summary)
-    write_sample_summary(results)
-    write_mass_recovery_table(strategy_summary)
-    write_rv_accuracy_requirement_table(strategy_summary)
+    run_step(
+        "mass recovery by strategy figure",
+        plot_mass_recovery_by_strategy,
+        strategy_summary,
+    )
+    run_step(
+        "lens mass recovery by lens mass figure",
+        plot_lens_mass_recovery_by_mass,
+        results,
+    )
+    run_step(
+        "orbital period recovery by period figure",
+        plot_orbital_period_recovery_by_period,
+        results,
+    )
+    run_step(
+        "parameter recovery curves figure",
+        plot_parameter_recovery_curves,
+        strategy_summary,
+    )
+    run_step(
+        "prefit improvement by RV-count figure",
+        plot_prefit_improvement_by_n_rv,
+        results,
+    )
+    run_step("sample summary table", write_sample_summary, results)
+    run_step("mass recovery table", write_mass_recovery_table, strategy_summary)
+    run_step(
+        "RV accuracy requirement table",
+        write_rv_accuracy_requirement_table,
+        strategy_summary,
+    )
 
-    print("Wrote figures:")
+    logger.info("Paper output generation complete")
+    print("\nWrote figures:")
     for path in sorted(FIGURE_DIR.glob("*")):
         print(" -", path.relative_to(PROJECT_ROOT))
     print("\nWrote tables:")
