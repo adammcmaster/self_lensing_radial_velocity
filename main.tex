@@ -313,17 +313,51 @@ Each simulated pair of photometric light curves and RV curves is then fitted via
 %   observing-configuration columns, fitted parameters, optional photometry
 %   prefit columns, and optional sampler-state paths. It also produces
 %   diagnostic PNGs for individual rows.
-% - There is not yet a script that aggregates those fitted rows into
-%   paper-level results, such as recovery fraction versus baseline/cadence/RV
-%   accuracy, parameter bias/scatter, or failure modes across a, e, Macc, b, or
-%   tau_eff.
-% - Suggested additions: define a recovery metric for each fitted parameter;
-%   summarise performance over the 45 observing configurations; separate
-%   photometry-only prefit performance from joint RV+LC performance; and show
-%   how recovery depends on orbital period/event duration/RV amplitude.
-% - Any statement about "a handful of RV measurements" should be tied to the
-%   implemented cadences: for example, 1-year/300-day gives about two RV
-%   samples, 3-year/300-day about four, and 5-year/300-day about seven.
+% - The notebook src/plot_fitted_timeseries_results.ipynb now aggregates the
+%   fitted rows into paper-level recovery fractions and RV-accuracy requirement
+%   tables. Re-run it after the fitting campaign completes so the included
+%   figures/tables no longer describe only the current partial snapshot.
+% - Suggested additions after the full fit completes: parameter bias/scatter,
+%   failure modes across a, e, Macc, b, and tau_eff, and a direct comparison
+%   between photometry-only prefit performance and joint RV+LC performance.
+
+\subsection{Recovery analysis}
+
+The fitting campaign is still in progress, so the recovery analysis presented here is a snapshot of the systems already present in the fitted results table. The figures and tables in this subsection are generated directly by \texttt{src/plot\_fitted\_timeseries\_results.ipynb} and should be regenerated once the full sample has finished fitting.
+
+\input{paper/tables/sample_summary}
+
+\begin{figure*}
+    \centering
+    \includegraphics[width=\textwidth]{paper/figures/mass_recovery_by_strategy.pdf}
+    \caption{Snapshot lens mass recovery fraction across the fitted observing-strategy grid. A system is counted as recovered when $|\Delta M_\mathrm{acc}|/M_\mathrm{acc} \leq 0.1$.}
+    \label{fig:mass-recovery-by-strategy}
+\end{figure*}
+
+\input{paper/tables/mass_recovery_by_strategy}
+
+\begin{figure*}
+    \centering
+    \includegraphics[width=\textwidth]{paper/figures/lens_mass_recovery_by_lens_mass.pdf}
+    \caption{Snapshot lens mass recovery fraction as a function of the true lens mass. The true lens-mass axis is divided into equal-population bins from the currently fitted subset.}
+    \label{fig:lens-mass-recovery-by-lens-mass}
+\end{figure*}
+
+\begin{figure*}
+    \centering
+    \includegraphics[width=\textwidth]{paper/figures/orbital_period_recovery_by_period.pdf}
+    \caption{Snapshot orbital-period recovery fraction as a function of the true orbital period. The true-period axis is divided into equal-population bins from the currently fitted subset.}
+    \label{fig:orbital-period-recovery-by-period}
+\end{figure*}
+
+\begin{figure*}
+    \centering
+    \includegraphics[width=\textwidth]{paper/figures/parameter_recovery_curves.pdf}
+    \caption{Snapshot recovery fraction as a function of instrumental RV accuracy for several inferred parameters. Dashed horizontal lines mark the 80 per cent recovery threshold used in Table~\ref{tab:rv-accuracy-requirements}.}
+    \label{fig:parameter-recovery-curves}
+\end{figure*}
+
+\input{paper/tables/rv_accuracy_requirements}
 
 \subsection{Pristine RV curves}
 % CODE/PAPER REVIEW:
