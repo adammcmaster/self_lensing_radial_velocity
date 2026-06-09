@@ -113,6 +113,26 @@ keyword1 -- keyword2 -- keyword3
 %%%%%%%%%%%%%%%%% BODY OF PAPER %%%%%%%%%%%%%%%%%%
 
 \section{Introduction}
+% CODE/PAPER REVIEW:
+% - The code is a simulation and fitting pipeline for external self-lensing
+%   photometry FITS files plus generated RV follow-up. The introduction should
+%   make the scope explicit: the repo does not generate the original
+%   photometric population; it reads it from ~/Code/lc-filter/data/simulations/1.0/lensing.
+% - The text says edge-on means inclination close to 2\pi. That is inaccurate
+%   for the usual convention used in the code and source metadata: edge-on is
+%   close to \pi/2 rad.
+% - The code fits inclination as a free parameter; it does not force every
+%   system to be exactly edge-on.
+% - The claim that only a handful of RV measurements are sufficient needs to
+%   be supported by aggregate fit-recovery statistics. The current code saves
+%   fitted parameters and diagnostics, but no paper-ready success metric is
+%   implemented in the scripts.
+% - The aim about combining with population synthesis is not represented in
+%   the current codebase and should be removed, marked future work, or backed
+%   by a new analysis step.
+% - The introduction should mention that stellar mass, stellar radius,
+%   effective temperature, and peak time are treated as known inputs in the
+%   current fits; this affects how strong the recovery claims can be.
 
 Self-lensing systems are edge-on (eclipsing) binary systems, consisting of a star in orbit with a compact object. With an appropriate separation distance, the Einstein radius of the compact object can be larger than its surface radius, and if the orbital inclination is close enough to $2\pi$ this can result in a measurable microlensing amplification of the stellar flux once per orbit.
 
@@ -141,8 +161,40 @@ The main distinguishing feature of self-lensing vs microlensing is the periodici
 It's worth really stressing how unique self-lensing binaries are when it comes to determining the lens mass. Spectroscopically, they're like SB1s but with the possibility of jointly fitting photometry. They're to SB1s as eclipsing binaries are to SB2s. The photometry can possibly give us the orbital period, and a single event gives us information about the orbtial configuration and lens mass via the amplitude, duration, and shape of the lensing curve. By including limb darkening in the model, we potentially learn even more about the semi-major axis, as limb darkening effects will be more pronounced for closer orbits.
 
 \section{Methods}
+% CODE/PAPER REVIEW:
+% - The Methods section should describe the actual four-stage pipeline:
+%   (1) load external photometric FITS simulations and generate pristine RVs;
+%   (2) sample those RVs into observing campaigns and add RV noise;
+%   (3) fit the realistic RV plus clipped/binned light-curve data with BlackJAX
+%   MCMC; (4) write fitted tables and diagnostic plots.
+% - Important implementation details currently missing: all generated data are
+%   written under src/../data; the source photometry path is absolute and
+%   external to this repo; realistic curves are grouped into FITS files by
+%   pristine simulation id, with one HDU per observing configuration.
+% - The Methods text should distinguish the external light-curve generation
+%   assumptions from what this repository actually does. Much of the present
+%   photometry-methods prose appears to describe upstream code, not code here.
 
 \subsection{Photometric simulations} \label{sec:phot-sims}
+% CODE/PAPER REVIEW:
+% - This repo does not create the photometric simulations. It discovers
+%   existing *.fits.gz files in ~/Code/lc-filter/data/simulations/1.0/lensing
+%   and reads header values A, I, MBH, RSTAR, MSTAR, TEFF, E, PERI, D, P, B,
+%   TAU_EFF, TAU_SL, PEAK_T, AMP_SL, AMP_EL, AMP_DB, MEAN_CV, and VIS.
+% - The listed parameter ranges and sampling rules are not enforced anywhere
+%   in this repo. If they are correct, cite the external simulation source or
+%   upstream generator; otherwise verify them against the FITS metadata.
+% - The current code selects the source directory named "lensing", but it does
+%   not itself apply a visibility or peak-amplitude cut. If "lensing" already
+%   encodes that selection, say so explicitly.
+% - The realistic-generation step normalises flux to median(flux) - 1 and
+%   carries through the photometric errors from the source FITS file.
+% - The fitting step does not use the full light curve directly: it keeps only
+%   PEAK_T +/- TAU_EFF, removes invalid/errorless points, and bins the window
+%   into up to 100 inverse-variance weighted bins.
+% - The statement "all systems are edge-on" is stronger than the code: the
+%   code reads and fits I from metadata, and the draft's own range is close to
+%   \pi/2 rather than fixed exactly at \pi/2.
 
 We use as the basis of this work the library of self-lensing simulations produced in (CITATION). These simulations comprise a sample of self-lensing system parameters which is physically complete (i.e. covering the full plausible range of physical parameters) but not realistic (i.e. parameters are not sampled according to the frequency they are expected to occur in nature). This is ideal as the basis for determining the ranges of parameters which produce self-lensing effects which are detectable, independent of how common or uncommon particular parameter ranges are expected to be.
 
@@ -173,6 +225,18 @@ For a sufficiently close binary, a self-lensing system would be indistinguishabl
 All simulated light curves start at 1 January 2025 and end at 27 January 2025. The peak time, i.e. $\omega = 0$, is randomly selected for each light curve to fall somewhere between this time window.
 
 \subsection{Radial velocity simulations}
+% CODE/PAPER REVIEW:
+% - The code generates pristine RVs with selflensing.generators.RVGenerator,
+%   using a SelfLensingSystem built from FITS metadata and the photometric
+%   PEAK_T as the phase anchor.
+% - The RV follow-up start is randomised 1--10 years after the final
+%   photometric observation, not 1--5 years as written below.
+% - The pristine RV duration is 5.0 years and the nominal cadence is 1.0 day.
+%   The implementation uses numpy.linspace over int(5*365.25) samples, so note
+%   the exact sample count if reporting it quantitatively.
+% - The pristine RV metadata table records source distance and light-curve
+%   amplitudes, but the generated RV FITS contains only time and RV arrays plus
+%   metadata; there are no pristine RV errors.
 
 % This is written for how it WILL be once I've finished updating the code for the next fitting run
 
@@ -181,6 +245,22 @@ The simulated RV curves start at randomised times between 1 year and 5 years fro
 We generate baseline RV curves which contain one RV measurement per day for five years from the start time.
 
 \subsection{Simulated realistic observations}
+% CODE/PAPER REVIEW:
+% - The implemented observing grid is campaign baselines of 365, 1095, and
+%   1825 days; cadences of 1, 30, and 300 days; and instrumental RV accuracies
+%   of 0.1, 1, 10, 100, and 1000 m/s. That gives 45 realistic observing
+%   configurations per pristine simulation.
+% - The draft currently lists a 150 day cadence and a 50-point logspace of RV
+%   accuracies. Those are not what the code runs.
+% - Noise is added as two independent Gaussian terms: stellar noise with
+%   sigma=10 m/s and instrumental noise with sigma equal to the grid accuracy.
+%   The stored per-point RV error is sqrt(10^2 + accuracy^2) m/s.
+% - The realistic sampling uses array indices from the daily pristine RV curve:
+%   numpy.arange(0, min(baseline, len(curve)), cadence). This means the number
+%   of RV points is determined by baseline/cadence in samples, not by calendar
+%   scheduling with observing seasons.
+% - The same photometry is copied into every realistic configuration for a
+%   given pristine simulation; only the RV sampling and RV noise change.
 
 We sample the baseline RV curves to create more realistic RV observations, also adding Gaussian noise to simulate varying instrument accuracies. Each curve is samples in the following way:
 
@@ -193,14 +273,71 @@ We sample the baseline RV curves to create more realistic RV observations, also 
 
 
 \subsection{Fitting of simulated observations}
+% CODE/PAPER REVIEW:
+% - The implemented fitter uses selflensing.fitting BlackJAX helpers, not
+%   emcee directly. Defaults are 2000 MCMC steps, 128 walkers, and 200 burn-in
+%   steps, configurable through SLRV_FIT_* environment variables.
+% - The fitted free parameters are a, i, Macc, e, and periapsis_phase. The
+%   stellar companion mass, radius, effective temperature, and PEAK_T are
+%   supplied from metadata and held fixed. Porb, b, b_max, and tau_eff are
+%   derived from the fitted system, not fitted independently.
+% - The code performs a photometry-only prefit once per pristine simulation
+%   group when FIT_USE_LC is enabled, then uses that walker state to initialise
+%   joint RV+LC fits for the observing configurations in that group.
+% - The light curve passed to the fitter is centred and restricted to the
+%   lensing-event window; this should be described because it is not equivalent
+%   to fitting the entire TESS light curve.
+% - The draft's "combined reduced chi^2 score" wording is not visible in this
+%   repo. If the upstream BlackJAX fitting function implements a likelihood
+%   based on chi-square, cite/describe that precisely; otherwise rephrase as a
+%   joint likelihood fit to RV and photometry.
+% - The code can disable light-curve fitting with SLRV_FIT_USE_LC=0 and can run
+%   batched joint fits; note the configuration used for the paper results.
 
 Each simulated pair of photometric light curves and RV curves is then fitted via MCMC/emcee. Fitting is done jointly, using a combined reduced $\chi^2$ score. We fit only the fundamental physical parameters of the system (the same parameters as listed in Section~\ref{sec:phot-sims}), not orbital period etc.
 
 \subsection{Combining with pop synthesis}
+% CODE/PAPER REVIEW:
+% - No population-synthesis combination is implemented in the current codebase.
+%   There is no script that weights the grid by an astrophysical population,
+%   maps recovery success onto a survey yield, or compares instruments using a
+%   population model.
+% - If this remains in the paper, add the missing analysis code and define the
+%   input population, weighting scheme, detection criterion, and recovery
+%   criterion. Otherwise this subsection should become future work or be
+%   removed.
 
 \section{Results}
+% CODE/PAPER REVIEW:
+% - The current code produces fitted_timeseries.gz with truth columns,
+%   observing-configuration columns, fitted parameters, optional photometry
+%   prefit columns, and optional sampler-state paths. It also produces
+%   diagnostic PNGs for individual rows.
+% - There is not yet a script that aggregates those fitted rows into
+%   paper-level results, such as recovery fraction versus baseline/cadence/RV
+%   accuracy, parameter bias/scatter, or failure modes across a, e, Macc, b, or
+%   tau_eff.
+% - Suggested additions: define a recovery metric for each fitted parameter;
+%   summarise performance over the 45 observing configurations; separate
+%   photometry-only prefit performance from joint RV+LC performance; and show
+%   how recovery depends on orbital period/event duration/RV amplitude.
+% - Any statement about "a handful of RV measurements" should be tied to the
+%   implemented cadences: for example, 1-year/300-day gives about two RV
+%   samples, 3-year/300-day about four, and 5-year/300-day about seven.
 
 \subsection{Pristine RV curves}
+% CODE/PAPER REVIEW:
+% - The pristine RV examples are useful sanity checks, but the main code path
+%   now focuses on realistic sampled/noisy RV curves and fitted recoveries.
+% - If keeping this subsection, describe how the pristine RVs are generated
+%   from the external photometry metadata and why a 5-year daily curve is the
+%   parent sample for all follow-up campaigns.
+% - Consider adding a quantitative distribution of RV semi-amplitudes, orbital
+%   periods, and RV drift over the follow-up window, since those quantities
+%   explain which observing configurations should succeed.
+% - The commented figure paths under plots/pristine do not match the current
+%   plotting output path, which defaults to data/figures. Update figure
+%   generation/paths before uncommenting any figures.
 
 Generated RV curves with no added noise and assuming one measurement per day.
 
@@ -235,15 +372,45 @@ Generated RV curves with no added noise and assuming one measurement per day.
 
 
 \section{Discussion}
+% CODE/PAPER REVIEW:
+% - Discussion should cover assumptions that materially affect interpretation:
+%   external photometry library and selection function; fixed stellar
+%   properties and known peak time; no observing seasons/weather; Gaussian RV
+%   noise only; a fixed 10 m/s stellar-noise floor; and fitting only the
+%   PEAK_T +/- TAU_EFF photometry window.
+% - Discuss degeneracies visible in the fitted parameters, especially a--Macc,
+%   inclination/impact parameter, eccentricity/periapsis phase, and the limits
+%   of deriving very long orbital periods from short RV baselines.
+% - Discuss whether realistic survey cadence, candidate-discovery delay, and
+%   instrument-specific precision should replace or supplement the current
+%   simple grid.
+% - The current code includes named spectrograph classes (ESPRESSO, HARPS,
+%   HARPS-N, NIRPS, 4MOST, SALT HRS/RSS, APO ARCES), but the realistic grid
+%   uses generic RV accuracies rather than those classes. Decide which framing
+%   the paper should use.
 
 
 
 \section{Conclusions}
+% CODE/PAPER REVIEW:
+% - Conclusions should wait for aggregate recovery statistics from the fitted
+%   result table. At minimum, report the observing configurations that recover
+%   Macc, a, e, and periapsis_phase to a defined tolerance, and the regimes
+%   where recovery fails.
+% - Avoid concluding that the method works for all long-period systems unless
+%   the final analysis shows this across the external simulation library and
+%   accounts for the fixed-known stellar/photometric inputs.
+% - If no population-synthesis analysis is added, do not conclude survey
+%   yields or instrument-strategy counts from this code alone.
 
 The last numbered section should briefly summarise what has been done, and describe
 the final conclusions which the authors draw from their work.
 
 \section*{Acknowledgements}
+% CODE/PAPER REVIEW:
+% - Add acknowledgements for the external py-self-lensing/selflensing package,
+%   the source photometry simulation library, computing resources used for JAX
+%   MCMC runs, and any survey/instrument data products if applicable.
 
 The Acknowledgements section is not numbered. Here you can thank helpful
 colleagues, acknowledge funding agencies, telescopes and facilities used etc.
@@ -251,6 +418,19 @@ Try to keep it short.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section*{Data Availability}
+% CODE/PAPER REVIEW:
+% - The code writes generated products under data/pristine_rv,
+%   data/realistic, data/fitted_timeseries.gz, data/fit_sampler_states, and
+%   data/figures, but those paths are not currently described here.
+% - The source photometry FITS files live outside this repository at an
+%   absolute local path in the code. The Data Availability statement needs to
+%   say where those simulations will be archived or how readers can reproduce
+%   them.
+% - The Python dependency py-self-lensing is referenced through a git+ssh URL
+%   in pyproject.toml, which is not reproducible for readers without access.
+%   Consider pinning a public commit/tag or archiving the exact code version.
+% - If sampler states are large and not archived, say which derived tables and
+%   plotting products are available instead.
 
  
 The inclusion of a Data Availability Statement is a requirement for articles published in MNRAS. Data Availability Statements provide a standardised format for readers to understand the availability of data underlying the research results described in the article. The statement may refer to original data generated in the course of the study or to third-party data analysed in the article. The statement should describe and provide means of access, where possible, by linking to the data or providing the required accession numbers for the relevant databases or DOIs.
@@ -282,6 +462,12 @@ The inclusion of a Data Availability Statement is a requirement for articles pub
 \appendix
 
 \section{Some extra material}
+% CODE/PAPER REVIEW:
+% - This appendix is still template text. Possible useful appendices for this
+%   project: full observing-grid table; prior/parameter-limit details from
+%   selflensing.models.DEFAULT_LIMITS; validation plots for photometry-only
+%   prefit; additional recovery heat maps; or convergence diagnostics for the
+%   MCMC chains.
 
 If you want to present additional material which would interrupt the flow of the main paper,
 it can be placed in an Appendix which appears after the list of references.
