@@ -124,17 +124,21 @@ While detection of self-lensing systems with photometry alone has been demonstra
 
 In this work, we therefore consider the question of how many spectroscopic RV measurements are required, and at what level of precision, in order to correctly model the self-lensing system parameters, as a function of those parameters, including systems with orbital periods on the order of centuries. This will inform observing strategies for followup of the large number of candidates expected to come from new surveys, allowing the most efficient use of resources by not obtaining more observations than necessary.
 
-We present a systematic method for planning an observing campaign, determining the timing and number of observartions required for successful modelling, based on the amplitufe, microlensing event duration, and peak timing/orbital phase.
+% We present a systematic method for planning an observing campaign, determining the timing and number of observartions required for successful modelling, based on the amplitufe, microlensing event duration, and peak timing/orbital phase.
 
 Paper aims:
 \begin{enumerate}
     \item Produce a library of ``pristine'' simulated self-lensing light curves and RV curves, covering all plausible physical parameter space.
     \item Simulate observing those systems under a range of observing schedules (a small number of representative schedules, not fully comprehensive as it'll be too much) and with a variety of instrument accuracies.
     \item Fit simulated observations and determine which parameters can and can not be recovered as a function of instrument accuracies, for each observing schedule.
-    \item Combine these results with previous population synthesis results to determine how many such systems could be discovered by each instrument/strategy.
+    \item Combine these results with previous population synthesis results to determine how many such systems could be discovered by each instrument/strategy. \textbf{We maybe don't need to do this if we determine we can recover \textit{everything}?}
 \end{enumerate}
 
+We will show that it is possible to model very long period self-lensing binaries with a handful of RV measurements. Photometric-only fits can come close to determining the properties, and the photometry gives us the orbital phase and narrows down the inclination, so that we don't need many RV measurements to fit everything.
+
 The main distinguishing feature of self-lensing vs microlensing is the periodicity of the lensing flares. To claim photometric discovery of a self-lensing system, ideally we would aim to detect this periodicity. 
+
+It's worth really stressing how unique self-lensing binaries are when it comes to determining the lens mass. Spectroscopically, they're like SB1s but with the possibility of jointly fitting photometry. They're to SB1s as eclipsing binaries are to SB2s. The photometry can possibly give us the orbital period, and a single event gives us information about the orbtial configuration and lens mass via the amplitude, duration, and shape of the lensing curve. By including limb darkening in the model, we potentially learn even more about the semi-major axis, as limb darkening effects will be more pronounced for closer orbits.
 
 \section{Methods}
 
