@@ -293,7 +293,7 @@ Each simulated pair of photometric light curves and RV curves is then fitted via
 %   criterion. Otherwise this subsection should become future work or be
 %   removed.
 
-\section{Results}
+\section{Results and discussion}
 % CODE/PAPER REVIEW:
 % - The current code produces fitted_timeseries.gz with truth columns,
 %   observing-configuration columns, fitted parameters, optional photometry
@@ -307,9 +307,29 @@ Each simulated pair of photometric light curves and RV curves is then fitted via
 %   failure modes across a, e, Macc, b, and tau_eff, and a direct comparison
 %   between photometry-only prefit performance and joint RV+LC performance.
 
+% CODE/PAPER REVIEW:
+% - Discussion should cover assumptions that materially affect interpretation:
+%   external photometry library and selection function; fixed stellar
+%   properties and known peak time; no observing seasons/weather; Gaussian RV
+%   noise only; a fixed 10 m/s stellar-noise floor; and fitting only the
+%   PEAK_T +/- TAU_EFF photometry window.
+% - Discuss degeneracies visible in the fitted parameters, especially a--Macc,
+%   inclination/impact parameter, eccentricity/periapsis phase, and the limits
+%   of deriving very long orbital periods from short RV baselines.
+% - Discuss whether realistic survey cadence, candidate-discovery delay, and
+%   instrument-specific precision should replace or supplement the current
+%   simple grid.
+% - The current code includes named spectrograph classes (ESPRESSO, HARPS,
+%   HARPS-N, NIRPS, 4MOST, SALT HRS/RSS, APO ARCES), but the realistic grid
+%   uses generic RV accuracies rather than those classes. Decide which framing
+%   the paper should use.
+
+
 \textbf{The fitting campaign is still in progress, so the recovery analysis presented here is a snapshot of the systems already present in the fitted results table. The figures and tables in this subsection are generated directly by \texttt{src/plot\_fitted\_timeseries\_results.ipynb} and should be regenerated once the full sample has finished fitting.}
 
 \input{paper/tables/sample_summary}
+
+\subsection{Lens mass recovery}
 
 \begin{figure*}
     \centering
@@ -338,15 +358,6 @@ Figure~\ref{fig:lens-mass-recovery-by-lens-mass}:
 
 \begin{figure*}
     \centering
-    \includegraphics[width=\textwidth]{paper/figures/lens_mass_class_recovery_by_lens_mass.pdf}
-    \caption{Snapshot compact-object class recovery fraction as a function of the true lens mass. A system is counted as recovered when the fitted mass falls in the same broad compact-object class as the true mass, using $M_\mathrm{acc}<3\,M_\odot$ for white dwarf or neutron-star lenses, $3 \leq M_\mathrm{acc}/M_\odot < 5$ for the mass gap, and $M_\mathrm{acc}\geq5\,M_\odot$ for black-hole lenses. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against fixed true lens-mass ranges.}
-    \label{fig:lens-mass-class-recovery-by-lens-mass}
-\end{figure*}
-
-Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fitted mass will land in the right object class, rather than whether the mass is correct to within some arbitrary threshold, the results look very promising. Even with just one RV measurement (baseline=1, cadence=300) we can be confident that a system with a fitted mass over 5 solar masses will in fact be a balck hole, even if the fitted mass has a large error. This can inform our priorities when planning observations; we can choose to obtain additional observations of targets with fitted masses that fall in the WD/NS range or in the mass gap, and/or we can treat higher mass systems as confirmed with fewer observations.
-
-\begin{figure*}
-    \centering
     \begin{minipage}{0.49\textwidth}
         \centering
         \includegraphics[width=\textwidth]{paper/figures/lens_mass_relative_error_by_lens_mass.pdf}
@@ -361,6 +372,26 @@ Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fi
     \caption{Snapshot lens-mass relative-error distribution as a function of the true lens mass. Panel (a) shows the median $|\Delta M_\mathrm{acc}|/M_\mathrm{acc}$ in per cent for each fitted subset, while panel (b) shows the interquartile range of the same relative-error distribution. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against fixed true lens-mass ranges.}
     \label{fig:lens-mass-relative-error-by-lens-mass}
 \end{figure*}
+
+\subsection{Recovering object class}
+
+\begin{figure*}
+    \centering
+    \includegraphics[width=\textwidth]{paper/figures/lens_mass_class_recovery_by_lens_mass.pdf}
+    \caption{Snapshot compact-object class recovery fraction as a function of the true lens mass. A system is counted as recovered when the fitted mass falls in the same broad compact-object class as the true mass, using $M_\mathrm{acc}<3\,M_\odot$ for white dwarf or neutron-star lenses, $3 \leq M_\mathrm{acc}/M_\odot < 5$ for the mass gap, and $M_\mathrm{acc}\geq5\,M_\odot$ for black-hole lenses. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against fixed true lens-mass ranges.}
+    \label{fig:lens-mass-class-recovery-by-lens-mass}
+\end{figure*}
+
+\begin{figure*}
+    \centering
+    \includegraphics[width=\textwidth]{paper/figures/prefit_compact_object_class_by_lens_mass_range.pdf}
+    \caption{Snapshot compact-object class recovery for the photometry-only prefit and the joint photometry plus RV fit, separated by true lens-mass range. A system is counted as correct when the fitted lens mass falls in the same broad compact-object class as the true mass, using $M_\mathrm{acc}<3\,M_\odot$ for white dwarf or neutron-star lenses, $3 \leq M_\mathrm{acc}/M_\odot < 5$ for the mass gap, and $M_\mathrm{acc}\geq5\,M_\odot$ for black-hole lenses. Points show the percentage of fitted systems in the correct class as a function of the number of RV measurements; the horizontal dotted line marks 80 per cent.}
+    \label{fig:prefit-compact-object-class-by-lens-mass-range}
+\end{figure*}
+
+Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fitted mass will land in the right object class, rather than whether the mass is correct to within some arbitrary threshold, the results look very promising. Even with just one RV measurement (baseline=1, cadence=300) we can be confident that a system with a fitted mass over 5 solar masses will in fact be a balck hole, even if the fitted mass has a large error. This can inform our priorities when planning observations; we can choose to obtain additional observations of targets with fitted masses that fall in the WD/NS range or in the mass gap, and/or we can treat higher mass systems as confirmed with fewer observations.
+
+\subsection{Recovering orbital period}
 
 
 
@@ -378,6 +409,8 @@ Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fi
 %     \label{fig:parameter-recovery-curves}
 % \end{figure*}
 
+\subsection{Photometry-only fits vs joint fits}
+
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/prefit_improvement_by_n_rv.pdf}
@@ -392,34 +425,9 @@ Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fi
     \label{fig:prefit-improvement-by-lens-mass-range}
 \end{figure*}
 
-\begin{figure*}
-    \centering
-    \includegraphics[width=\textwidth]{paper/figures/prefit_compact_object_class_by_lens_mass_range.pdf}
-    \caption{Snapshot compact-object class recovery for the photometry-only prefit and the joint photometry plus RV fit, separated by true lens-mass range. A system is counted as correct when the fitted lens mass falls in the same broad compact-object class as the true mass, using $M_\mathrm{acc}<3\,M_\odot$ for white dwarf or neutron-star lenses, $3 \leq M_\mathrm{acc}/M_\odot < 5$ for the mass gap, and $M_\mathrm{acc}\geq5\,M_\odot$ for black-hole lenses. Points show the percentage of fitted systems in the correct class as a function of the number of RV measurements; the horizontal dotted line marks 80 per cent.}
-    \label{fig:prefit-compact-object-class-by-lens-mass-range}
-\end{figure*}
+
 
 \input{paper/tables/rv_accuracy_requirements}
-
-
-\section{Discussion}
-% CODE/PAPER REVIEW:
-% - Discussion should cover assumptions that materially affect interpretation:
-%   external photometry library and selection function; fixed stellar
-%   properties and known peak time; no observing seasons/weather; Gaussian RV
-%   noise only; a fixed 10 m/s stellar-noise floor; and fitting only the
-%   PEAK_T +/- TAU_EFF photometry window.
-% - Discuss degeneracies visible in the fitted parameters, especially a--Macc,
-%   inclination/impact parameter, eccentricity/periapsis phase, and the limits
-%   of deriving very long orbital periods from short RV baselines.
-% - Discuss whether realistic survey cadence, candidate-discovery delay, and
-%   instrument-specific precision should replace or supplement the current
-%   simple grid.
-% - The current code includes named spectrograph classes (ESPRESSO, HARPS,
-%   HARPS-N, NIRPS, 4MOST, SALT HRS/RSS, APO ARCES), but the realistic grid
-%   uses generic RV accuracies rather than those classes. Decide which framing
-%   the paper should use.
-
 
 
 \section{Conclusions}
