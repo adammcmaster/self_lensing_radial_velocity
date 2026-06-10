@@ -51,6 +51,7 @@
 % Only include extra packages if you really need them. Avoid using amssymb if newtxmath is enabled, as these packages can cause conflicts. newtxmatch covers the same math symbols while producing a consistent Times New Roman font. Common packages are:
 \usepackage{graphicx}	% Including figure files
 \usepackage{amsmath}	% Advanced maths commands
+\usepackage[section]{placeins}	% Keep floats inside their source sections
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -329,6 +330,7 @@ Each simulated pair of photometric light curves and RV curves is then fitted via
 
 \input{paper/tables/sample_summary}
 
+\FloatBarrier
 \subsection{Lens mass recovery}
 
 \begin{figure*}
@@ -373,6 +375,7 @@ Figure~\ref{fig:lens-mass-recovery-by-lens-mass}:
     \label{fig:lens-mass-relative-error-by-lens-mass}
 \end{figure*}
 
+\FloatBarrier
 \subsection{Recovering object class}
 
 \begin{figure*}
@@ -391,6 +394,7 @@ Figure~\ref{fig:lens-mass-recovery-by-lens-mass}:
 
 Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fitted mass will land in the right object class, rather than whether the mass is correct to within some arbitrary threshold, the results look very promising. Even with just one RV measurement (baseline=1, cadence=300) we can be confident that a system with a fitted mass over 5 solar masses will in fact be a balck hole, even if the fitted mass has a large error. This can inform our priorities when planning observations; we can choose to obtain additional observations of targets with fitted masses that fall in the WD/NS range or in the mass gap, and/or we can treat higher mass systems as confirmed with fewer observations.
 
+\FloatBarrier
 \subsection{Recovering orbital period}
 
 
@@ -409,6 +413,7 @@ Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fi
 %     \label{fig:parameter-recovery-curves}
 % \end{figure*}
 
+\FloatBarrier
 \subsection{Photometry-only fits vs joint fits}
 
 \begin{figure*}
@@ -429,6 +434,7 @@ Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fi
 
 \input{paper/tables/rv_accuracy_requirements}
 
+\FloatBarrier
 
 \section{Conclusions}
 % CODE/PAPER REVIEW:
