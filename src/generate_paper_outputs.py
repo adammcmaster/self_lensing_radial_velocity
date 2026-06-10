@@ -44,6 +44,8 @@ TABLE_DIR = PROJECT_ROOT / "paper" / "tables"
 
 RECOVERY_THRESHOLD = 0.10
 SUCCESS_THRESHOLD = 0.80
+COMPACT_OBJECT_CLASS_BINS = [0.0, 3.0, 5.0, numpy.inf]
+COMPACT_OBJECT_CLASS_LABELS = ["WD/NS", "mass gap", "BH"]
 
 PARAMETERS = {
     "Macc": {
@@ -103,6 +105,10 @@ def relative_error(truth, fitted):
     scale = numpy.abs(truth).copy()
     scale[~numpy.isfinite(scale) | (scale == 0)] = 1.0
     return numpy.abs(fitted - truth) / scale
+
+
+def interquartile_range(values):
+    return numpy.nanpercentile(values, 75) - numpy.nanpercentile(values, 25)
 
 
 def scalar_number(value):
@@ -506,6 +512,73 @@ def binned_recovery_table(
     return table
 
 
+def binned_metric_table(
+    results,
+    value_column,
+    metric_column,
+    metric_name,
+    unit,
+    n_bins=4,
+    bins=None,
+    labels=None,
+    label_formatter=range_label,
+    aggfunc="median",
+):
+    finite = results[
+        numpy.isfinite(results[value_column]) & numpy.isfinite(results[metric_column])
+    ].copy()
+    if finite.empty:
+        raise ValueError(f"No finite values available for {value_column} and {metric_column}")
+
+    if bins is None:
+        bin_count = min(n_bins, finite[value_column].nunique())
+        if bin_count < 1:
+            raise ValueError(f"Could not define bins for {value_column}")
+
+        finite["_value_bin"] = pandas.qcut(
+            finite[value_column],
+            q=bin_count,
+            duplicates="drop",
+        )
+        finite["_value_bin_label"] = finite["_value_bin"].map(
+            lambda interval: label_formatter(interval.left, interval.right, unit)
+        )
+    else:
+        finite["_value_bin"] = pandas.cut(
+            finite[value_column],
+            bins=bins,
+            labels=labels,
+            include_lowest=True,
+            right=False,
+        )
+        finite = finite.dropna(subset=["_value_bin"]).copy()
+        finite["_value_bin_label"] = finite["_value_bin"].astype(str)
+
+    table = (
+        finite.groupby(
+            [
+                "baseline",
+                "baseline_years",
+                "cadence",
+                "RV accuracy",
+                "_value_bin",
+                "_value_bin_label",
+            ],
+            observed=True,
+            dropna=False,
+        )
+        .agg(
+            **{
+                metric_name: pandas.NamedAgg(column=metric_column, aggfunc=aggfunc),
+                "n_systems": pandas.NamedAgg(column="pristine_id", aggfunc="nunique"),
+            }
+        )
+        .reset_index()
+        .sort_values(["baseline", "cadence", "RV accuracy", "_value_bin"])
+    )
+    return table
+
+
 def plot_recovery_by_truth_range(
     results,
     param,
@@ -516,11 +589,15 @@ def plot_recovery_by_truth_range(
     bins=None,
     labels=None,
     label_formatter=range_label,
+    recovered_column=None,
+    colorbar_label="Recovered systems [per cent]",
 ):
+    if recovered_column is None:
+        recovered_column = f"{param}_recovered"
     table = binned_recovery_table(
         results,
         value_column=value_column,
-        recovered_column=f"{param}_recovered",
+        recovered_column=recovered_column,
         unit=unit,
         bins=bins,
         labels=labels,
@@ -596,11 +673,125 @@ def plot_recovery_by_truth_range(
             ax=axes,
             location="right",
             shrink=0.78,
-            label="Recovered systems [per cent]",
+            label=colorbar_label,
         )
     for suffix in ("pdf", "png"):
         fig.savefig(FIGURE_DIR / f"{filename}.{suffix}", bbox_inches="tight")
     pyplot.close(fig)
+
+
+def plot_metric_by_truth_range(
+    results,
+    value_column,
+    metric_column,
+    metric_name,
+    unit,
+    filename,
+    x_label,
+    colorbar_label,
+    bins=None,
+    labels=None,
+    label_formatter=range_label,
+    aggfunc="median",
+    percent_scale=False,
+    cmap="viridis_r",
+):
+    table = binned_metric_table(
+        results,
+        value_column=value_column,
+        metric_column=metric_column,
+        metric_name=metric_name,
+        unit=unit,
+        bins=bins,
+        labels=labels,
+        label_formatter=label_formatter,
+        aggfunc=aggfunc,
+    )
+    table.to_csv(TABLE_DIR / f"{filename}.csv", index=False)
+
+    baselines = numpy.sort(table["baseline"].dropna().unique())
+    cadences = numpy.sort(table["cadence"].dropna().unique())
+    bin_labels = list(labels) if labels is not None else list(table["_value_bin_label"].drop_duplicates())
+
+    fig, axes = pyplot.subplots(
+        len(baselines),
+        len(cadences),
+        figsize=(8.2, 6.8),
+        sharex=True,
+        sharey=True,
+        constrained_layout=True,
+    )
+    if len(baselines) == 1 and len(cadences) == 1:
+        axes = numpy.asarray([[axes]])
+    elif len(baselines) == 1:
+        axes = numpy.asarray([axes])
+    elif len(cadences) == 1:
+        axes = numpy.asarray([[axis] for axis in axes])
+
+    last_mesh = None
+    for row_index, baseline in enumerate(baselines):
+        for col_index, cadence in enumerate(cadences):
+            axis = axes[row_index, col_index]
+            subset = table[
+                (table["baseline"] == baseline) & (table["cadence"] == cadence)
+            ].copy()
+            if percent_scale:
+                subset[metric_name] = 100.0 * subset[metric_name]
+            matrix = (
+                subset.pivot(
+                    index="RV accuracy",
+                    columns="_value_bin_label",
+                    values=metric_name,
+                )
+                .reindex(columns=bin_labels)
+                .sort_index()
+            )
+            heatmap = seaborn.heatmap(
+                matrix,
+                ax=axis,
+                vmin=0,
+                cmap=cmap,
+                annot=True,
+                fmt=".1f",
+                cbar=False,
+            )
+            last_mesh = heatmap.collections[0]
+            if row_index == 0:
+                axis.set_title(f"Cadence {cadence:g} d")
+            if col_index == 0:
+                axis.set_ylabel(
+                    f"Baseline {baseline / 365:g} yr\n"
+                    + r"RV accuracy [m s$^{-1}$]"
+                )
+            else:
+                axis.set_ylabel("")
+            if row_index == len(baselines) - 1:
+                axis.set_xlabel(x_label)
+            else:
+                axis.set_xlabel("")
+            axis.tick_params(axis="x", rotation=35)
+
+    if last_mesh is not None:
+        fig.colorbar(
+            last_mesh,
+            ax=axes,
+            location="right",
+            shrink=0.78,
+            label=colorbar_label,
+        )
+    for suffix in ("pdf", "png"):
+        fig.savefig(FIGURE_DIR / f"{filename}.{suffix}", bbox_inches="tight")
+    pyplot.close(fig)
+
+
+def compact_object_class(masses):
+    return pandas.cut(
+        masses,
+        bins=COMPACT_OBJECT_CLASS_BINS,
+        labels=COMPACT_OBJECT_CLASS_LABELS,
+        include_lowest=True,
+        right=False,
+    )
 
 
 def plot_lens_mass_recovery_by_mass(results):
@@ -618,6 +809,78 @@ def plot_lens_mass_recovery_by_mass(results):
             r"$5$--$20\,M_\odot$",
             r"$20$--$50\,M_\odot$",
         ],
+    )
+
+
+def plot_lens_mass_class_recovery_by_mass(results):
+    classified = results.copy()
+    true_class = compact_object_class(classified["Macc"])
+    fitted_class = compact_object_class(classified["fitted_Macc"])
+    classified["Macc_compact_object_class_recovered"] = (
+        true_class.notna() & fitted_class.notna() & (true_class == fitted_class)
+    )
+
+    plot_recovery_by_truth_range(
+        classified,
+        param="Macc",
+        value_column="Macc",
+        unit=r"$M_\odot$",
+        filename="lens_mass_class_recovery_by_lens_mass",
+        x_label=r"True lens mass range",
+        bins=[0.0, 3.0, 5.0, 20.0, 50.0],
+        labels=[
+            r"$<3\,M_\odot$",
+            r"$3$--$5\,M_\odot$",
+            r"$5$--$20\,M_\odot$",
+            r"$20$--$50\,M_\odot$",
+        ],
+        recovered_column="Macc_compact_object_class_recovered",
+        colorbar_label="Correct compact-object class [per cent]",
+    )
+
+
+def plot_lens_mass_relative_error_by_mass(results):
+    plot_metric_by_truth_range(
+        results,
+        value_column="Macc",
+        metric_column="Macc_relative_error",
+        metric_name="median_relative_error",
+        unit=r"$M_\odot$",
+        filename="lens_mass_relative_error_by_lens_mass",
+        x_label=r"True lens mass range",
+        colorbar_label=r"Median $|\Delta M_\mathrm{acc}|/M_\mathrm{acc}$ [per cent]",
+        bins=[0.0, 3.0, 5.0, 20.0, 50.0],
+        labels=[
+            r"$<3\,M_\odot$",
+            r"$3$--$5\,M_\odot$",
+            r"$5$--$20\,M_\odot$",
+            r"$20$--$50\,M_\odot$",
+        ],
+        percent_scale=True,
+    )
+
+
+def plot_lens_mass_relative_error_iqr_by_mass(results):
+    plot_metric_by_truth_range(
+        results,
+        value_column="Macc",
+        metric_column="Macc_relative_error",
+        metric_name="iqr_relative_error",
+        unit=r"$M_\odot$",
+        filename="lens_mass_relative_error_iqr_by_lens_mass",
+        x_label=r"True lens mass range",
+        colorbar_label=(
+            r"IQR of $|\Delta M_\mathrm{acc}|/M_\mathrm{acc}$ [per cent]"
+        ),
+        bins=[0.0, 3.0, 5.0, 20.0, 50.0],
+        labels=[
+            r"$<3\,M_\odot$",
+            r"$3$--$5\,M_\odot$",
+            r"$5$--$20\,M_\odot$",
+            r"$20$--$50\,M_\odot$",
+        ],
+        aggfunc=interquartile_range,
+        percent_scale=True,
     )
 
 
@@ -881,6 +1144,21 @@ def main():
     run_step(
         "lens mass recovery by lens mass figure",
         plot_lens_mass_recovery_by_mass,
+        results,
+    )
+    run_step(
+        "lens mass class recovery by lens mass figure",
+        plot_lens_mass_class_recovery_by_mass,
+        results,
+    )
+    run_step(
+        "lens mass relative error by lens mass figure",
+        plot_lens_mass_relative_error_by_mass,
+        results,
+    )
+    run_step(
+        "lens mass relative error IQR by lens mass figure",
+        plot_lens_mass_relative_error_iqr_by_mass,
         results,
     )
     run_step(
