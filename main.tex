@@ -307,8 +307,6 @@ Each simulated pair of photometric light curves and RV curves is then fitted via
 %   failure modes across a, e, Macc, b, and tau_eff, and a direct comparison
 %   between photometry-only prefit performance and joint RV+LC performance.
 
-\subsection{Recovery analysis}
-
 \textbf{The fitting campaign is still in progress, so the recovery analysis presented here is a snapshot of the systems already present in the fitted results table. The figures and tables in this subsection are generated directly by \texttt{src/plot\_fitted\_timeseries\_results.ipynb} and should be regenerated once the full sample has finished fitting.}
 
 \input{paper/tables/sample_summary}
@@ -320,6 +318,8 @@ Each simulated pair of photometric light curves and RV curves is then fitted via
     \label{fig:mass-recovery-by-strategy}
 \end{figure*}
 
+Figure~\ref{fig:mass-recovery-by-strategy} Not sure this will stay in. Shows that shorter cadences and longer baselines improve recovery, though suggests if the baseline is long enough then the recovery is less susceptible to cadence. Averaging the results at such a high level loses a lot of the detail which is shown in Figure~\ref{fig:lens-mass-recovery-by-lens-mass}; probably better to only include the other figure.
+
 \input{paper/tables/mass_recovery_by_strategy}
 
 \begin{figure*}
@@ -328,6 +328,13 @@ Each simulated pair of photometric light curves and RV curves is then fitted via
     \caption{Snapshot lens mass recovery fraction as a function of the true lens mass, using the same $|\Delta M_\mathrm{acc}|/M_\mathrm{acc} \leq 0.1$ recovery criterion as Figure~\ref{fig:mass-recovery-by-strategy}. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against fixed true lens-mass ranges.}
     \label{fig:lens-mass-recovery-by-lens-mass}
 \end{figure*}
+
+Figure~\ref{fig:lens-mass-recovery-by-lens-mass}:
+\begin{itemize}
+    \item Higher masses are recovered more reliably. 
+    \item Baseline makes some difference, but cadence makes a huge differec.e
+    \item The ideal is a high cadence for as long as possible.
+\end{itemize}
 
 \begin{figure*}
     \centering
@@ -351,51 +358,6 @@ Each simulated pair of photometric light curves and RV curves is then fitted via
 \end{figure*}
 
 \input{paper/tables/rv_accuracy_requirements}
-
-\subsection{Pristine RV curves}
-% CODE/PAPER REVIEW:
-% - The pristine RV examples are useful sanity checks, but the main code path
-%   now focuses on realistic sampled/noisy RV curves and fitted recoveries.
-% - If keeping this subsection, describe how the pristine RVs are generated
-%   from the external photometry metadata and why a 5-year daily curve is the
-%   parent sample for all follow-up campaigns.
-% - Consider adding a quantitative distribution of RV semi-amplitudes, orbital
-%   periods, and RV drift over the follow-up window, since those quantities
-%   explain which observing configurations should succeed.
-% - The commented figure paths under plots/pristine do not match the current
-%   plotting output path, which defaults to data/figures. Update figure
-%   generation/paths before uncommenting any figures.
-
-Generated RV curves with no added noise and assuming one measurement per day.
-
-% \begin{figure}
-%     \centering
-%     \includegraphics[width=\linewidth]{plots/pristine/0.1/0.1111111111111111/3.490658503988659/18.788888888888888/unfolded.png}
-%     \caption{A simulated RV curve for a self-lensing system with $a = 0.1$ AU, $e = 0.1$, and $M_\text{tot} = 18.7 \text{M}_\odot$, shows a year's worth of daily RV measurements.}
-%     \label{fig:pristine-rv-unfolded}
-% \end{figure}
-
-% \begin{figure}
-%     \centering
-%     \includegraphics[width=\linewidth]{plots/pristine/0.1/0.1111111111111111/3.490658503988659/18.788888888888888/folded.png}
-%     \caption{The RV curve from Figure~\ref{fig:pristine-rv-unfolded} folded at its orbital period.}
-%     \label{fig:pristine-rv-folded}
-% \end{figure}
-
-
-% \begin{figure}
-%     \centering
-%     \includegraphics[width=\linewidth]{plots/pristine/0.1/0.8888888888888888/0.0/12.155555555555553/unfolded.png}
-%     \caption{A simulated RV curve for a self-lensing system with $a = 0.1$ AU, $e = 0.89$, and $M_\text{tot} = 12.16 \text{M}_\odot$, shows a year's worth of daily RV measurements.}
-%     \label{fig:pristine-rv-eccentric-unfolded}
-% \end{figure}
-
-% \begin{figure}
-%     \centering
-%     \includegraphics[width=\linewidth]{plots/pristine/0.1/0.8888888888888888/0.0/12.155555555555553/folded.png}
-%     \caption{The RV curve from Figure~\ref{fig:pristine-rv-eccentric-unfolded} folded at its orbital period.}
-%     \label{fig:pristine-rv-eccentric-folded}
-% \end{figure}
 
 
 \section{Discussion}
