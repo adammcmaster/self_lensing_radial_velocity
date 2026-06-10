@@ -695,6 +695,7 @@ def plot_metric_by_truth_range(
     aggfunc="median",
     percent_scale=False,
     cmap="viridis_r",
+    vmax=None,
 ):
     table = binned_metric_table(
         results,
@@ -750,6 +751,7 @@ def plot_metric_by_truth_range(
                 matrix,
                 ax=axis,
                 vmin=0,
+                vmax=vmax,
                 cmap=cmap,
                 annot=True,
                 fmt=".1f",
@@ -857,6 +859,7 @@ def plot_lens_mass_relative_error_by_mass(results):
             r"$20$--$50\,M_\odot$",
         ],
         percent_scale=True,
+        vmax=100,
     )
 
 
@@ -881,6 +884,7 @@ def plot_lens_mass_relative_error_iqr_by_mass(results):
         ],
         aggfunc=interquartile_range,
         percent_scale=True,
+        vmax=100,
     )
 
 
