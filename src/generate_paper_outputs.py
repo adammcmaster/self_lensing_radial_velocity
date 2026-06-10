@@ -46,6 +46,13 @@ RECOVERY_THRESHOLD = 0.10
 SUCCESS_THRESHOLD = 0.80
 COMPACT_OBJECT_CLASS_BINS = [0.0, 3.0, 5.0, numpy.inf]
 COMPACT_OBJECT_CLASS_LABELS = ["WD/NS", "mass gap", "BH"]
+LENS_MASS_RANGE_BINS = [0.0, 3.0, 5.0, 20.0, 50.0]
+LENS_MASS_RANGE_LABELS = [
+    r"$<3\,M_\odot$",
+    r"$3$--$5\,M_\odot$",
+    r"$5$--$20\,M_\odot$",
+    r"$20$--$50\,M_\odot$",
+]
 
 PARAMETERS = {
     "Macc": {
@@ -109,6 +116,16 @@ def relative_error(truth, fitted):
 
 def interquartile_range(values):
     return numpy.nanpercentile(values, 75) - numpy.nanpercentile(values, 25)
+
+
+def lens_mass_range(masses):
+    return pandas.cut(
+        masses,
+        bins=LENS_MASS_RANGE_BINS,
+        labels=LENS_MASS_RANGE_LABELS,
+        include_lowest=True,
+        right=False,
+    )
 
 
 def scalar_number(value):
@@ -224,21 +241,24 @@ def prefit_joint_error_rows(results):
 
     rows = []
     for param, spec in parameters.items():
-        needed = [param, spec["fitted"], spec["prefit"], "pristine_id", "n_rv"]
+        needed = list(dict.fromkeys([param, "Macc", spec["fitted"], spec["prefit"], "pristine_id", "n_rv"]))
         finite = results.dropna(subset=needed).copy()
         if finite.empty:
             continue
 
         finite[param] = numeric_scalar_series(finite[param])
+        finite["Macc"] = numeric_scalar_series(finite["Macc"])
         finite[spec["fitted"]] = numeric_scalar_series(finite[spec["fitted"]])
         finite[spec["prefit"]] = numeric_scalar_series(finite[spec["prefit"]])
         finite = finite[
             numpy.isfinite(finite[param])
+            & numpy.isfinite(finite["Macc"])
             & numpy.isfinite(finite[spec["fitted"]])
             & numpy.isfinite(finite[spec["prefit"]])
         ]
         if finite.empty:
             continue
+        mass_range = lens_mass_range(finite["Macc"])
 
         for fit_stage, value_column in (
             ("Photometry only", spec["prefit"]),
@@ -250,6 +270,7 @@ def prefit_joint_error_rows(results):
                     "parameter": param,
                     "parameter_label": spec["label"],
                     "fit_stage": fit_stage,
+                    "lens_mass_range": mass_range.astype(str).to_numpy(),
                     "n_rv": finite["n_rv"].astype(int).to_numpy(),
                     "pristine_id": finite["pristine_id"].astype(str).to_numpy(),
                     "relative_error": errors,
@@ -288,6 +309,37 @@ def summarise_prefit_joint_errors(error_rows):
         )
         .reset_index()
         .sort_values(["parameter", "fit_stage", "n_rv"])
+    )
+
+
+def summarise_prefit_joint_errors_by_lens_mass_range(error_rows):
+    return (
+        error_rows.groupby(
+            [
+                "parameter",
+                "parameter_label",
+                "lens_mass_range",
+                "fit_stage",
+                "n_rv",
+            ],
+            dropna=False,
+        )
+        .agg(
+            median_relative_error=pandas.NamedAgg(
+                column="relative_error", aggfunc="median"
+            ),
+            q25_relative_error=pandas.NamedAgg(
+                column="relative_error", aggfunc=lambda values: numpy.nanpercentile(values, 25)
+            ),
+            q75_relative_error=pandas.NamedAgg(
+                column="relative_error", aggfunc=lambda values: numpy.nanpercentile(values, 75)
+            ),
+            recovery_fraction=pandas.NamedAgg(column="recovered", aggfunc="mean"),
+            n_rows=pandas.NamedAgg(column="relative_error", aggfunc="size"),
+            n_systems=pandas.NamedAgg(column="pristine_id", aggfunc="nunique"),
+        )
+        .reset_index()
+        .sort_values(["parameter", "lens_mass_range", "fit_stage", "n_rv"])
     )
 
 
@@ -385,6 +437,316 @@ def plot_prefit_improvement_by_n_rv(results):
     for suffix in ("pdf", "png"):
         fig.savefig(
             FIGURE_DIR / f"prefit_improvement_by_n_rv.{suffix}",
+            bbox_inches="tight",
+        )
+    pyplot.close(fig)
+
+
+def plot_prefit_improvement_by_lens_mass_range(results):
+    error_rows = prefit_joint_error_rows(results)
+    summary = summarise_prefit_joint_errors_by_lens_mass_range(error_rows)
+    summary.to_csv(
+        TABLE_DIR / "prefit_improvement_by_lens_mass_range.csv",
+        index=False,
+    )
+
+    plot_params = [
+        param for param in ("Macc", "a", "Porb", "b") if param in set(summary["parameter"])
+    ]
+    if not plot_params:
+        raise ValueError("No configured parameters are available for prefit comparison")
+
+    mass_ranges = [
+        label
+        for label in LENS_MASS_RANGE_LABELS
+        if label in set(summary["lens_mass_range"])
+    ]
+    if not mass_ranges:
+        raise ValueError("No configured lens-mass ranges are available for prefit comparison")
+
+    fig, axes = pyplot.subplots(
+        len(plot_params),
+        len(mass_ranges),
+        figsize=(2.4 * len(mass_ranges), 1.9 * len(plot_params)),
+        sharex=True,
+        sharey="row",
+        constrained_layout=True,
+    )
+    if len(plot_params) == 1 and len(mass_ranges) == 1:
+        axes = numpy.asarray([[axes]])
+    elif len(plot_params) == 1:
+        axes = numpy.asarray([axes])
+    elif len(mass_ranges) == 1:
+        axes = numpy.asarray([[axis] for axis in axes])
+
+    stage_styles = {
+        "Photometry only": {"color": "#CC79A7", "marker": None, "linestyle": "--"},
+        "Photometry + RV": {"color": "#0072B2", "marker": "o", "linestyle": "-"},
+    }
+    for row_index, param in enumerate(plot_params):
+        for col_index, mass_range_label in enumerate(mass_ranges):
+            axis = axes[row_index, col_index]
+            panel_data = summary[
+                (summary["parameter"] == param)
+                & (summary["lens_mass_range"] == mass_range_label)
+            ]
+            for stage, style in stage_styles.items():
+                stage_data = panel_data[
+                    panel_data["fit_stage"] == stage
+                ].sort_values("n_rv")
+                if stage_data.empty:
+                    continue
+                x = stage_data["n_rv"].to_numpy(dtype=float)
+                median = stage_data["median_relative_error"].to_numpy(dtype=float)
+                q25 = stage_data["q25_relative_error"].to_numpy(dtype=float)
+                q75 = stage_data["q75_relative_error"].to_numpy(dtype=float)
+                axis.plot(
+                    x,
+                    median,
+                    color=style["color"],
+                    marker=style["marker"],
+                    linestyle=style["linestyle"],
+                    linewidth=1.1,
+                    markersize=3.5,
+                )
+                axis.fill_between(
+                    x,
+                    q25,
+                    q75,
+                    color=style["color"],
+                    alpha=0.14,
+                    linewidth=0,
+                )
+
+            if row_index == 0:
+                axis.set_title(mass_range_label)
+            if col_index == 0:
+                label = panel_data["parameter_label"].iloc[0] if not panel_data.empty else param
+                axis.set_ylabel(f"{label}\nRelative error")
+            else:
+                axis.set_ylabel("")
+            if row_index == len(plot_params) - 1:
+                axis.set_xlabel(r"$N_\mathrm{RV}$")
+            else:
+                axis.set_xlabel("")
+            axis.set_xscale("log")
+            axis.set_yscale("log")
+            axis.axhline(RECOVERY_THRESHOLD, color="0.35", linestyle=":", linewidth=0.8)
+            axis.grid(True, which="both", axis="both", alpha=0.22)
+
+    legend_handles = [
+        Line2D(
+            [0],
+            [0],
+            color=style["color"],
+            marker=style["marker"],
+            linestyle=style["linestyle"],
+            linewidth=1.2,
+            markersize=4,
+            label=stage,
+        )
+        for stage, style in stage_styles.items()
+    ]
+    legend_handles.append(
+        Line2D(
+            [0],
+            [0],
+            color="0.35",
+            linestyle=":",
+            linewidth=0.9,
+            label=rf"{RECOVERY_THRESHOLD:g} recovery threshold",
+        )
+    )
+    fig.legend(
+        handles=legend_handles,
+        loc="upper center",
+        ncol=3,
+        bbox_to_anchor=(0.5, 1.04),
+        frameon=False,
+    )
+    for suffix in ("pdf", "png"):
+        fig.savefig(
+            FIGURE_DIR / f"prefit_improvement_by_lens_mass_range.{suffix}",
+            bbox_inches="tight",
+        )
+    pyplot.close(fig)
+
+
+def prefit_compact_object_class_rows(results):
+    parameters = prefit_comparison_parameters(results)
+    mass_spec = parameters.get("Macc")
+    if mass_spec is None:
+        raise KeyError(
+            "Fitted results table has no photometry-only prefit mass column. "
+            "Expected prefit_fitted_Macc."
+        )
+
+    needed = [
+        "Macc",
+        mass_spec["fitted"],
+        mass_spec["prefit"],
+        "pristine_id",
+        "n_rv",
+    ]
+    finite = results.dropna(subset=needed).copy()
+    if finite.empty:
+        raise ValueError(
+            "No finite paired photometry-only prefit and joint-fit mass values "
+            "were available in the fitted results table."
+        )
+
+    for column in ("Macc", mass_spec["fitted"], mass_spec["prefit"]):
+        finite[column] = numeric_scalar_series(finite[column])
+    finite = finite[
+        numpy.isfinite(finite["Macc"])
+        & numpy.isfinite(finite[mass_spec["fitted"]])
+        & numpy.isfinite(finite[mass_spec["prefit"]])
+    ].copy()
+    if finite.empty:
+        raise ValueError(
+            "No finite paired photometry-only prefit and joint-fit mass values "
+            "were available in the fitted results table."
+        )
+
+    true_class = compact_object_class(finite["Macc"])
+    mass_range = lens_mass_range(finite["Macc"])
+    rows = []
+    for fit_stage, value_column in (
+        ("Photometry only", mass_spec["prefit"]),
+        ("Photometry + RV", mass_spec["fitted"]),
+    ):
+        fitted_class = compact_object_class(finite[value_column])
+        rows.append(
+            pandas.DataFrame(
+                {
+                    "fit_stage": fit_stage,
+                    "lens_mass_range": mass_range.astype(str).to_numpy(),
+                    "n_rv": finite["n_rv"].astype(int).to_numpy(),
+                    "pristine_id": finite["pristine_id"].astype(str).to_numpy(),
+                    "correct_class": (
+                        true_class.notna()
+                        & fitted_class.notna()
+                        & (true_class == fitted_class)
+                    ).to_numpy(),
+                }
+            )
+        )
+    return pandas.concat(rows, ignore_index=True)
+
+
+def summarise_prefit_compact_object_class_rows(class_rows):
+    return (
+        class_rows.groupby(
+            ["lens_mass_range", "fit_stage", "n_rv"],
+            dropna=False,
+        )
+        .agg(
+            correct_class_fraction=pandas.NamedAgg(
+                column="correct_class", aggfunc="mean"
+            ),
+            n_rows=pandas.NamedAgg(column="correct_class", aggfunc="size"),
+            n_systems=pandas.NamedAgg(column="pristine_id", aggfunc="nunique"),
+        )
+        .reset_index()
+        .sort_values(["lens_mass_range", "fit_stage", "n_rv"])
+    )
+
+
+def plot_prefit_compact_object_class_by_lens_mass_range(results):
+    class_rows = prefit_compact_object_class_rows(results)
+    summary = summarise_prefit_compact_object_class_rows(class_rows)
+    summary.to_csv(
+        TABLE_DIR / "prefit_compact_object_class_by_lens_mass_range.csv",
+        index=False,
+    )
+
+    mass_ranges = [
+        label
+        for label in LENS_MASS_RANGE_LABELS
+        if label in set(summary["lens_mass_range"])
+    ]
+    if not mass_ranges:
+        raise ValueError("No configured lens-mass ranges are available for class comparison")
+
+    fig, axes = pyplot.subplots(
+        1,
+        len(mass_ranges),
+        figsize=(2.4 * len(mass_ranges), 2.4),
+        sharex=True,
+        sharey=True,
+        constrained_layout=True,
+    )
+    if len(mass_ranges) == 1:
+        axes = [axes]
+
+    stage_styles = {
+        "Photometry only": {"color": "#CC79A7", "marker": None, "linestyle": "--"},
+        "Photometry + RV": {"color": "#0072B2", "marker": "o", "linestyle": "-"},
+    }
+    for axis, mass_range_label in zip(axes, mass_ranges):
+        panel_data = summary[summary["lens_mass_range"] == mass_range_label]
+        for stage, style in stage_styles.items():
+            stage_data = panel_data[
+                panel_data["fit_stage"] == stage
+            ].sort_values("n_rv")
+            if stage_data.empty:
+                continue
+            axis.plot(
+                stage_data["n_rv"].to_numpy(dtype=float),
+                100.0 * stage_data["correct_class_fraction"].to_numpy(dtype=float),
+                color=style["color"],
+                marker=style["marker"],
+                linestyle=style["linestyle"],
+                linewidth=1.2,
+                markersize=4,
+            )
+
+        axis.set_title(mass_range_label)
+        axis.set_xscale("log")
+        axis.set_ylim(-3, 103)
+        axis.axhline(
+            100.0 * SUCCESS_THRESHOLD,
+            color="0.35",
+            linestyle=":",
+            linewidth=0.8,
+        )
+        axis.grid(True, which="both", axis="both", alpha=0.22)
+        axis.set_xlabel(r"$N_\mathrm{RV}$")
+    axes[0].set_ylabel("Correct compact-object class [per cent]")
+
+    legend_handles = [
+        Line2D(
+            [0],
+            [0],
+            color=style["color"],
+            marker=style["marker"],
+            linestyle=style["linestyle"],
+            linewidth=1.2,
+            markersize=4,
+            label=stage,
+        )
+        for stage, style in stage_styles.items()
+    ]
+    legend_handles.append(
+        Line2D(
+            [0],
+            [0],
+            color="0.35",
+            linestyle=":",
+            linewidth=0.9,
+            label=f"{int(100 * SUCCESS_THRESHOLD)} per cent",
+        )
+    )
+    fig.legend(
+        handles=legend_handles,
+        loc="upper center",
+        ncol=3,
+        bbox_to_anchor=(0.5, 1.08),
+        frameon=False,
+    )
+    for suffix in ("pdf", "png"):
+        fig.savefig(
+            FIGURE_DIR / f"prefit_compact_object_class_by_lens_mass_range.{suffix}",
             bbox_inches="tight",
         )
     pyplot.close(fig)
@@ -1178,6 +1540,16 @@ def main():
     run_step(
         "prefit improvement by RV-count figure",
         plot_prefit_improvement_by_n_rv,
+        results,
+    )
+    run_step(
+        "prefit improvement by lens-mass range figure",
+        plot_prefit_improvement_by_lens_mass_range,
+        results,
+    )
+    run_step(
+        "prefit compact-object class by lens-mass range figure",
+        plot_prefit_compact_object_class_by_lens_mass_range,
         results,
     )
     run_step("sample summary table", write_sample_summary, results)
