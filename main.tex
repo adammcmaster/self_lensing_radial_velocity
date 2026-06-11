@@ -388,11 +388,10 @@ Figure~\ref{fig:lens-mass-recovery-by-lens-mass}:
 % - This subsection should explicitly frame class recovery as a different,
 %   less demanding question than 10 per cent mass recovery. The new figure is a
 %   useful way to support follow-up triage even when exact masses are broad.
-% - Be careful with the claim in the draft note below: the plotted metric is
-%   recovery as a function of true mass class, not purity as a function of
-%   fitted mass class. To claim that a fitted mass above $5\,M_\odot$ is almost
-%   certainly a black hole, add/report the reverse confusion matrix or
-%   false-positive rate for fitted black-hole classifications.
+% - Use Table~\ref{tab:compact-object-class-confusion} and
+%   Figure~\ref{fig:compact-object-class-confusion} to support claims about
+%   fitted-class purity, especially the false-positive rate for fitted
+%   black-hole classifications.
 % - Mention the small-number caveat for the $<3\,M_\odot$ and $3$--$5\,M_\odot$
 %   bins, and explain why the $5\,M_\odot$ boundary is the operational black
 %   hole threshold adopted here.
@@ -406,6 +405,15 @@ Figure~\ref{fig:lens-mass-recovery-by-lens-mass}:
 
 
 Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fitted mass will land in the right object class, rather than whether the mass is correct to within some arbitrary threshold, the results look very promising. Even with just one RV measurement (baseline=1, cadence=300) we can be confident that a system with a fitted mass over 5 solar masses will in fact be a balck hole, even if the fitted mass has a large error. This can inform our priorities when planning observations; we can choose to obtain additional observations of targets with fitted masses that fall in the WD/NS range or in the mass gap, and/or we can treat higher mass systems as confirmed with fewer observations.
+
+\input{paper/tables/compact_object_class_confusion}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{paper/figures/compact_object_class_confusion.pdf}
+    \caption{Snapshot compact-object class confusion matrix for the joint photometry plus RV fits. Rows are defined by the class inferred from the fitted lens mass, columns show the true compact-object class, and each cell gives the row-normalised percentage with the number of fitted rows in parentheses.}
+    \label{fig:compact-object-class-confusion}
+\end{figure}
 
 \FloatBarrier
 \subsection{Recovering orbital period}

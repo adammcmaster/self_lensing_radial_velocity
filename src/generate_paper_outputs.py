@@ -1158,6 +1158,94 @@ def compact_object_class(masses):
     )
 
 
+def compact_object_class_confusion(results):
+    classified = pandas.DataFrame(
+        {
+            "true_class": compact_object_class(results["Macc"]),
+            "fitted_class": compact_object_class(results["fitted_Macc"]),
+        }
+    ).dropna()
+
+    counts = pandas.crosstab(
+        classified["fitted_class"],
+        classified["true_class"],
+    ).reindex(
+        index=COMPACT_OBJECT_CLASS_LABELS,
+        columns=COMPACT_OBJECT_CLASS_LABELS,
+        fill_value=0,
+    )
+    row_totals = counts.sum(axis=1).replace(0, numpy.nan)
+    purity = counts.div(row_totals, axis=0)
+    return counts, purity
+
+
+def write_compact_object_class_confusion_table(results):
+    counts, purity = compact_object_class_confusion(results)
+    table = pandas.DataFrame(
+        {
+            "Fitted class": counts.index,
+            "N fitted": counts.sum(axis=1).astype(int).to_numpy(),
+            **{
+                f"True {label} [per cent]": (100.0 * purity[label]).round(1).to_numpy()
+                for label in COMPACT_OBJECT_CLASS_LABELS
+            },
+        }
+    )
+
+    write_latex_table(
+        table,
+        "compact_object_class_confusion",
+        "Compact-object class purity for the currently fitted subset. Rows are "
+        "defined by the class inferred from the fitted lens mass, and columns "
+        "give the percentage of those rows whose true lens mass lies in each "
+        "class.",
+        "tab:compact-object-class-confusion",
+        column_format="lrrrr",
+        environment="table*",
+    )
+
+
+def plot_compact_object_class_confusion(results):
+    counts, purity = compact_object_class_confusion(results)
+    annotations = pandas.DataFrame(
+        "",
+        index=purity.index,
+        columns=purity.columns,
+    )
+    for row_label in purity.index:
+        for column_label in purity.columns:
+            value = purity.loc[row_label, column_label]
+            count = counts.loc[row_label, column_label]
+            annotations.loc[row_label, column_label] = (
+                "" if pandas.isna(value) else f"{100.0 * value:.1f}\n({int(count)})"
+            )
+
+    fig, axis = pyplot.subplots(figsize=(4.2, 3.4), constrained_layout=True)
+    seaborn.heatmap(
+        100.0 * purity,
+        annot=annotations,
+        fmt="",
+        cmap="viridis",
+        vmin=0,
+        vmax=100,
+        cbar_kws={"label": "True class fraction [per cent]"},
+        linewidths=0.4,
+        linecolor="white",
+        ax=axis,
+    )
+    axis.set_xlabel("True compact-object class")
+    axis.set_ylabel("Fitted compact-object class")
+    axis.tick_params(axis="x", rotation=0)
+    axis.tick_params(axis="y", rotation=0)
+
+    for suffix in ("pdf", "png"):
+        fig.savefig(
+            FIGURE_DIR / f"compact_object_class_confusion.{suffix}",
+            bbox_inches="tight",
+        )
+    pyplot.close(fig)
+
+
 def plot_lens_mass_recovery_by_mass(results):
     plot_recovery_by_truth_range(
         results,
@@ -1518,6 +1606,11 @@ def main():
         results,
     )
     run_step(
+        "compact-object class confusion figure",
+        plot_compact_object_class_confusion,
+        results,
+    )
+    run_step(
         "lens mass relative error by lens mass figure",
         plot_lens_mass_relative_error_by_mass,
         results,
@@ -1554,6 +1647,11 @@ def main():
     )
     run_step("sample summary table", write_sample_summary, results)
     run_step("mass recovery table", write_mass_recovery_table, strategy_summary)
+    run_step(
+        "compact-object class confusion table",
+        write_compact_object_class_confusion_table,
+        results,
+    )
     run_step(
         "RV accuracy requirement table",
         write_rv_accuracy_requirement_table,
