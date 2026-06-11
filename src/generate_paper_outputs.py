@@ -44,8 +44,6 @@ TABLE_DIR = PROJECT_ROOT / "paper" / "tables"
 
 RECOVERY_THRESHOLD = 0.10
 SUCCESS_THRESHOLD = 0.80
-COMPACT_OBJECT_CLASS_BINS = [0.0, 3.0, 5.0, numpy.inf]
-COMPACT_OBJECT_CLASS_LABELS = ["WD/NS", "mass gap", "BH"]
 LENS_MASS_RANGE_BINS = [0.0, 3.0, 5.0, 20.0, 50.0]
 LENS_MASS_RANGE_LABELS = [
     r"$<3\,M_\odot$",
@@ -53,6 +51,8 @@ LENS_MASS_RANGE_LABELS = [
     r"$5$--$20\,M_\odot$",
     r"$20$--$50\,M_\odot$",
 ]
+COMPACT_OBJECT_CLASS_BINS = LENS_MASS_RANGE_BINS
+COMPACT_OBJECT_CLASS_LABELS = LENS_MASS_RANGE_LABELS
 
 PARAMETERS = {
     "Macc": {
@@ -1200,7 +1200,7 @@ def write_compact_object_class_confusion_table(results):
         "give the percentage of those rows whose true lens mass lies in each "
         "class.",
         "tab:compact-object-class-confusion",
-        column_format="lrrrr",
+        column_format="lrrrrr",
         environment="table*",
     )
 

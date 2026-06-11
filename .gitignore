@@ -5,3 +5,18 @@ __pycache__
 .DS_Store
 .vscode
 .codex
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+missfont.log
+main.pdf
