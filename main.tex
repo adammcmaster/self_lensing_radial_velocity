@@ -118,6 +118,10 @@ keyword1 -- keyword2 -- keyword3
 % - The aim about combining with population synthesis is not represented in
 %   the current codebase and should be removed, marked future work, or backed
 %   by a new analysis step.
+% - The "handful of RV measurements" claim should be tied to the final results
+%   wording: distinguish accurate lens-mass recovery at the 10 per cent level
+%   from recovery of orbital period/semi-major axis and from broad compact
+%   object classification.
 
 Self-lensing systems binary systems which are close to being edge-on, consisting of a star in orbit with a compact object. With an appropriate separation distance, the Einstein radius of the compact object can be larger than its surface radius, and if the orbital inclination is close enough to $\frac{1}{2}\pi$ this can result in a measurable microlensing amplification of the stellar flux once per orbit.
 
@@ -154,31 +158,27 @@ It's worth really stressing how unique self-lensing binaries are when it comes t
 %   (2) sample those RVs into observing campaigns and add RV noise;
 %   (3) fit the realistic RV plus clipped/binned light-curve data with BlackJAX
 %   MCMC; (4) write fitted tables and diagnostic plots.
-% - Important implementation details currently missing: all generated data are
-%   written under src/../data; the source photometry path is absolute and
-%   external to this repo; realistic curves are grouped into FITS files by
-%   pristine simulation id, with one HDU per observing configuration.
-% - The Methods text should distinguish the external light-curve generation
-%   assumptions from what this repository actually does. Much of the present
-%   photometry-methods prose appears to describe upstream code, not code here.
+% - Make the conceptual boundary explicit: photometric simulations and the core
+%   selflensing model are external/input work, while this paper generates RV
+%   follow-up campaigns and measures recovery performance.
+% - Add enough detail on the fitting data actually used here: the light curve
+%   is not fitted in full, but is restricted to the lensing-event window and
+%   binned before the joint fit.
 
 \subsection{Photometric simulations} \label{sec:phot-sims}
 % CODE/PAPER REVIEW:
-% - This repo does not create the photometric simulations. It discovers
-%   existing *.fits.gz files in ~/Code/lc-filter/data/simulations/1.0/lensing
-%   and reads header values A, I, MBH, RSTAR, MSTAR, TEFF, E, PERI, D, P, B,
-%   TAU_EFF, TAU_SL, PEAK_T, AMP_SL, AMP_EL, AMP_DB, MEAN_CV, and VIS.
-% - The listed parameter ranges and sampling rules are not enforced anywhere
-%   in this repo. If they are correct, cite the external simulation source or
-%   upstream generator; otherwise verify them against the FITS metadata.
-% - The current code selects the source directory named "lensing", but it does
-%   not itself apply a visibility or peak-amplitude cut. If "lensing" already
-%   encodes that selection, say so explicitly.
-% - The realistic-generation step normalises flux to median(flux) - 1 and
-%   carries through the photometric errors from the source FITS file.
-% - The fitting step does not use the full light curve directly: it keeps only
-%   PEAK_T +/- TAU_EFF, removes invalid/errorless points, and bins the window
-%   into up to 100 inverse-variance weighted bins.
+% - The detailed simulation recipe can wait for the future photometry-library
+%   paper, but this subsection still needs a citation/placeholder and a concise
+%   statement of the imported grid, selection function, and known metadata used
+%   later in the RV fits.
+% - The listed parameter ranges and sampling rules appear to come from the
+%   upstream simulation library rather than this repo. Verify them against that
+%   source and cite it; do not imply this paper's code generated or enforced
+%   the grid.
+% - The "lensing" subset selection is important for interpreting recovery
+%   fractions. Say explicitly whether it means visible lensing peaks with
+%   amplitude above the photometric noise, and whether any additional cuts were
+%   applied before the RV/fitting analysis.
 % - The statement "all systems are edge-on" is stronger than the code: the
 %   code reads and fits I from metadata, and the draft's own range is close to
 %   \pi/2 rather than fixed exactly at \pi/2.
@@ -219,11 +219,8 @@ All simulated light curves start at 1 January 2025 and end at 27 January 2025. T
 % - The RV follow-up start is randomised 1--10 years after the final
 %   photometric observation, not 1--5 years as written below.
 % - The pristine RV duration is 5.0 years and the nominal cadence is 1.0 day.
-%   The implementation uses numpy.linspace over int(5*365.25) samples, so note
-%   the exact sample count if reporting it quantitatively.
-% - The pristine RV metadata table records source distance and light-curve
-%   amplitudes, but the generated RV FITS contains only time and RV arrays plus
-%   metadata; there are no pristine RV errors.
+%   Make sure the stated follow-up delay and parent RV duration match the run
+%   used for the figures.
 
 % This is written for how it WILL be once I've finished updating the code for the next fitting run
 
@@ -278,8 +275,9 @@ We sample the baseline RV curves to create more realistic RV observations, also 
 %   repo. If the upstream BlackJAX fitting function implements a likelihood
 %   based on chi-square, cite/describe that precisely; otherwise rephrase as a
 %   joint likelihood fit to RV and photometry.
-% - The code can disable light-curve fitting with SLRV_FIT_USE_LC=0 and can run
-%   batched joint fits; note the configuration used for the paper results.
+% - Keep the sampler description superficial, but make the sampler family,
+%   likelihood/data products, fitted/free parameters, fixed inputs, and
+%   prefit-to-joint workflow accurate here.
 
 Each simulated pair of photometric light curves and RV curves is then fitted via MCMC/emcee. Fitting is done jointly, using a combined reduced $\chi^2$ score. We fit only the fundamental physical parameters of the system (the same parameters as listed in Section~\ref{sec:phot-sims}), not orbital period etc.
 
@@ -291,22 +289,20 @@ Each simulated pair of photometric light curves and RV curves is then fitted via
 %   population model.
 % - If this remains in the paper, add the missing analysis code and define the
 %   input population, weighting scheme, detection criterion, and recovery
-%   criterion. Otherwise this subsection should become future work or be
-%   removed.
+%   criterion. Given the current scope, this subsection probably belongs in
+%   future work or should be removed.
 
 \section{Results and discussion}
 % CODE/PAPER REVIEW:
-% - The current code produces fitted_timeseries.gz with truth columns,
-%   observing-configuration columns, fitted parameters, optional photometry
-%   prefit columns, and optional sampler-state paths. It also produces
-%   diagnostic PNGs for individual rows.
-% - The notebook src/plot_fitted_timeseries_results.ipynb now aggregates the
-%   fitted rows into paper-level recovery fractions and RV-accuracy requirement
-%   tables. Re-run it after the fitting campaign completes so the included
-%   figures/tables no longer describe only the current partial snapshot.
-% - Suggested additions after the full fit completes: parameter bias/scatter,
-%   failure modes across a, e, Macc, b, and tau_eff, and a direct comparison
-%   between photometry-only prefit performance and joint RV+LC performance.
+% - Re-run the paper outputs after the fitting campaign completes and update
+%   the sample-summary table so the figures/tables are not a partial snapshot.
+% - Add text explaining the recovery metrics before interpreting the figures:
+%   the 10 per cent relative-error criterion, the 80 per cent success threshold
+%   in the requirements table, and the separate compact-object class metric.
+% - The current snapshot has a non-monotonic dependence on instrumental RV
+%   accuracy in some panels. Before making a physical claim, check whether this
+%   comes from the partial sample, stochastic fitting/noise realisations,
+%   convergence issues, or the fixed 10 m/s stellar-noise floor.
 
 % CODE/PAPER REVIEW:
 % - Discussion should cover assumptions that materially affect interpretation:
@@ -332,6 +328,20 @@ Each simulated pair of photometric light curves and RV curves is then fitted via
 
 \FloatBarrier
 \subsection{Lens mass recovery}
+% CODE/PAPER REVIEW:
+% - For Figure~\ref{fig:mass-recovery-by-strategy}, the main prose should say
+%   that longer baselines and more RV measurements improve median mass accuracy,
+%   but that no grid strategy in the current snapshot reaches the 80 per cent
+%   success threshold for $M_\mathrm{acc}$ under the strict 10 per cent
+%   relative-error criterion.
+% - Figure~\ref{fig:lens-mass-recovery-by-lens-mass} is probably stronger than
+%   the all-mass average because it shows the mass dependence directly. Mention
+%   that high-mass lenses are much easier to recover, and that the low-mass and
+%   mass-gap bins contain far fewer systems than the black-hole bins.
+% - Use Figure~\ref{fig:lens-mass-relative-error-by-lens-mass} to separate
+%   typical performance from scatter: the median relative error can be below
+%   10 per cent even when the recovery fraction remains well below 80 per cent
+%   because the error distribution has a broad upper tail.
 
 \begin{figure*}
     \centering
@@ -377,6 +387,18 @@ Figure~\ref{fig:lens-mass-recovery-by-lens-mass}:
 
 \FloatBarrier
 \subsection{Recovering object class}
+% CODE/PAPER REVIEW:
+% - This subsection should explicitly frame class recovery as a different,
+%   less demanding question than 10 per cent mass recovery. The new figure is a
+%   useful way to support follow-up triage even when exact masses are broad.
+% - Be careful with the claim in the draft note below: the plotted metric is
+%   recovery as a function of true mass class, not purity as a function of
+%   fitted mass class. To claim that a fitted mass above $5\,M_\odot$ is almost
+%   certainly a black hole, add/report the reverse confusion matrix or
+%   false-positive rate for fitted black-hole classifications.
+% - Mention the small-number caveat for the $<3\,M_\odot$ and $3$--$5\,M_\odot$
+%   bins, and explain why the $5\,M_\odot$ boundary is the operational black
+%   hole threshold adopted here.
 
 \begin{figure*}
     \centering
@@ -390,6 +412,18 @@ Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fi
 
 \FloatBarrier
 \subsection{Recovering orbital period}
+% CODE/PAPER REVIEW:
+% - The period-recovery figure is a key result for the "long-period systems"
+%   claim. The prose should state that $P_\mathrm{orb}$ is derived from the
+%   fitted physical parameters rather than fitted independently, then explain
+%   why photometry plus sparse RVs can constrain it.
+% - Mention the regimes visible in the plot: sparse 300-day cadence struggles
+%   for the shortest-period bin with only a one-year baseline, while longer
+%   baselines recover many systems with periods far longer than the RV
+%   follow-up window.
+% - If the parameter-recovery-curves figure remains commented out, make sure
+%   the table and the period/mass panels still give readers enough evidence for
+%   the multi-parameter recovery claims in the conclusion.
 
 
 
@@ -409,6 +443,19 @@ Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fi
 
 \FloatBarrier
 \subsection{Photometry-only fits vs joint fits}
+% CODE/PAPER REVIEW:
+% - Quantify the improvement from photometry-only prefit to joint RV+LC fit:
+%   e.g. the snapshot prefit median errors are much larger for
+%   $M_\mathrm{acc}$, $a$, and $P_\mathrm{orb}$, while joint fits improve
+%   strongly with even a small number of RV measurements.
+% - Figure~\ref{fig:prefit-improvement-by-n-rv} averages over observing
+%   baseline, cadence, RV accuracy, and true system properties at fixed
+%   $N_\mathrm{RV}$. Say this explicitly or add a complementary statement from
+%   the strategy/binned figures so readers do not interpret $N_\mathrm{RV}$ as
+%   the only control variable.
+% - Note the negative/limited result as well: impact parameter $b$ remains
+%   poorly recovered compared with $a$ and $P_\mathrm{orb}$, so conclusions
+%   should not imply all derived geometry is equally well constrained.
 
 \begin{figure*}
     \centering
@@ -433,6 +480,16 @@ Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fi
 
 
 \input{paper/tables/rv_accuracy_requirements}
+% CODE/PAPER REVIEW:
+% - The requirements table is useful, but the text should not imply an RV
+%   precision requirement exists for every parameter: in the current snapshot
+%   $M_\mathrm{acc}$ and $b$ do not reach 80 per cent recovery for any tested
+%   strategy under the 10 per cent threshold, while $a$ and $P_\mathrm{orb}$
+%   often do.
+% - Consider adding one sentence explaining why coarser RV precision can still
+%   appear adequate for some strategies: the grid includes a fixed 10 m/s
+%   stellar-noise floor and the signal is often dominated by cadence/baseline
+%   and model constraints rather than the formal instrumental accuracy alone.
 
 \FloatBarrier
 
