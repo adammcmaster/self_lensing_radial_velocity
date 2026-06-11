@@ -300,8 +300,6 @@ Each simulated pair of photometric light curves and RV curves is then fitted via
 %   accuracy in some panels. Before making a physical claim, check whether this
 %   comes from the partial sample, stochastic fitting/noise realisations,
 %   convergence issues, or the fixed 10 m/s stellar-noise floor.
-
-% CODE/PAPER REVIEW:
 % - Discussion should cover assumptions that materially affect interpretation:
 %   external photometry library and selection function; fixed stellar
 %   properties and known peak time; no observing seasons/weather; Gaussian RV
@@ -320,6 +318,12 @@ Each simulated pair of photometric light curves and RV curves is then fitted via
 
 
 \textbf{The fitting campaign is still in progress, so the recovery analysis presented here is a snapshot of the systems already present in the fitted results table. The figures and tables in this subsection are generated directly by \texttt{src/plot\_fitted\_timeseries\_results.ipynb} and should be regenerated once the full sample has finished fitting.}
+
+We evaluate the fits based on their ability to recover the true simulated parameters, with partocular interest in lens mass and orbital period. Note that orbital period is not one of the model parameters (our Keplerian self-lensing model includes only the fudamental phsyical properties of the binary), but is derived here from the fitted lens mass and semi-major axis. Fitting the physical properies makes the most sense when modelling the lensing effect, while orbital period is significant when planning RV observations.
+
+The following subsections evaluate the fitting results in terms of recovering the accurate lens mass (we adopt a threshold of 10\% to denote ``accurate'' recovery), recovering the correct compact object class regardless of the accuracy of the fitted mass (i.e. can we distinguish black holes from white dwarfs and neutron stars, as this distinction affects plannign for further followup observations; we adopt four object categories: white dwarfs/neutron stars, BH mass gap, lower mass BH, and higher mass BH), recovering the accurate orbital period (using the same 10\% threshold as the lens mass), and then finally we evaluate the efficacy of fitting photometry alone versus jointly fitting photometry and RV, assessing how few RV measurements are required to achieve the desired recovery accuracy.
+
+It is owrth noting that these results represent an ideal best case scenario for obtaining followup observations. We aim to assess a representative range of observing schedules, rather than rigorously simulating realistic observations. We do not account for observing seasons, we assume every target is always observable, we do not simnulate weather or bad seeing, and we assume only a simple model of noise in the RV measurements (varying amounts of Gaussian noise to simulate spectrograph accuracy, ranging from sub-metre per second accuracy up to kilometre per second accuracy, to represent the range of spectrograph facilities currenty available), plus a fixed 10 m/s Gaussian stellar noise). We also assume the exact time of the lensing peak ($t_0$) is known precisely, along iwth the properties of the stellar companion (mass, radius, effective temperature, and distance from Earth); in practice these would all be subject to some amount of uncertainty.
 
 \input{paper/tables/sample_summary}
 
@@ -395,6 +399,12 @@ Figure~\ref{fig:lens-mass-recovery-by-lens-mass}:
 % - Mention the small-number caveat for the $<3\,M_\odot$ and $3$--$5\,M_\odot$
 %   bins, and explain why the $5\,M_\odot$ boundary is the operational black
 %   hole threshold adopted here.
+
+While the ultimate goal of our observing campaign will be to accurately measure tge lens mass and other physical properties of th epopulation of self-lensing systems, we anticipate having to grapple with many orders of magnitude more false positives than true self-lensing systems. This situation will therefore require an informed, systematic way of triaging and prioritising taregts for followup. The volume of false positives is anticipated to be so large that we will want to obtain as few observations of each target as possible in order to characterise what type of compact object the lens is (or, indeed, whether each tatget is even a self-lensing system to begin with). in the present work we assume every target is \textit{some} kind of selflensing system, but even with that assumption, some classes of object will be more astrophysically interesting than others, and some will require more or fewer observations in order to confirm. 
+
+It is therefore informative to know whether we can accurately predict the \textit{class} of the lens, even in cases where we can not accurately predict the mass. Being able to do so will allow us to allocate resources accordingly when we plan follow-up observations.
+
+We adopt the following mass bins and object classes: $<3 \text{ M}_\odot$ (white dwarfs and neutron stars, grouped together for this analysis); $3-5 \text{ M}_\odot$ (mass gap); $5-20 \text{ M}_\odot$ (lower mass black holes); $20-50 \text{ M}_\odot$ (higher mass black holes; separated from the lower mass to assess how BH mass affects recovery). We caveat this analsysi by noting that the simulations inckude relatively fewer low mass lenses than high mass lenses, however these results are still informative about our ability to recover masses in these ranges.
 
 \begin{figure*}
     \centering
