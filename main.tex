@@ -97,16 +97,16 @@ $^{3}$Another Department, Different Institution, Street Address, City Postal Cod
 
 % Abstract of the paper
 \begin{abstract}
-This is a simple template for authors to write new MNRAS papers.
-The abstract should briefly describe the aims, methods, and main results of the paper.
-It should be a single paragraph not more than 250 words (200 words for Letters).
-No references should appear in the abstract.
+    This is a simple template for authors to write new MNRAS papers.
+    The abstract should briefly describe the aims, methods, and main results of the paper.
+    It should be a single paragraph not more than 250 words (200 words for Letters).
+    No references should appear in the abstract.
 \end{abstract}
 
 % Select between one and six entries from the list of approved keywords.
 % Don't make up new ones.
 \begin{keywords}
-keyword1 -- keyword2 -- keyword3
+    keyword1 -- keyword2 -- keyword3
 \end{keywords}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -128,7 +128,7 @@ keyword1 -- keyword2 -- keyword3
 
 Self-lensing systems binary systems which are close to being edge-on, consisting of a star in orbit with a compact object. With an appropriate separation distance, the Einstein radius of the compact object can be larger than its surface radius, and if the orbital inclination is close enough to $\frac{1}{2}\pi$ this can result in a measurable microlensing amplification of the stellar flux once per orbit.
 
-To date, five self-lensing binaries have been confirmed, each containing a white dwarf-stellar binary, all of which have relatively close, short-period orbits. However, it is expected that stellar-compact object binaries should span the full range of masses of such objects, as well as the full range of orbital configurations. 
+To date, five self-lensing binaries have been confirmed, each containing a white dwarf-stellar binary, all of which have relatively close, short-period orbits. However, it is expected that stellar-compact object binaries should span the full range of masses of such objects, as well as the full range of orbital configurations.
 
 photometry remains the best way to detect self-lensing binaries, and previous works have assessed the detectability of self-lensing binaries in various photometric surveys. These results look promising, with modern all-sky surveys expected to imminently uncover a population of compact objects in self-lensing binaries, including the previously unstudied population of quiescent black holes.
 
@@ -150,7 +150,7 @@ We take a library of simulated TESS photometry of self-lensing systems (which wa
 
 We will show that it is possible to model very long period self-lensing binaries with a handful of RV measurements. Photometric-only fits can come close to determining the properties, and the photometry gives us the orbital phase and narrows down the inclination, so that we don't need many RV measurements to fit everything.
 
-The main distinguishing feature of self-lensing vs microlensing is the periodicity of the lensing flares. To claim photometric discovery of a self-lensing system, ideally we would aim to detect this periodicity. 
+The main distinguishing feature of self-lensing vs microlensing is the periodicity of the lensing flares. To claim photometric discovery of a self-lensing system, ideally we would aim to detect this periodicity.
 
 It's worth really stressing how unique self-lensing binaries are when it comes to determining the lens mass. Spectroscopically, they're like SB1s but with the possibility of jointly fitting photometry. They're to SB1s as eclipsing binaries are to SB2s. The photometry can possibly give us the orbital period, and a single event gives us information about the orbital configuration and lens mass via the amplitude, duration, and shape of the lensing curve. By including limb darkening in the model, we potentially learn even more about the semi-major axis, as limb darkening effects will be more pronounced for closer orbits.
 
@@ -368,7 +368,7 @@ Figure~\ref{fig:mass-recovery-by-strategy} Not sure this will stay in. Shows tha
 
 Figure~\ref{fig:lens-mass-recovery-by-lens-mass}:
 \begin{itemize}
-    \item Higher masses are recovered more reliably. 
+    \item Higher masses are recovered more reliably.
     \item Baseline makes some difference, but cadence makes a huge differec.e
     \item The ideal is a high cadence for as long as possible.
 \end{itemize}
@@ -398,7 +398,7 @@ Figure~\ref{fig:lens-mass-recovery-by-lens-mass}:
 %   fitted-class purity, especially the false-positive rate for fitted
 %   black-hole classifications.
 
-While the ultimate goal of our observing campaign will be to accurately measure tge lens mass and other physical properties of th epopulation of self-lensing systems, we anticipate having to grapple with many orders of magnitude more false positives than true self-lensing systems. This situation will therefore require an informed, systematic way of triaging and prioritising taregts for followup. The volume of false positives is anticipated to be so large that we will want to obtain as few observations of each target as possible in order to characterise what type of compact object the lens is (or, indeed, whether each tatget is even a self-lensing system to begin with). in the present work we assume every target is \textit{some} kind of selflensing system, but even with that assumption, some classes of object will be more astrophysically interesting than others, and some will require more or fewer observations in order to confirm. 
+While the ultimate goal of our observing campaign will be to accurately measure tge lens mass and other physical properties of th epopulation of self-lensing systems, we anticipate having to grapple with many orders of magnitude more false positives than true self-lensing systems. This situation will therefore require an informed, systematic way of triaging and prioritising taregts for followup. The volume of false positives is anticipated to be so large that we will want to obtain as few observations of each target as possible in order to characterise what type of compact object the lens is (or, indeed, whether each tatget is even a self-lensing system to begin with). in the present work we assume every target is \textit{some} kind of selflensing system, but even with that assumption, some classes of object will be more astrophysically interesting than others, and some will require more or fewer observations in order to confirm.
 
 It is therefore informative to know whether we can accurately predict the \textit{class} of the lens, even in cases where we can not accurately predict the mass. Being able to do so will allow us to allocate resources accordingly when we plan follow-up observations.
 
@@ -431,14 +431,21 @@ Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fi
 % - The overview now states that $P_\mathrm{orb}$ is derived rather than
 %   fitted. This subsection should still explain why photometry plus sparse
 %   RVs can constrain periods far longer than the RV follow-up window.
+
+the orbital period strongly influences the shape of the RV curve. Not only that but it also determines the absolute RV at a given time post-lensing. The lensing event happens when RV is zero, and then the RV peaks at 0.5 Porb after that. Measuring the change in RV, even over a parital orbit, therefore can tightly constrain the orbital period even for very long orbits.
+
 % - Mention the regimes visible in the plot: sparse 300-day cadence struggles
 %   for the shortest-period bin with only a one-year baseline, while longer
 %   baselines recover many systems with periods far longer than the RV
 %   follow-up window.
+
+Figure~\ref{fig:orbital-period-recovery-by-period}: shows the percentage of sysrems whose physical parameters could be recovered, as a function of cadence, baseline, RV accuracy, nad orbital period. There is a clear depencence upon observing cadence and observing baseline for the recovery of the parameters. In all cases, recovery is worse for the shortest orbital period range than foe the 2.4-18 year range. This suggests the observing candence needs to be frequent enough to repeatedly sample a single orbit, rather than sampling multiple orbits. For the shortest orbits, a longer observing baseline actually mkaes recovery worse; this suggests the model is confused when presented with many sparse measruements of multiple orbits.
+
 % - If the parameter-recovery-curves figure remains commented out, make sure
 %   the table and the period/mass panels still give readers enough evidence for
 %   the multi-parameter recovery claims in the conclusion.
 
+RV accuracy does not appear to have a measurable effect. This =suggests that in manby cases, even kilometre scale accuracy is sufficient to recover the parameters, and improvign this further does not inmprove revovery. This is good news for our planned followup observing campaign; measruements from any available spectrograph will be useful to us. However, for systems with very long orbital periods, more accurate RV measurements become important. This is due to the smaler rate of chante of the RV in these systmes; a. more accurate spectrograph is required to detect the relatively small change in RV over the course of a few years when the orbital period is decades or dcenturies long. While challenging, hwoever, this does not completely prevent such systems from being characterised. With sufficiently accurate RV measurements we can characterise self-elnign systems with orbital periods of many centuries.
 
 
 \begin{figure*}
@@ -470,12 +477,16 @@ Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fi
 %   poorly recovered compared with $a$ and $P_\mathrm{orb}$, so conclusions
 %   should not imply all derived geometry is equally well constrained.
 
+Th4ese simulations are generated on the assumption thar we first detect a candidate self-lensing microlensing event photometerically and then follow up with RV measurents some time later. In order to optimise the RV observing schedule we therefore explore the question of how informative the photometry is alone and wehtehr information derived from the photometry an be used in planning RV observations.
+
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/prefit_improvement_by_n_rv.pdf}
     \caption{Snapshot comparison between the photometry-only prefit accuracy and the improvement from the joint photometry plus RV fit for all fitted rows with saved prefit values. Separate panels show the fitted parameters. Points show the median relative error in each parameter as a function of the number of RV measurements, and shaded regions show the interquartile range. The horizontal dotted line marks the 0.1 relative-error recovery threshold.}
     \label{fig:prefit-improvement-by-n-rv}
 \end{figure*}
+
+Figure~\ref{fig:prefit-improvement-by-n-rv} shows the median improvement of fitted parameters (in terms of the relative error in trhe fitted values) as a function of the numebr of RV measurements. For all parameters, the median relative error is less than unity even with a photometry-only fit. the addition of just two RV measuremnts substantially improves recovery for lens mass, semi-major axis,a nd orbital period, and the relative error levels off after five RV measurements (there is some scatter in the values/it appears non-monotonic; \textbf{this may be due to incomplete results at the itme of writing}). The improveent int he impact parameter is more modest, but the addition of RV does appear to improve the ones which fit the worst with only ohotometry (as shown by the reduction in the upper quartile).
 
 \begin{figure*}
     \centering
@@ -484,12 +495,16 @@ Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fi
     \label{fig:prefit-improvement-by-lens-mass-range}
 \end{figure*}
 
+Figure~\ref{fig:prefit-improvement-by-lens-mass-range} shows the median improvement of fitted parameters broken down by the compact object class. Impact parameter is better constrained for lower mass lenses (i.e. smaller inter-quartile range), which is due to these systems having smaller Einstein ring radii (for lensing to be possible, the source must be behind the Einstein ring, so a smaller radius implies a more ocnstrained inclination). For the other parameters the improvement with additional RV measurements is slightluy better for hgiher mss systems. The most interesting feature of this figure is the effet of lens mass on the accuracy of fitting the mass itself from photomwtry alone. The fitted mass is more accurate for higher mass lenses, and for the hgihest mass bin is almost as accurate as with the additiion of RV.
+
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/prefit_compact_object_class_by_lens_mass_range.pdf}
     \caption{Snapshot compact-object class recovery for the photometry-only prefit and the joint photometry plus RV fit, separated by true lens-mass range. A system is counted as correct when the fitted lens mass falls in the same broad compact-object class as the true mass, using $M_\mathrm{acc}<3\,M_\odot$ for white dwarf or neutron-star lenses, $3 \leq M_\mathrm{acc}/M_\odot < 5$ for the mass gap, and $M_\mathrm{acc}\geq5\,M_\odot$ for black-hole lenses. Points show the percentage of fitted systems in the correct class as a function of the number of RV measurements; the horizontal dotted line marks 80 per cent.}
     \label{fig:prefit-compact-object-class-by-lens-mass-range}
 \end{figure*}
+
+Figure~\ref{fig:prefit-compact-object-class-by-lens-mass-range} shows the percentage of systems which fall into the correct compact object mass bin regardless of the accuracy of the fitted mass. There is a clear trend where higher mass objects can be more accurately determined to be such, even if their exact mass can not be constrained. A higher mass black hole creates such a prominent lensing curve that it can be identified more easily, whereas neutron stars and white dwarfs are more ambiguous. IT may be suprrosing that the photometry-only fits look so much worse foe low mass lenses in Figure~\ref{fig:prefit-compact-object-class-by-lens-mass-range} than in Figure~\ref{fig:prefit-improvement-by-lens-mass-range}; remember that Figure~\ref{fig:prefit-improvement-by-lens-mass-range} shows the relative error, with a median error close to 50\% for the smallest mass bin. An error of that scale is more likely to result in lower mass systems falling in the wrong mass bin than larger mass systems (which have wider bins in this analysis). This is important astrophyscialy, as it makes it harder to distinguish neutron stars from mass gap black hoels from photometry alone; for such candidates it is therefore more important to obtain RV measurements in order to characterise the nature of the lens.
 
 
 \input{paper/tables/rv_accuracy_requirements}
@@ -616,7 +631,7 @@ Try to keep it short.
 % - If sampler states are large and not archived, say which derived tables and
 %   plotting products are available instead.
 
- 
+
 The inclusion of a Data Availability Statement is a requirement for articles published in MNRAS. Data Availability Statements provide a standardised format for readers to understand the availability of data underlying the research results described in the article. The statement may refer to original data generated in the course of the study or to third-party data analysed in the article. The statement should describe and provide means of access, where possible, by linking to the data or providing the required accession numbers for the relevant databases or DOIs.
 
 
