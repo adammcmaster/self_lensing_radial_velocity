@@ -274,14 +274,22 @@ Each simulated pair of photometric light curves and RV curves is then fitted via
 
 \subsection{Combining with pop synthesis}
 % CODE/PAPER REVIEW:
-% - No population-synthesis combination is implemented in the current codebase.
-%   There is no script that weights the grid by an astrophysical population,
-%   maps recovery success onto a survey yield, or compares instruments using a
-%   population model.
-% - If this remains in the paper, add the missing analysis code and define the
-%   input population, weighting scheme, detection criterion, and recovery
-%   criterion. Given the current scope, this subsection probably belongs in
-%   future work or should be removed.
+% - Describe src/5_population_weighted_followup.py as a response-surface
+%   transfer from the fitted RV-follow-up grid onto the Wiktorowicz et al.
+%   population-synthesis table.
+% - Be explicit that this paper does not model photometric detectability in
+%   this step: the assumed starting point is an already-detected self-lensing
+%   light curve/candidate sample.
+% - Define the transferred RV-follow-up outcomes: correct compact-object class,
+%   lens-mass recovery to 10 per cent, orbital-period recovery to 10 per cent,
+%   and simultaneous mass+period recovery to 10 per cent.
+% - State that a reproducible weighted sample of the detected population is
+%   cached under paper/tables/cache/ because the source pickle is large, and
+%   that the transfer uses k-nearest neighbours in scaled physical-parameter
+%   space.
+% - Explain the response-coverage column: missing fitted neighbours are
+%   excluded and the remaining neighbour weights are renormalised, so recovery
+%   fractions should be read alongside the fitted-grid coverage diagnostic.
 
 \section{Results and discussion}
 % CODE/PAPER REVIEW:
@@ -495,6 +503,72 @@ Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fi
 %   appear adequate for some strategies: the grid includes a fixed 10 m/s
 %   stellar-noise floor and the signal is often dominated by cadence/baseline
 %   and model constraints rather than the formal instrumental accuracy alone.
+
+\FloatBarrier
+\subsection{Population-weighted follow-up}
+% CODE/PAPER REVIEW:
+% - Write this subsection as RV follow-up characterisation only, not as a
+%   photometric detection/yield calculation.
+% - Explain that the population-synthesis table provides the astrophysical
+%   prior for candidates that have already shown self-lensing light curves.
+% - Compare the km/s RV regime with 100, 10, 1, and 0.1 m/s regimes.
+% - Use the survey-count heatmaps to translate the same recovery fractions into
+%   absolute recovered-system estimates for ZTF, LSST, and TESS using the
+%   standard-IMF n_sl values from Wiktorowicz et al. (2021), Table 2.
+% - Separate broad compact-object classification from accurate mass/period
+%   measurement; these are not the same science product.
+% - Discuss the all-candidate table separately from the BH-like subset table;
+%   the full detected population is dominated by lower-mass compact objects,
+%   while the BH-like subset is the more direct comparison for quiescent-BH
+%   follow-up.
+% - Note whether high-mass BH candidates remain classifiable with coarse RVs,
+%   and where precise or dense follow-up is needed for 10 per cent recovery.
+% - Caveat that the population-weighting step transfers the fitted response
+%   surface to the population synthesis table; it is not a new fit to every
+%   population-synthesis system.
+% - Caveat that low response coverage indicates incomplete fitted-grid support
+%   for parts of the detected population; those regions need either more fitted
+%   simulations or direct follow-up simulations before making a strong rate
+%   claim.
+
+\input{paper/tables/population_weighted_followup_summary}
+
+\input{paper/tables/population_weighted_bh_followup_summary}
+
+\begin{figure*}
+    \centering
+    \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps.pdf}
+    \caption{Population-weighted RV follow-up recovery fractions for an already photometrically detected self-lensing candidate population. Rows show the transferred follow-up outcome, columns show observing baseline, and each panel separates cadence and instrumental RV accuracy.}
+    \label{fig:population-weighted-rv-followup-heatmaps}
+\end{figure*}
+
+\begin{figure*}
+    \centering
+    \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps_counts_ztf.pdf}
+    \caption{Survey-scaled RV follow-up recovery counts for the ZTF detected self-lensing population. The heatmaps use the same transferred recovery fractions as Fig.~\ref{fig:population-weighted-rv-followup-heatmaps}, scaled by the standard-IMF ZTF self-lensing yield from Wiktorowicz et al. (2021).}
+    \label{fig:population-weighted-rv-followup-heatmaps-counts-ztf}
+\end{figure*}
+
+\begin{figure*}
+    \centering
+    \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps_counts_lsst.pdf}
+    \caption{Survey-scaled RV follow-up recovery counts for the LSST detected self-lensing population. The heatmaps use the same transferred recovery fractions as Fig.~\ref{fig:population-weighted-rv-followup-heatmaps}, scaled by the standard-IMF LSST self-lensing yield from Wiktorowicz et al. (2021).}
+    \label{fig:population-weighted-rv-followup-heatmaps-counts-lsst}
+\end{figure*}
+
+\begin{figure*}
+    \centering
+    \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps_counts_tess.pdf}
+    \caption{Survey-scaled RV follow-up recovery counts for the TESS detected self-lensing population. The heatmaps use the same transferred recovery fractions as Fig.~\ref{fig:population-weighted-rv-followup-heatmaps}, scaled by the standard-IMF TESS self-lensing yield from Wiktorowicz et al. (2021).}
+    \label{fig:population-weighted-rv-followup-heatmaps-counts-tess}
+\end{figure*}
+
+\begin{figure*}
+    \centering
+    \includegraphics[width=\textwidth]{paper/figures/population_weighted_mass_period_recovery.pdf}
+    \caption{Population-weighted 10 per cent recovery fractions for lens mass and orbital period in the longest-baseline, highest-cadence observing strategy. Columns split the detected population by orbital-period range, rows show lens-mass and orbital-period recovery, and curves show lens-mass ranges as a function of RV accuracy.}
+    \label{fig:population-weighted-mass-period-recovery}
+\end{figure*}
 
 \FloatBarrier
 
