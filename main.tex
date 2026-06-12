@@ -269,6 +269,9 @@ We sample the baseline RV curves to create more realistic RV observations, also 
 %   repo. If the upstream BlackJAX fitting function implements a likelihood
 %   based on chi-square, cite/describe that precisely; otherwise rephrase as a
 %   joint likelihood fit to RV and photometry.
+% - The fitting call sets false_alarm_probability=0.5 and center_lc_model=True.
+%   Check whether these are modelling assumptions that need to be reported, or
+%   just upstream API controls that can be omitted.
 
 Each simulated pair of photometric light curves and RV curves is then fitted via MCMC/emcee. Fitting is done jointly, using a combined reduced $\chi^2$ score. We fit only the fundamental physical parameters of the system (the same parameters as listed in Section~\ref{sec:phot-sims}), not orbital period etc.
 
@@ -428,9 +431,9 @@ Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fi
 \FloatBarrier
 \subsection{Recovering orbital period}
 % CODE/PAPER REVIEW:
-% - The overview now states that $P_\mathrm{orb}$ is derived rather than
-%   fitted. This subsection should still explain why photometry plus sparse
-%   RVs can constrain periods far longer than the RV follow-up window.
+% - The qualitative statement that the lensing event has zero RV and that RV
+%   peaks at 0.5 P_orb should be qualified. The code fits eccentricity and
+%   periapsis phase, so this simple phase relation is not generally exact.
 
 the orbital period strongly influences the shape of the RV curve. Not only that but it also determines the absolute RV at a given time post-lensing. The lensing event happens when RV is zero, and then the RV peaks at 0.5 Porb after that. Measuring the change in RV, even over a parital orbit, therefore can tightly constrain the orbital period even for very long orbits.
 
@@ -468,6 +471,9 @@ RV accuracy does not appear to have a measurable effect. This =suggests that in 
 % - Quantify the improvement from photometry-only prefit to joint RV+LC fit
 %   using the plotted median errors/recovery fractions, rather than only
 %   describing the trend qualitatively.
+% - The photometry-only prefit is run once per pristine system and the same
+%   prefit result is copied onto every RV observing configuration for that
+%   system. Make this explicit when interpreting the prefit comparison plots.
 % - Figure~\ref{fig:prefit-improvement-by-n-rv} averages over observing
 %   baseline, cadence, RV accuracy, and true system properties at fixed
 %   $N_\mathrm{RV}$. Say this explicitly or add a complementary statement from
@@ -545,6 +551,10 @@ Figure~\ref{fig:prefit-compact-object-class-by-lens-mass-range} shows the percen
 %   for parts of the detected population; those regions need either more fitted
 %   simulations or direct follow-up simulations before making a strong rate
 %   claim.
+% - Clarify how lenses outside the 0--50 M_sun simulation/classification range
+%   are handled in the population-weighted transfer. The plotting labels include
+%   a >=50 M_sun population bin, while compact-object classification is evaluated
+%   only for the lower four bins in the current code.
 
 \input{paper/tables/population_weighted_followup_summary}
 
