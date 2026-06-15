@@ -156,21 +156,21 @@ It's worth really stressing how unique self-lensing binaries are when it comes t
 
 \section{Methods}
 % CODE/PAPER REVIEW:
-% - Add a short pipeline overview before the subsections: load the external
-%   photometric simulations, generate pristine RV curves, sample/noise them
-%   into observing campaigns, fit joint photometry+RV data, and aggregate
-%   recovery statistics.
-% - Make the conceptual boundary explicit: photometric simulations and the core
-%   selflensing model are external/input work, while this paper generates RV
+% - The new pipeline overview now explains the high-level workflow, but still
+%   make the code/input boundary precise: the photometric library and core
+%   selflensing model are external/upstream, while this work creates RV
 %   follow-up campaigns and measures recovery performance.
-% - Add enough detail on the fitting data actually used here: the light curve
-%   is not fitted in full, but is restricted to the lensing-event window and
-%   binned before the joint fit.
+% - Copy-edit the new overview paragraph before sharing; it introduces several
+%   typos and the phrase "future work (currently in prep)" should be converted
+%   to a formal in-prep citation when possible.
+
+
+The aim of this work is to quantitfy the observational requirements for radial velocity (RV) meadurements that will allow us to determine the lens mass and orbital configuration of self-lensing binary candidates discovered via our ongoing photometric search. WE investigate the relationship between observing cadence, observing campaign duration (baseline), and accuracy of RV measurements, and the rate of recovery of phyiscal parameters as a fuction of lens mass. We investigate recovery rate by both accurate lens mass (determined to within 10\% of the true value) and broad compact object class (i.e. distinguishing black holes from other compact objects even if the recovered mass deviates from the true mass by more than 10 \%).
+
+We use as the basis of this work a library of self-lensing photometric simulations produced in another work. These simulations are described in brief in Section~\ref{sec:phot-sims}. A full description of how these were generated will be published in a future work (currently in prep). The photometric simulations are loaded and then radial velocity measurements are simulated for the same set of simulation parameters (Section~\ref{sec:rv-sims}). The RV simulations are then sampled according to a range of observign schedules, and Gaussian noise is added to simnulate a range of spectrograph accuracies (Section~\ref{sec:rv-realistic}). An MCMC fit is then performed to find the self-lensing physical parameters which jointly best fit the photometry and RV (Section~\ref{sec:fitting}). We then aggregate the recovery rates across observing parameters and self-lensing physical parameters to investigate the effect of each parameter on the recovery rate.
 
 \subsection{Photometric simulations} \label{sec:phot-sims}
 % CODE/PAPER REVIEW:
-% - Replace the remaining "(CITATION)" placeholder with the planned upstream
-%   photometry-library citation or an explicit "in prep." reference.
 % - The listed parameter ranges and sampling rules appear to come from the
 %   upstream simulation library rather than this repo. Verify them against that
 %   source and cite it; do not imply this paper's code generated or enforced
@@ -179,7 +179,7 @@ It's worth really stressing how unique self-lensing binaries are when it comes t
 %   code reads and fits I from metadata, and the draft's own range is close to
 %   \pi/2 rather than fixed exactly at \pi/2.
 
-We use as the basis of this work the library of self-lensing simulations produced in (CITATION). These simulations comprise a sample of self-lensing system parameters which is physically complete (i.e. covering the full plausible range of physical parameters) but not realistic (i.e. parameters are not sampled according to the frequency they are expected to occur in nature). This is ideal as the basis for determining the ranges of parameters which produce self-lensing effects which are detectable, independent of how common or uncommon particular parameter ranges are expected to be.
+These simulations comprise a sample of self-lensing system parameters which is physically complete (i.e. covering the full plausible range of physical parameters) but not realistic (i.e. parameters are not sampled according to the frequency they are expected to occur in nature). This is ideal as the basis for determining the ranges of parameters which produce self-lensing effects which are detectable, independent of how common or uncommon particular parameter ranges are expected to be.
 
 The library of simulations includes realistic simulated TESS light curves for each sample self-lensing system, stored alongside the original parameter values.
 
@@ -207,7 +207,7 @@ For a sufficiently close binary, a self-lensing system would be indistinguishabl
 
 All simulated light curves start at 1 January 2025 and end at 27 January 2025. The peak time, i.e. $\omega = 0$, is randomly selected for each light curve to fall somewhere between this time window.
 
-\subsection{Radial velocity simulations}
+\subsection{Radial velocity simulations} \label{sec:rv-sims}
 % CODE/PAPER REVIEW:
 % - The code generates pristine RVs with selflensing.generators.RVGenerator,
 %   using a SelfLensingSystem built from FITS metadata and the photometric
@@ -222,7 +222,7 @@ The simulated RV curves start at randomised times between 1 year and 10 years fr
 
 We generate baseline RV curves which contain one RV measurement per day for five years from the start time.
 
-\subsection{Simulated realistic observations}
+\subsection{Simulated realistic observations} \label{sec:rv-realistic}
 % CODE/PAPER REVIEW:
 % - The implemented observing grid is campaign baselines of 365, 1095, and
 %   1825 days; cadences of 1, 30, and 300 days; and instrumental RV accuracies
@@ -250,7 +250,7 @@ We sample the baseline RV curves to create more realistic RV observations, also 
 
 
 
-\subsection{Fitting of simulated observations}
+\subsection{Fitting of simulated observations} \label{sec:fitting}
 % CODE/PAPER REVIEW:
 % - The implemented fitter uses selflensing.fitting BlackJAX helpers, not
 %   emcee directly. Defaults are 2000 MCMC steps, 128 walkers, and 200 burn-in
@@ -275,7 +275,7 @@ We sample the baseline RV curves to create more realistic RV observations, also 
 
 Each simulated pair of photometric light curves and RV curves is then fitted via MCMC/emcee. Fitting is done jointly, using a combined reduced $\chi^2$ score. We fit only the fundamental physical parameters of the system (the same parameters as listed in Section~\ref{sec:phot-sims}), not orbital period etc.
 
-\subsection{Combining with pop synthesis}
+\subsection{Combining with pop synthesis} \label{sec:pop-synth}
 % CODE/PAPER REVIEW:
 % - Describe src/5_population_weighted_followup.py as a response-surface
 %   transfer from the fitted RV-follow-up grid onto the Wiktorowicz et al.
@@ -483,7 +483,7 @@ RV accuracy does not appear to have a measurable effect. This =suggests that in 
 %   poorly recovered compared with $a$ and $P_\mathrm{orb}$, so conclusions
 %   should not imply all derived geometry is equally well constrained.
 
-Th4ese simulations are generated on the assumption thar we first detect a candidate self-lensing microlensing event photometerically and then follow up with RV measurents some time later. In order to optimise the RV observing schedule we therefore explore the question of how informative the photometry is alone and wehtehr information derived from the photometry an be used in planning RV observations.
+These simulations are generated on the assumption thar we first detect a candidate self-lensing microlensing event photometerically and then follow up with RV measurents some time later. In order to optimise the RV observing schedule we therefore explore the question of how informative the photometry is alone and wehtehr information derived from the photometry an be used in planning RV observations.
 
 \begin{figure*}
     \centering
