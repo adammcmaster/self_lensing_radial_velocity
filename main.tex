@@ -181,29 +181,89 @@ We use as the basis of this work a library of self-lensing photometric simulatio
 
 These simulations comprise a sample of self-lensing system parameters which is physically complete (i.e. covering the full plausible range of physical parameters) but not realistic (i.e. parameters are not sampled according to the frequency they are expected to occur in nature). This is ideal as the basis for determining the ranges of parameters which produce self-lensing effects which are detectable, independent of how common or uncommon particular parameter ranges are expected to be.
 
-The library of simulations includes realistic simulated TESS light curves for each sample self-lensing system, stored alongside the original parameter values.
+The library of simulations includes realistic simulated TESS light curves (including stellar noise generated with a Gaussian process) for each sample self-lensing system, stored alongside the original parameter values. When generating the simulations, the parameter values were sampled uniformly between the following limits, with the exception of semi-major axis and eccentricity which are sampled on a log scale to favour smaller values:
 
-The parameter values are linearly sampled between the following limits, which the exception of semi-major axis and eccentricity which are sampled on a log scale to favour smaller values:
+\begin{table}
+    \centering
+    \caption{Parameter ranges used to generate the photometric simulation library.}
+    \label{tab:phot_sim_parameter_ranges}
+    \begin{tabular}{lll}
+        \hline
+        Parameter         & Description           & Range                             \\
+        \hline
+        $a$               & Semi-major axis       & 0.1--200 AU                       \\
+        $i$               & Orbital inclination   & $(0.5\pi - 0.0001)$--$0.5\pi$ rad \\
+        $M_\mathrm{lens}$ & Lens mass             & 0.5--50 M$_\odot$                 \\
+        $M_\star$         & Stellar mass          & 0.5--50 M$_\odot$                 \\
+        $e$               & Eccentricity          & 0--0.999999                       \\
+        $\omega$          & Periapsis phase angle & 0--$2\pi$                         \\
+        $d$               & Distance from Earth   & 0.1--100 kpc                      \\
+        \hline
+    \end{tabular}
+\end{table}
 
-\begin{itemize}
-    \item $a$ (semi-major axis): 0.1 and 200 AU.
-    \item $i$ (orbital inclination) $0.5 \pi - 0.0001$ to $0.5 \pi$ radians.
-    \item $M_\text{lens}$: 0.5 and 50 M$_\odot$.
-    \item $M_\text{star}$: 0.5 and 50 M$_\odot$.
-    \item $e$ (eccentricity): 0 and 0.999999.
-    \item $\omega$ (periapsis phase angle; 0 meaning closest approach at peak of lensing): 0 and $2\pi$.
-    \item $d$ (distance from Earth): 0.1 to 100 kpc.
-\end{itemize}
-
-% We exclude from above any combination of $a$ and $M_\text{BH}$ where the Roche lobe radius at periapsis would be smaller than or equal to 1~R$_\odot$, as such systems would be guaranteed to be X-ray binaries.
-
-We select only the ``lensing'' subset from the library of simulations; i.e. we use only the simulated light curves which contain visible lensing peaks, where the peak amplitude is larger than the photometric noise.
+The full library of simulations actually includes both lensing and non-lensing light curves. For this work, we select only the ``lensing'' subset from the library of simulations; i.e. we use only the simulated light curves which contain visible lensing peaks, where the peak amplitude is larger than the photometric noise. This subset excludes systems overflowing their Roche lobe and any systems where lensing is not geometrically possible.
 
 Three photometric effects are included when generating the light curves: self-lensing, ellipsoidal variations, and Doppler boosting. At small values of $a$ the light curve is dominated by ellipsoidal variations and Doppler boosting (though lensing is often visible too); at large $a$ lensing is dominant, with ellipsoidal variation and Doppler boosting tending to zero as $a$ increases.
 
-Calculation of self-lensing magnifications is performed according to the lensing formulae given by \cite{witt_can_1994}, with source-lens distance calculated assuming a Keplerian orbit with the given semi-major axis, BH mass, eccentricity, and periapsis phase angle. Calculation of ellipsoidal variations and Doppler boosting, and the combination of these effects with self-lensing, follow \cite{sorabella_modeling_2022}, with the addition of a variable orbital separation to account for eccentricity in the ellipsoidal variation calculation. These effects all depend on the orbital phase at a given time during the simulation. The zero point for this is defined as the moment of maximum lensing magnification (i.e. the time of minimum separation between source and lens, $t_0$). The periapsis phase angle is defined in terms of this zero point; i.e. the phase angle at which periastron passage occurs, relative to the position at $t_0$. The source-lens distance is calculated for each time according to the phase angle at that time, meaning the source-lens distance changes during the microlensing event according to the eccentricity. Strictly speaking, the Einstein ring radius should also change as a function of orbital phase, but this is not accounted for in the present work. Instead, the radius at $t_0$ is used for all calculations.
+Calculation of self-lensing magnifications is performed using the finite-source point-lens formalism of \cite{witt_can_1994}. We use the Einstein radius and impact-parameter convention of \cite{wiktorowicz_predicting_2021}, generalised from the circular-orbit case by replacing the orbital separation with the instantaneous Keplerian lens-source separation,
+\begin{equation}
+    R_\mathrm{E} = \left(\frac{4 G M_\mathrm{lens} r(t_0) \sin i}{c^2}\right)^{1/2},
+    \quad
+    b = \frac{a |\cos i|}{R_\mathrm{E}},
+    \quad
+    b_\mathrm{max} = 1 + \frac{R_\star}{R_\mathrm{E}},
+\end{equation}
+where $t_0$ is the time of maximum lensing magnification and $r(t_0)$ is the lens-source separation at that time. For a circular orbit, $r(t_0)=a$ and this reduces to the expression used by \cite{wiktorowicz_predicting_2021}; here we retain the eccentricity dependence explicitly. For orbital phase $\phi(t)$, measured relative to $t_0$, the true orbital lens-source separation is
+\begin{equation}
+    r[\phi(t)] =
+    \frac{a(1 - e^2)}
+    {1 + e\cos[\phi(t) - \omega]}.
+\end{equation}
+Here $a$ is the semi-major axis, $e$ is the eccentricity, and $\omega$ is the phase angle of periapsis relative to $t_0$. The projected lens-source separation in Einstein-radius units is
+\begin{equation}
+    u(t) = \frac{1}{R_\mathrm{E}}
+    \left[
+        \left(r[\phi(t)] \sin\phi(t)\right)^2
+        + \left(b R_\mathrm{E}\right)^2
+        \right]^{1/2},
+\end{equation}
+where $u(t)$ is dimensionless. The self-lensing magnification is calculated for a uniform-brightness stellar disc using the closed-form expression of \cite{witt_can_1994}, which can be written as a combination of complete elliptic integrals,
+\begin{equation}
+    A_\mathrm{SL}(t) =
+    \frac{
+        C_E E(m) + C_K K(m) + C_\Pi \Pi(n, m)
+    }{\pi},
+\end{equation}
+where $K$, $E$, and $\Pi$ are complete elliptic integrals of the first, second, and third kind. The coefficients $C_E$, $C_K$, and $C_\Pi$, and the elliptic-integral arguments $m$ and $n$, are functions only of the projected lens-source separation and $\rho_\star = R_\star / R_\mathrm{E}$.
 
-For a sufficiently close binary, a self-lensing system would be indistinguishable from a binary undergoing ellipsoidal variations with no self-lensing effect, since the lensing magnification would so small as to be undetectable. Indeed the only physical difference is the angle of inclination; there is no inherent difference between the two classes of system. In this work we assume all systems are edge-on.
+Calculation of ellipsoidal variations and Doppler boosting are adapted from \cite{sorabella_modeling_2022}, with the orbital separation generalised to the eccentric case. The ellipsoidal-variation term is
+\begin{align}
+    A_\mathrm{EV}(t) & =
+    -\beta
+    \frac{M_\mathrm{lens}}{M_\star}
+    \left(\frac{R_\star}{r[\phi(t)]}\right)^3
+    \sin^2 i \cos 2\phi(t),
+    \nonumber                                                           \\
+    \beta            & = 0.15\,\frac{(1 + g)(15 + \gamma)}{3 - \gamma},
+\end{align}
+where $\beta$ is the ellipsoidal-variation coefficient, calculated using gravity-darkening coefficient $g=0.4$ and limb-darkening coefficient $\gamma=0.6$. The Doppler-boosting term is
+\begin{equation}
+    A_\mathrm{DB}(t) =
+    (3 - \alpha)\frac{v_r(t)}{c},
+    \quad
+    \alpha =
+    \frac{\exp(x)(3 - x) - 3}{\exp(x) - 1},
+    \quad
+    x = \frac{h\nu}{k_\mathrm{B}T_\mathrm{eff}},
+\end{equation}
+where $\nu$ is the TESS-band effective frequency and $v_r(t)$ is the source radial velocity. The combined model flux is
+\begin{equation}
+    F(t) = F_0 A_\mathrm{SL}(t)\left[1 + A_\mathrm{EV}(t) + A_\mathrm{DB}(t)\right].
+\end{equation}
+These effects all depend on the orbital phase at a given time during the simulation. The zero point for this is defined as the moment of maximum lensing magnification (i.e. the time of minimum projected separation between source and lens, $t_0$). The periapsis phase angle is defined in terms of this zero point; i.e. the phase angle at which periastron passage occurs, relative to the position at $t_0$. The source-lens distance is calculated for each time according to the phase angle at that time, meaning the source-lens distance changes during the microlensing event according to the eccentricity. Strictly speaking, the Einstein ring radius should also change as a function of orbital phase, but this is not accounted for in the present work. Instead, the radius at $t_0$ is used for all calculations.
+
+For a sufficiently close binary, a self-lensing system would be indistinguishable from a binary undergoing ellipsoidal variations with no self-lensing effect, since the lensing magnification would so small as to be undetectable. Indeed the only physical difference is the angle of inclination; there is no inherent difference between the two classes of system. In this work we consider only systems which are are close enough to edge-on to create a lensing effect.
 
 All simulated light curves start at 1 January 2025 and end at 27 January 2025. The peak time, i.e. $\omega = 0$, is randomly selected for each light curve to fall somewhere between this time window.
 
@@ -219,6 +279,25 @@ All simulated light curves start at 1 January 2025 and end at 27 January 2025. T
 % This is written for how it WILL be once I've finished updating the code for the next fitting run
 
 The simulated RV curves start at randomised times between 1 year and 10 years from the end of the photometry. This is to simulate a realistic delay in identifying candidates in the photometry and organising follow-up of those candidates.
+
+The RV simulations use the same physical parameters and phase convention as the photometric simulations. For an RV observation at time $t$, the orbital phase is
+\begin{equation}
+    \phi(t) = 2\pi
+    \frac{(t - t_0)\bmod P_\mathrm{orb}}{P_\mathrm{orb}},
+    \quad
+    P_\mathrm{orb} =
+    2\pi\left(\frac{a^3}{G(M_\mathrm{lens} + M_\star)}\right)^{1/2}.
+\end{equation}
+The companion orbital speed is then approximated from the same eccentric Keplerian separation as
+\begin{equation}
+    v_\star[\phi(t)] =
+    \left(\frac{G M_\mathrm{lens}}{r[\phi(t)]}\right)^{1/2},
+\end{equation}
+and the simulated line-of-sight radial velocity is
+\begin{equation}
+    v_r(t) = v_\star[\phi(t)] \sin\phi(t)\sin i.
+\end{equation}
+This convention gives zero RV at the photometric peak, with the sign set by the adopted orbital phase convention.
 
 We generate baseline RV curves which contain one RV measurement per day for five years from the start time.
 
