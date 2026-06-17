@@ -189,15 +189,15 @@ The library of simulations includes realistic simulated TESS light curves (inclu
     \label{tab:phot_sim_parameter_ranges}
     \begin{tabular}{lll}
         \hline
-        Parameter         & Description           & Range                             \\
+        Parameter         & Description           & Range                     \\
         \hline
-        $a$               & Semi-major axis       & 0.1--200 AU                       \\
+        $a$               & Semi-major axis       & 0.1--200 AU               \\
         $i$               & Orbital inclination   & $0.4999\pi$--$0.5\pi$ rad \\
-        $M_\mathrm{lens}$ & Lens mass             & 0.5--50 M$_\odot$                 \\
-        $M_\star$         & Stellar mass          & 0.5--50 M$_\odot$                 \\
-        $e$               & Eccentricity          & 0--0.999999                       \\
-        $\omega$          & Periapsis phase angle & 0--$2\pi$                         \\
-        $d$               & Distance from Earth   & 0.1--100 kpc                      \\
+        $M_\mathrm{lens}$ & Lens mass             & 0.5--50 M$_\odot$         \\
+        $M_\star$         & Stellar mass          & 0.5--50 M$_\odot$         \\
+        $e$               & Eccentricity          & 0--0.999999               \\
+        $\omega$          & Periapsis phase angle & 0--$2\pi$                 \\
+        $d$               & Distance from Earth   & 0.1--100 kpc              \\
         \hline
     \end{tabular}
 \end{table}
@@ -214,7 +214,22 @@ Calculation of self-lensing magnifications is performed using the finite-source 
     \quad
     b_\mathrm{max} = 1 + \frac{R_\star}{R_\mathrm{E}},
 \end{equation}
-where $t_0$ is the time of maximum lensing magnification and $r(t_0)$ is the lens-source separation at that time. For a circular orbit, $r(t_0)=a$ and this reduces to the expression used by \cite{wiktorowicz_predicting_2021}; here we retain the eccentricity dependence explicitly. For orbital phase $\phi(t)$, measured relative to $t_0$, the true orbital lens-source separation is
+where $t_0$ is the time of maximum lensing magnification and $r(t_0)$ is the lens-source separation at that time. For a circular orbit, $r(t_0)=a$ and this reduces to the expression used by \cite{wiktorowicz_predicting_2021}. We define the orbital phase relative to $t_0$ as the true orbital longitude, using the true anomaly $\nu(t)$,
+\begin{equation}
+    \phi(t) = \omega + \nu(t),
+\end{equation}
+where $\nu(t)$ is measured relative to periapsis. The true anomaly is obtained from Kepler's equation using the mean anomaly $\mathcal{M}$,
+\begin{align}
+    \mathcal{M}(t) & = \mathcal{M}_0 + 2\pi\frac{t - t_0}{P_\mathrm{orb}}, \\
+    \mathcal{M}(t) & = E(t) - e\sin E(t),                                  \\
+    \nu(t)         & = 2\arctan2\left[
+        \sqrt{1+e}\sin\frac{E(t)}{2},
+        \sqrt{1-e}\cos\frac{E(t)}{2}
+    \right],                                                               \\
+    P_\mathrm{orb} & =
+    2\pi\left(\frac{a^3}{G(M_\mathrm{lens} + M_\star)}\right)^{1/2},
+\end{align}
+with $\mathcal{M}_0$ chosen such that $\phi(t_0)=0$. For this orbital phase, the true orbital lens-source separation is
 \begin{equation}
     r[\phi(t)] =
     \frac{a(1 - e^2)}
@@ -228,14 +243,29 @@ Here $a$ is the semi-major axis, $e$ is the eccentricity, and $\omega$ is the ph
         + \left(b R_\mathrm{E}\right)^2
         \right]^{1/2},
 \end{equation}
-where $u(t)$ is dimensionless. The self-lensing magnification is calculated for a uniform-brightness stellar disc using the closed-form expression of \cite{witt_can_1994}, which can be written as a combination of complete elliptic integrals,
+where $u(t)$ is dimensionless. The self-lensing magnification is calculated with the integrated Witt--Mao finite-source formalism \citep{witt_can_1994}. The implementation evaluates the closed-form uniform-disc Witt--Mao magnification,
 \begin{equation}
-    A_\mathrm{SL}(t) =
+    A_\mathrm{WM}(u, \rho_\star) =
     \frac{
         C_E E(m) + C_K K(m) + C_\Pi \Pi(n, m)
     }{\pi},
 \end{equation}
-where $K$, $E$, and $\Pi$ are complete elliptic integrals of the first, second, and third kind. The coefficients $C_E$, $C_K$, and $C_\Pi$, and the elliptic-integral arguments $m$ and $n$, are functions only of the projected lens-source separation and $\rho_\star = R_\star / R_\mathrm{E}$.
+where $K$, $E$, and $\Pi$ are complete elliptic integrals of the first, second, and third kind. The coefficients $C_E$, $C_K$, and $C_\Pi$, and the elliptic-integral arguments $m$ and $n$, are functions only of the projected lens-source separation and $\rho_\star = R_\star / R_\mathrm{E}$. The disc-integrated magnification used in the simulated light curves is then evaluated by quadrature over a linearly limb-darkened stellar disc,
+\begin{align}
+    A_\mathrm{SL}(t) & =
+    \frac{
+        \int_0^1
+        A_\mathrm{WM}\left[u(t), \rho\rho_\star\right]
+        I(\mu)\,2\rho\,\mathrm{d}\rho
+    }{
+        \int_0^1 I(\mu)\,2\rho\,\mathrm{d}\rho
+    },
+    \nonumber                             \\
+    \mu              & = \sqrt{1-\rho^2},
+    \quad
+    I(\mu) = 1 - \gamma(1-\mu),
+\end{align}
+with the same limb-darkening coefficient $\gamma=0.6$ used below for the ellipsoidal-variation term.
 
 Calculation of ellipsoidal variations and Doppler boosting are adapted from \cite{sorabella_modeling_2022}, with the orbital separation generalised to the eccentric case. The ellipsoidal-variation term is
 \begin{align}
@@ -255,9 +285,9 @@ where $\beta$ is the ellipsoidal-variation coefficient, calculated using gravity
     \alpha =
     \frac{\exp(x)(3 - x) - 3}{\exp(x) - 1},
     \quad
-    x = \frac{h\nu}{k_\mathrm{B}T_\mathrm{eff}},
+    x = \frac{h\nu_\mathrm{TESS}}{k_\mathrm{B}T_\mathrm{eff}},
 \end{equation}
-where $\nu$ is the TESS-band effective frequency and $v_r(t)$ is the source radial velocity. The combined model flux is
+where $\nu_\mathrm{TESS}$ is the TESS-band effective frequency and $v_r(t)$ is the source radial velocity. The combined model flux is
 \begin{equation}
     F(t) = F_0 A_\mathrm{SL}(t)\left[1 + A_\mathrm{EV}(t) + A_\mathrm{DB}(t)\right].
 \end{equation}
@@ -265,39 +295,34 @@ These effects all depend on the orbital phase at a given time during the simulat
 
 For a sufficiently close binary, a self-lensing system would be indistinguishable from a binary undergoing ellipsoidal variations with no self-lensing effect, since the lensing magnification would so small as to be undetectable. Indeed the only physical difference is the angle of inclination; there is no inherent difference between the two classes of system. In this work we consider only systems which are are close enough to edge-on to create a lensing effect.
 
-All simulated light curves start at 1 January 2025 and end at 27 January 2025. The peak time, i.e. $\omega = 0$, is randomly selected for each light curve to fall somewhere between this time window.
+All simulated light curves start at 1 January 2025 and end at 27 January 2025. The peak time, i.e. $\phi = 0$, is randomly selected for each light curve to fall somewhere between this time window.
 
 \subsection{Radial velocity simulations} \label{sec:rv-sims}
-% CODE/PAPER REVIEW:
-% - The code generates pristine RVs with selflensing.generators.RVGenerator,
-%   using a SelfLensingSystem built from FITS metadata and the photometric
-%   PEAK_T as the phase anchor.
-% - Add whether the RV start-time randomisation is fixed/reproducible for the
-%   published sample, or state that each generated pristine RV curve uses a
-%   stochastic draw from the 1--10 yr delay distribution.
-
-% This is written for how it WILL be once I've finished updating the code for the next fitting run
 
 The simulated RV curves start at randomised times between 1 year and 10 years from the end of the photometry. This is to simulate a realistic delay in identifying candidates in the photometry and organising follow-up of those candidates.
 
-The RV simulations use the same physical parameters and phase convention as the photometric simulations. For an RV observation at time $t$, the orbital phase is
+The RV simulations use the same physical parameters and phase convention as the photometric simulations. Let $\nu(t)=\phi(t)-\omega$ be the true anomaly relative to periapsis, $\mu=G(M_\mathrm{lens}+M_\star)$, and $h=[\mu a(1-e^2)]^{1/2}$. The source-star barycentric radial and tangential orbital-velocity components are
+\begin{align}
+    v_{\mathrm{rad},\star}(t) & =
+    \frac{M_\mathrm{lens}}{M_\mathrm{lens}+M_\star}
+    \frac{\mu}{h}
+    e\sin\nu(t),
+    \nonumber                     \\
+    v_{\mathrm{tan},\star}(t) & =
+    \frac{M_\mathrm{lens}}{M_\mathrm{lens}+M_\star}
+    \frac{\mu}{h}
+    \left[1 + e\cos\nu(t)\right].
+\end{align}
+The simulated line-of-sight radial velocity is then
 \begin{equation}
-    \phi(t) = 2\pi
-    \frac{(t - t_0)\bmod P_\mathrm{orb}}{P_\mathrm{orb}},
-    \quad
-    P_\mathrm{orb} =
-    2\pi\left(\frac{a^3}{G(M_\mathrm{lens} + M_\star)}\right)^{1/2}.
+    v_r(t) =
+    \left[
+        v_{\mathrm{tan},\star}(t)\sin\phi(t)
+        -
+        v_{\mathrm{rad},\star}(t)\cos\phi(t)
+        \right]\sin i.
 \end{equation}
-The companion orbital speed is then approximated from the same eccentric Keplerian separation as
-\begin{equation}
-    v_\star[\phi(t)] =
-    \left(\frac{G M_\mathrm{lens}}{r[\phi(t)]}\right)^{1/2},
-\end{equation}
-and the simulated line-of-sight radial velocity is
-\begin{equation}
-    v_r(t) = v_\star[\phi(t)] \sin\phi(t)\sin i.
-\end{equation}
-This convention gives zero RV at the photometric peak, with the sign set by the adopted orbital phase convention.
+This reduces to the circular-orbit convention $v_r(t)\propto\sin\phi(t)$ when $e=0$, but for eccentric orbits the radial component means the RV at $t_0$ is not generally zero.
 
 We generate baseline RV curves which contain one RV measurement per day for five years from the start time.
 
@@ -509,12 +534,8 @@ Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fi
 
 \FloatBarrier
 \subsection{Recovering orbital period}
-% CODE/PAPER REVIEW:
-% - The qualitative statement that the lensing event has zero RV and that RV
-%   peaks at 0.5 P_orb should be qualified. The code fits eccentricity and
-%   periapsis phase, so this simple phase relation is not generally exact.
 
-the orbital period strongly influences the shape of the RV curve. Not only that but it also determines the absolute RV at a given time post-lensing. The lensing event happens when RV is zero, and then the RV peaks at 0.5 Porb after that. Measuring the change in RV, even over a parital orbit, therefore can tightly constrain the orbital period even for very long orbits.
+The orbital period strongly influences the shape of the RV curve. Not only that but it also determines the absolute RV at a given time post-lensing, because the photometric event tells us the orbital phase at a given time. In the circular-orbit limit the RV is zero at the lensing event and reaches an extremum half an orbit later; for the eccentric systems fitted here, eccentricity and periapsis phase shift the detailed RV shape and extrema. Measuring the change in RV, even over a parital orbit, therefore can tightly constrain the orbital period even for very long orbits.
 
 % - Mention the regimes visible in the plot: sparse 300-day cadence struggles
 %   for the shortest-period bin with only a one-year baseline, while longer
