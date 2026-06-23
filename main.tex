@@ -189,15 +189,15 @@ The library of simulations includes realistic simulated TESS light curves (inclu
     \label{tab:phot_sim_parameter_ranges}
     \begin{tabular}{lll}
         \hline
-        Parameter         & Description           & Range                     \\
+        Parameter         & Description           & Range                            \\
         \hline
-        $a$               & Semi-major axis       & 0.1--200 AU               \\
-        $i$               & Orbital inclination   & $0.4999\pi$--$0.5\pi$ rad \\
-        $M_\mathrm{lens}$ & Lens mass             & 0.5--50 M$_\odot$         \\
-        $M_\star$         & Stellar mass          & 0.5--50 M$_\odot$         \\
-        $e$               & Eccentricity          & 0--0.999999               \\
-        $\omega$          & Periapsis phase angle & 0--$2\pi$                 \\
-        $d$               & Distance from Earth   & 0.1--100 kpc              \\
+        $a$               & Semi-major axis       & 0.1--200 AU                      \\
+        $i$               & Orbital inclination   & $0.5\pi - 10^{-4}$--$0.5\pi$ rad \\
+        $M_\mathrm{lens}$ & Lens mass             & 0.5--50 M$_\odot$                \\
+        $M_\star$         & Stellar mass          & 0.5--50 M$_\odot$                \\
+        $e$               & Eccentricity          & 0--0.999999                      \\
+        $\omega$          & Periapsis phase angle & 0--$2\pi$                        \\
+        $d$               & Distance from Earth   & 0.1--100 kpc                     \\
         \hline
     \end{tabular}
 \end{table}
@@ -327,57 +327,65 @@ This reduces to the circular-orbit convention $v_r(t)\propto\sin\phi(t)$ when $e
 We generate baseline RV curves which contain one RV measurement per day for five years from the start time.
 
 \subsection{Simulated realistic observations} \label{sec:rv-realistic}
-% CODE/PAPER REVIEW:
-% - The implemented observing grid is campaign baselines of 365, 1095, and
-%   1825 days; cadences of 1, 30, and 300 days; and instrumental RV accuracies
-%   of 0.1, 1, 10, 100, and 1000 m/s. That gives 45 realistic observing
-%   configurations per pristine simulation.
-% - The draft still lists a 150 day cadence and a 50-point logspace of RV
-%   accuracies. Those are not what the code or generated tables use.
-% - Noise is added as two independent Gaussian terms: stellar noise with
-%   sigma=10 m/s and instrumental noise with sigma equal to the grid accuracy.
-%   The stored per-point RV error is sqrt(10^2 + accuracy^2) m/s.
-% - The realistic sampling uses array indices from the daily pristine RV curve:
-%   numpy.arange(0, min(baseline, len(curve)), cadence). This means the number
-%   of RV points is determined by baseline/cadence in samples, not by calendar
-%   scheduling with observing seasons.
-% - The same photometry is copied into every realistic configuration for a
-%   given pristine simulation; only the RV sampling and RV noise change.
 
-We sample the baseline RV curves to create more realistic RV observations, also adding Gaussian noise to simulate varying instrument accuracies. Each curve is samples in the following way:
+We sample the baseline RV curves to create more realistic RV observations, also adding Gaussian noise to simulate varying instrument accuracies. Each RV curve is resampled using every combination of the parameters in Table~\ref{tab:realistic_observing_grid}, giving $3 \times 3 \times 5 = 45$ realistic observing configurations per pristine simulation. We do not attempt to simulate fully realistic observing (with observing seasons, seeing, varying weather conditions, etc.) as we are mainly interesrted in measuring the effects of instrument selection, total length of observations, and number of observations.
 
-\begin{itemize}
-    \item Curve length truncated to: 1 year, 3 years, and 5 years (observing baseline)
-    \item RV measurements sampled every 30 days, 150 days, 300 days (observing cadence)
-    \item Gaussian noise added with $\sigma \in $\texttt{ numpy.logspace(-1, 3, 50)} plus $\sigma = 10$ m/s to simulate stellar noise
-\end{itemize}
+\begin{table}
+    \centering
+    \caption{Observing parameters used when creating realistic simulated RV observations.}
+    \label{tab:realistic_observing_grid}
+    \begin{tabular}{lll}
+        \hline
+        Parameter   & Description               & Values                    \\
+        \hline
+        Baseline    & Campaign length           & 1, 3, 5 yr                \\
+        Cadence     & Time between observations & 1, 30, 300 d              \\
+        RV accuracy & Gaussian $\sigma$         & 0.1, 1, 10, 100, 1000 m/s \\
+        \hline
+    \end{tabular}
+\end{table}
 
-
+A fixed stellar-noise term of $\sigma = 10$ m/s is added independently to the instrumental RV noise in every configuration.
 
 \subsection{Fitting of simulated observations} \label{sec:fitting}
-% CODE/PAPER REVIEW:
-% - The implemented fitter uses selflensing.fitting BlackJAX helpers, not
-%   emcee directly. Defaults are 2000 MCMC steps, 128 walkers, and 200 burn-in
-%   steps, configurable through SLRV_FIT_* environment variables.
-% - The fitted free parameters are a, i, Macc, e, and periapsis_phase. The
-%   stellar companion mass, radius, effective temperature, and PEAK_T are
-%   supplied from metadata and held fixed. Porb, b, b_max, and tau_eff are
-%   derived from the fitted system, not fitted independently.
-% - The code performs a photometry-only prefit once per pristine simulation
-%   group when FIT_USE_LC is enabled, then uses that walker state to initialise
-%   joint RV+LC fits for the observing configurations in that group.
-% - The light curve passed to the fitter is centred and restricted to the
-%   lensing-event window; this should be described because it is not equivalent
-%   to fitting the entire TESS light curve.
-% - The draft's "combined reduced chi^2 score" wording is not visible in this
-%   repo. If the upstream BlackJAX fitting function implements a likelihood
-%   based on chi-square, cite/describe that precisely; otherwise rephrase as a
-%   joint likelihood fit to RV and photometry.
-% - The fitting call sets false_alarm_probability=0.5 and center_lc_model=True.
-%   Check whether these are modelling assumptions that need to be reported, or
-%   just upstream API controls that can be omitted.
 
-Each simulated pair of photometric light curves and RV curves is then fitted via MCMC/emcee. Fitting is done jointly, using a combined reduced $\chi^2$ score. We fit only the fundamental physical parameters of the system (the same parameters as listed in Section~\ref{sec:phot-sims}), not orbital period etc.
+Each simulated pair of photometric light curves and RV curves is then fitted via MCMC using the BlackJAX package (2000 steps, 128 walkers, and 200 burn-in steps). We fit only the fundamental physical parameters of the system,
+\begin{equation}
+    \boldsymbol{\theta} = (a, i, M_\mathrm{lens}, e, \omega),
+\end{equation}
+with the stellar mass, stellar radius, effective temperature, distance, and lensing-peak time held fixed at their simulated values. Orbital period, impact parameter, maximum impact parameter, and effective lensing-event duration are derived from the fitted physical parameters rather than fitted directly. We use a uniform prior within the corresponding parameter limits in Table~\ref{tab:phot_sim_parameter_ranges}, with negative infinity probability outside these limits. We also require trial systems to satisfy the self-lensing geometry condition $b \leq b_\mathrm{max}$.
+
+For a trial parameter vector $\boldsymbol{\theta}$, let $v_\mathrm{mod}(t_k;\boldsymbol{\theta})$ be the model RV at the $k$th RV observation time, and let $N_\mathrm{RV}$ be the number of RV measurements. The RV contribution to the fit statistic is
+\begin{equation}
+    Q_\mathrm{RV}(\boldsymbol{\theta}) =
+    -\frac{1}{N_\mathrm{RV}}
+    \sum_{k=1}^{N_\mathrm{RV}}
+    \left[
+        \frac{v_k - v_\mathrm{mod}(t_k;\boldsymbol{\theta})}
+        {\sigma_{\mathrm{RV},k}}
+        \right]^2,
+\end{equation}
+where $v_k$ and $\sigma_{\mathrm{RV},k}$ are the simulated RV measurement and uncertainty. For the light curve, let $f_j$ and $\sigma_{\mathrm{LC},j}$ be the binned photometric flux and uncertainty at the $j$th binned time, let $f_\mathrm{mod}(t_j;\boldsymbol{\theta})$ be the corresponding model flux, and let $N_\mathrm{LC}$ be the number of fitted light-curve bins. The light-curve contribution is
+\begin{equation}
+    Q_\mathrm{LC}(\boldsymbol{\theta}) =
+    -\frac{1}{N_\mathrm{LC}}
+    \sum_{j=1}^{N_\mathrm{LC}}
+    \left[
+        \frac{f_j - f_\mathrm{mod}(t_j;\boldsymbol{\theta})}
+        {\sigma_{\mathrm{LC},j}}
+        \right]^2.
+\end{equation}
+The quantity sampled by the MCMC is then the sum of these terms plus the parameter-prior term, $\ln \pi(\boldsymbol{\theta})$,
+\begin{equation}
+    \ln p(\boldsymbol{\theta}\mid\mathrm{data}) =
+    \ln \pi(\boldsymbol{\theta}) +
+    Q_\mathrm{RV}(\boldsymbol{\theta}) +
+    Q_\mathrm{LC}(\boldsymbol{\theta}).
+\end{equation}
+
+Before running the full joint fit, a photometry-only prefit is run for each simulated light curve (1,000 steps) and the walker state from this is used as the initial walker state for the 45 joint fits (an additional 1,000 steps). For computational efficiency, the joint fits are run as simultaneous vecotrised fits on a GPU.
+
+In both the prefit and the joint fits, the photometry is truncated to a window centred on the self-lensing peak time, from $t_0 - \tau_\mathrm{eff}$ to $t_0 + \tau_\mathrm{eff}$. This gives a total window width of $2\tau_\mathrm{eff}$, which is divided into 100 equal-width bins of size $2\tau_\mathrm{eff}/100$.
 
 \subsection{Combining with pop synthesis} \label{sec:pop-synth}
 % CODE/PAPER REVIEW:
@@ -390,10 +398,6 @@ Each simulated pair of photometric light curves and RV curves is then fitted via
 % - Define the transferred RV-follow-up outcomes: correct compact-object class,
 %   lens-mass recovery to 10 per cent, orbital-period recovery to 10 per cent,
 %   and simultaneous mass+period recovery to 10 per cent.
-% - State that a reproducible weighted sample of the detected population is
-%   cached under paper/tables/cache/ because the source pickle is large, and
-%   that the transfer uses k-nearest neighbours in scaled physical-parameter
-%   space.
 % - Explain the response-coverage column: missing fitted neighbours are
 %   excluded and the remaining neighbour weights are renormalised, so recovery
 %   fractions should be read alongside the fitted-grid coverage diagnostic.
