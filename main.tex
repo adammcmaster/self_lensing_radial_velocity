@@ -389,18 +389,41 @@ In both the prefit and the joint fits, the photometry is truncated to a window c
 
 \subsection{Combining with pop synthesis} \label{sec:pop-synth}
 % CODE/PAPER REVIEW:
-% - Describe src/5_population_weighted_followup.py as a response-surface
-%   transfer from the fitted RV-follow-up grid onto the Wiktorowicz et al.
-%   population-synthesis table.
-% - Be explicit that this paper does not model photometric detectability in
-%   this step: the assumed starting point is an already-detected self-lensing
-%   light curve/candidate sample.
-% - Define the transferred RV-follow-up outcomes: correct compact-object class,
-%   lens-mass recovery to 10 per cent, orbital-period recovery to 10 per cent,
-%   and simultaneous mass+period recovery to 10 per cent.
-% - Explain the response-coverage column: missing fitted neighbours are
-%   excluded and the remaining neighbour weights are renormalised, so recovery
-%   fractions should be read alongside the fitted-grid coverage diagnostic.
+% - Be explicit about which population transfer was used for the final paper
+%   outputs: the default 10000-row weighted detected-population sample, or the
+%   slower full cached population path.
+In order to inform expecations about how many self-lensing systems might be correctly characterised as a result of detection in modern photometric surveys, we seek to combine our estimates of the recoverability of the physical properties of self-lensing systems with the detectability estimates of \cite{wiktorowicz_predicting_2021}. One important difference between \cite{wiktorowicz_predicting_2021} and the present work is that they use population synthesis to generate a physically plausible distribution of physical properties, as the basis for simulating the total number of detectable systems observed by each photometric survey. In the present work, we do not simulate a physically representative distribution of parameters, because our primary aim is to explore the ability to recover those parameters regardless of how common a given configuration will be in the galaxy. In other words, we want to simulate very rare configurations as thoroughly as more common ones. We are also concerned only with characterisation of lenses/recovery of physical parameters via spectrocopic RV measurements after detection in photometry, while \cite{wiktorowicz_predicting_2021} investigates photometric detectability.
+
+Still, it is useful to derive from our simulations an estimate of how many systems we should expect to be properly characterised, assuming the predicted number of photometric detections is made in each survey. To this end we build a nearest-neighbour emulator ($k=25$) to map the population synthesis results onto the fitting/recovery results for our radial velocity simulations. For each population-synthesis system and each RV simulation we define a scaled feature vector
+\begin{equation}
+    \mathbf{x} =
+    \left(
+    \frac{\log_{10} M_\mathrm{lens} - \mu_M}{s_M},
+    \frac{\log_{10} P_\mathrm{orb} - \mu_P}{s_P},
+    \frac{e - \mu_e}{s_e},
+    \frac{b - \mu_b}{s_b}
+    \right),
+\end{equation}
+where the centring constants $\mu$ are medians and the scale factors $s$ are the 16th--84th percentile ranges, giving a robust measure of the central spread of each coordinate. Coordinates are centred and scaled to normalise the ranges of the parameters to be similar in parameter space, to prevent the nearest-neighbour search from being dominated by those with the largest numerical spread. For a population-synthesis system $j$, the emulator identifies the set $\mathcal{N}_k(j)$ of the $k$ nearest RV simulations in this scaled space and assigns inverse-distance weights
+\begin{equation}
+    w_{ij} =
+    \frac{(d_{ij} + \epsilon)^{-1}}
+    {\sum_{\ell \in \mathcal{N}_k(j)} (d_{\ell j} + \epsilon)^{-1}},
+    \quad i \in \mathcal{N}_k(j),
+\end{equation}
+where $d_{ij} = \lVert\mathbf{x}_i - \mathbf{x}_j\rVert$ and $\epsilon = 10^{-12}$ is a small numerical constant to avoid division by zero. For each observing strategy and recovery metric, the emulated recovery probability is then
+\begin{equation}
+    \hat{p}_{j} =
+    \frac{\sum_{i \in \mathcal{N}_k(j)} v_i w_{ij} q_i}
+    {\sum_{i \in \mathcal{N}_k(j)} v_i w_{ij}},
+    \qquad
+    C_j = \sum_{i \in \mathcal{N}_k(j)} v_i w_{ij},
+\end{equation}
+where $q_i$ is the measured RV outcome and $v_i$ indicates whether that neighbouring simulation has a valid fit for the relevant strategy. The associated coverage $C_j$ is therefore the fraction of the neighbour weight supported by valid fitted simulations. We emulate four outcomes in this way: correct compact-object class, lens-mass recovery to 10 per cent, orbital-period recovery to 10 per cent, and simultaneous lens-mass and orbital-period recovery to 10 per cent. The final population-weighted fractions are obtained by averaging these emulated probabilities over the detected population-synthesis systems using their population weights $W_j$,
+\begin{equation}
+    \bar{p} = \frac{\sum_j W_j \hat{p}_j}{\sum_j W_j}.
+\end{equation}
+
 
 \section{Results and discussion}
 % CODE/PAPER REVIEW:
@@ -648,9 +671,6 @@ Figure~\ref{fig:prefit-compact-object-class-by-lens-mass-range} shows the percen
 %   follow-up.
 % - Note whether high-mass BH candidates remain classifiable with coarse RVs,
 %   and where precise or dense follow-up is needed for 10 per cent recovery.
-% - Caveat that the population-weighting step transfers the fitted response
-%   surface to the population synthesis table; it is not a new fit to every
-%   population-synthesis system.
 % - Caveat that low response coverage indicates incomplete fitted-grid support
 %   for parts of the detected population; those regions need either more fitted
 %   simulations or direct follow-up simulations before making a strong rate
