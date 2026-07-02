@@ -123,8 +123,6 @@ $^{3}$Another Department, Different Institution, Street Address, City Postal Cod
 %   the current snapshot supports very high purity for fitted BH classifications
 %   and good recovery of $a$/$P_\mathrm{orb}$, but not 80 per cent recovery of
 %   $M_\mathrm{acc}$ under the strict 10 per cent criterion.
-% - Do a spelling/grammar pass before sharing externally; the current draft has
-%   several obvious typos in the newly added prose.
 
 Self-lensing systems binary systems which are close to being edge-on, consisting of a star in orbit with a compact object. With an appropriate separation distance, the Einstein radius of the compact object can be larger than its surface radius, and if the orbital inclination is close enough to $\frac{1}{2}\pi$ this can result in a measurable microlensing amplification of the stellar flux once per orbit.
 
@@ -155,29 +153,13 @@ The main distinguishing feature of self-lensing vs microlensing is the periodici
 It's worth really stressing how unique self-lensing binaries are when it comes to determining the lens mass. Spectroscopically, they're like SB1s but with the possibility of jointly fitting photometry. They're to SB1s as eclipsing binaries are to SB2s. The photometry can possibly give us the orbital period, and a single event gives us information about the orbital configuration and lens mass via the amplitude, duration, and shape of the lensing curve. By including limb darkening in the model, we potentially learn even more about the semi-major axis, as limb darkening effects will be more pronounced for closer orbits.
 
 \section{Methods}
-% CODE/PAPER REVIEW:
-% - The new pipeline overview now explains the high-level workflow, but still
-%   make the code/input boundary precise: the photometric library and core
-%   selflensing model are external/upstream, while this work creates RV
-%   follow-up campaigns and measures recovery performance.
-% - Copy-edit the new overview paragraph before sharing; it introduces several
-%   typos and the phrase "future work (currently in prep)" should be converted
-%   to a formal in-prep citation when possible.
-
 
 The aim of this work is to quantitfy the observational requirements for radial velocity (RV) meadurements that will allow us to determine the lens mass and orbital configuration of self-lensing binary candidates discovered via our ongoing photometric search. WE investigate the relationship between observing cadence, observing campaign duration (baseline), and accuracy of RV measurements, and the rate of recovery of phyiscal parameters as a fuction of lens mass. We investigate recovery rate by both accurate lens mass (determined to within 10\% of the true value) and broad compact object class (i.e. distinguishing black holes from other compact objects even if the recovered mass deviates from the true mass by more than 10 \%).
 
 We use as the basis of this work a library of self-lensing photometric simulations produced in another work. These simulations are described in brief in Section~\ref{sec:phot-sims}. A full description of how these were generated will be published in a future work (currently in prep). The photometric simulations are loaded and then radial velocity measurements are simulated for the same set of simulation parameters (Section~\ref{sec:rv-sims}). The RV simulations are then sampled according to a range of observign schedules, and Gaussian noise is added to simnulate a range of spectrograph accuracies (Section~\ref{sec:rv-realistic}). An MCMC fit is then performed to find the self-lensing physical parameters which jointly best fit the photometry and RV (Section~\ref{sec:fitting}). We then aggregate the recovery rates across observing parameters and self-lensing physical parameters to investigate the effect of each parameter on the recovery rate.
 
 \subsection{Photometric simulations} \label{sec:phot-sims}
-% CODE/PAPER REVIEW:
-% - The listed parameter ranges and sampling rules appear to come from the
-%   upstream simulation library rather than this repo. Verify them against that
-%   source and cite it; do not imply this paper's code generated or enforced
-%   the grid.
-% - The statement "all systems are edge-on" is stronger than the code: the
-%   code reads and fits I from metadata, and the draft's own range is close to
-%   \pi/2 rather than fixed exactly at \pi/2.
+We note that the photometric model described here is similar to the recently published COBALT-BLUE model \citep{...}, but uses a simpler approximation to the full photometric forward model. Compared with COBALT-BLUE, our model adopts a local approximation to the eccentric self-lensing geometry and lower-order treatments of Doppler boosting and ellipsoidal variability, while adding the spectroscopic radial-velocity component needed to study the recovery of lens mass and other physical parameters. We anticipate combining the two models in a future work.
 
 These simulations comprise a sample of self-lensing system parameters which is physically complete (i.e. covering the full plausible range of physical parameters) but not realistic (i.e. parameters are not sampled according to the frequency they are expected to occur in nature). This is ideal as the basis for determining the ranges of parameters which produce self-lensing effects which are detectable, independent of how common or uncommon particular parameter ranges are expected to be.
 
@@ -349,7 +331,7 @@ A fixed stellar-noise term of $\sigma = 10$ m/s is added independently to the in
 
 \subsection{Fitting of simulated observations} \label{sec:fitting}
 
-Each simulated pair of photometric light curves and RV curves is then fitted via MCMC using the BlackJAX package (2000 steps, 128 walkers, and 200 burn-in steps). We fit only the fundamental physical parameters of the system,
+Each simulated pair of photometric light curves and RV curves is then fitted via MCMC using the BlackJAX package (2000 steps, 128 walkers, and 200 burn-in steps). The photometry is clipped to a width of one crossing time around the lensing peak and binned to 100 bins for computational efficiency. We fit only the fundamental physical parameters of the system,
 \begin{equation}
     \boldsymbol{\theta} = (a, i, M_\mathrm{lens}, e, \omega),
 \end{equation}
@@ -388,10 +370,6 @@ Before running the full joint fit, a photometry-only prefit is run for each simu
 In both the prefit and the joint fits, the photometry is truncated to a window centred on the self-lensing peak time, from $t_0 - \tau_\mathrm{eff}$ to $t_0 + \tau_\mathrm{eff}$. This gives a total window width of $2\tau_\mathrm{eff}$, which is divided into 100 equal-width bins of size $2\tau_\mathrm{eff}/100$.
 
 \subsection{Combining with pop synthesis} \label{sec:pop-synth}
-% CODE/PAPER REVIEW:
-% - Be explicit about which population transfer was used for the final paper
-%   outputs: the default 10000-row weighted detected-population sample, or the
-%   slower full cached population path.
 In order to inform expecations about how many self-lensing systems might be correctly characterised as a result of detection in modern photometric surveys, we seek to combine our estimates of the recoverability of the physical properties of self-lensing systems with the detectability estimates of \cite{wiktorowicz_predicting_2021}. One important difference between \cite{wiktorowicz_predicting_2021} and the present work is that they use population synthesis to generate a physically plausible distribution of physical properties, as the basis for simulating the total number of detectable systems observed by each photometric survey. In the present work, we do not simulate a physically representative distribution of parameters, because our primary aim is to explore the ability to recover those parameters regardless of how common a given configuration will be in the galaxy. In other words, we want to simulate very rare configurations as thoroughly as more common ones. We are also concerned only with characterisation of lenses/recovery of physical parameters via spectrocopic RV measurements after detection in photometry, while \cite{wiktorowicz_predicting_2021} investigates photometric detectability.
 
 Still, it is useful to derive from our simulations an estimate of how many systems we should expect to be properly characterised, assuming the predicted number of photometric detections is made in each survey. To this end we build a nearest-neighbour emulator ($k=25$) to map the population synthesis results onto the fitting/recovery results for our radial velocity simulations. For each population-synthesis system and each RV simulation we define a scaled feature vector
@@ -427,33 +405,19 @@ where $q_i$ is the measured RV outcome and $v_i$ indicates whether that neighbou
 
 \section{Results and discussion}
 % CODE/PAPER REVIEW:
-% - Re-run the paper outputs after the fitting campaign completes and update
-%   the sample-summary table so the figures/tables are not a partial snapshot.
-% - The snapshot note still says the figures/tables are generated by
-%   src/plot_fitted_timeseries_results.ipynb; update this to
-%   src/generate_paper_outputs.py if that is now the reproducible source.
 % - The new overview explains the 10 per cent recovery metric, but also define
 %   the 80 per cent success threshold before Table~\ref{tab:rv-accuracy-requirements}.
 % - The current snapshot has a non-monotonic dependence on instrumental RV
 %   accuracy in some panels. Before making a physical claim, check whether this
 %   comes from the partial sample, stochastic fitting/noise realisations,
 %   convergence issues, or the fixed 10 m/s stellar-noise floor.
-% - The new assumptions paragraph is good. Add one more limitation: the fitted
-%   light curve is restricted to/binned over the event window rather than using
-%   the full TESS time series.
 % - Discuss degeneracies visible in the fitted parameters, especially a--Macc,
 %   inclination/impact parameter, eccentricity/periapsis phase, and the limits
 %   of deriving very long orbital periods from short RV baselines.
 % - Discuss whether realistic survey cadence, candidate-discovery delay, and
 %   instrument-specific precision should replace or supplement the current
 %   simple grid.
-% - The current code includes named spectrograph classes (ESPRESSO, HARPS,
-%   HARPS-N, NIRPS, 4MOST, SALT HRS/RSS, APO ARCES), but the realistic grid
-%   uses generic RV accuracies rather than those classes. Decide which framing
-%   the paper should use.
 
-
-\textbf{The fitting campaign is still in progress, so the recovery analysis presented here is a snapshot of the systems already present in the fitted results table. The figures and tables in this subsection are generated directly by \texttt{src/plot\_fitted\_timeseries\_results.ipynb} and should be regenerated once the full sample has finished fitting.}
 
 We evaluate the fits based on their ability to recover the true simulated parameters, with partocular interest in lens mass and orbital period. Note that orbital period is not one of the model parameters (our Keplerian self-lensing model includes only the fudamental phsyical properties of the binary), but is derived here from the fitted lens mass and semi-major axis. Fitting the physical properies makes the most sense when modelling the lensing effect, while orbital period is significant when planning RV observations.
 
@@ -463,7 +427,7 @@ It is owrth noting that these results represent an ideal best case scenario for 
 
 \input{paper/tables/sample_summary}
 
-\FloatBarrier
+% \FloatBarrier
 \subsection{Lens mass recovery}
 % CODE/PAPER REVIEW:
 % - For Figure~\ref{fig:mass-recovery-by-strategy}, the main prose should say
@@ -524,7 +488,7 @@ Figure~\ref{fig:lens-mass-recovery-by-lens-mass}:
     \label{fig:lens-mass-relative-error-by-lens-mass}
 \end{figure*}
 
-\FloatBarrier
+% \FloatBarrier
 \subsection{Recovering object class}
 % CODE/PAPER REVIEW:
 % - Use Table~\ref{tab:compact-object-class-confusion} and
@@ -559,7 +523,7 @@ Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fi
     \label{fig:compact-object-class-confusion}
 \end{figure}
 
-\FloatBarrier
+% \FloatBarrier
 \subsection{Recovering orbital period}
 
 The orbital period strongly influences the shape of the RV curve. Not only that but it also determines the absolute RV at a given time post-lensing, because the photometric event tells us the orbital phase at a given time. In the circular-orbit limit the RV is zero at the lensing event and reaches an extremum half an orbit later; for the eccentric systems fitted here, eccentricity and periapsis phase shift the detailed RV shape and extrema. Measuring the change in RV, even over a parital orbit, therefore can tightly constrain the orbital period even for very long orbits.
@@ -592,7 +556,7 @@ RV accuracy does not appear to have a measurable effect. This =suggests that in 
 %     \label{fig:parameter-recovery-curves}
 % \end{figure*}
 
-\FloatBarrier
+% \FloatBarrier
 \subsection{Photometry-only fits vs joint fits}
 % CODE/PAPER REVIEW:
 % - Quantify the improvement from photometry-only prefit to joint RV+LC fit
@@ -652,7 +616,7 @@ Figure~\ref{fig:prefit-compact-object-class-by-lens-mass-range} shows the percen
 %   stellar-noise floor and the signal is often dominated by cadence/baseline
 %   and model constraints rather than the formal instrumental accuracy alone.
 
-\FloatBarrier
+% \FloatBarrier
 \subsection{Population-weighted follow-up}
 % CODE/PAPER REVIEW:
 % - Write this subsection as RV follow-up characterisation only, not as a
@@ -719,7 +683,7 @@ Figure~\ref{fig:prefit-compact-object-class-by-lens-mass-range} shows the percen
     \label{fig:population-weighted-mass-period-recovery}
 \end{figure*}
 
-\FloatBarrier
+% \FloatBarrier
 
 \section{Conclusions}
 % CODE/PAPER REVIEW:
@@ -740,31 +704,12 @@ The last numbered section should briefly summarise what has been done, and descr
 the final conclusions which the authors draw from their work.
 
 \section*{Acknowledgements}
-% CODE/PAPER REVIEW:
-% - Add acknowledgements for the external py-self-lensing/selflensing package,
-%   the source photometry simulation library, computing resources used for JAX
-%   MCMC runs, and any survey/instrument data products if applicable.
-
 The Acknowledgements section is not numbered. Here you can thank helpful
 colleagues, acknowledge funding agencies, telescopes and facilities used etc.
 Try to keep it short.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section*{Data Availability}
-% CODE/PAPER REVIEW:
-% - The code writes generated products under data/pristine_rv,
-%   data/realistic, data/fitted_timeseries.gz, data/fit_sampler_states, and
-%   data/figures, but those paths are not currently described here.
-% - The source photometry FITS files live outside this repository at an
-%   absolute local path in the code. The Data Availability statement needs to
-%   say where those simulations will be archived or how readers can reproduce
-%   them.
-% - The Python dependency py-self-lensing is referenced through a git+ssh URL
-%   in pyproject.toml, which is not reproducible for readers without access.
-%   Consider pinning a public commit/tag or archiving the exact code version.
-% - If sampler states are large and not archived, say which derived tables and
-%   plotting products are available instead.
-
 
 The inclusion of a Data Availability Statement is a requirement for articles published in MNRAS. Data Availability Statements provide a standardised format for readers to understand the availability of data underlying the research results described in the article. The statement may refer to original data generated in the course of the study or to third-party data analysed in the article. The statement should describe and provide means of access, where possible, by linking to the data or providing the required accession numbers for the relevant databases or DOIs.
 
