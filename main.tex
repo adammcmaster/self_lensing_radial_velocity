@@ -114,25 +114,15 @@ $^{3}$Another Department, Different Institution, Street Address, City Postal Cod
 %%%%%%%%%%%%%%%%% BODY OF PAPER %%%%%%%%%%%%%%%%%%
 
 \section{Introduction}
-% CODE/PAPER REVIEW:
-% - The "handful of RV measurements" claim should be tied to the final results
-%   wording: distinguish accurate lens-mass recovery at the 10 per cent level
-%   from recovery of orbital period/semi-major axis and from broad compact
-%   object classification.
-% - Once the Results prose settles, make the Introduction preview consistent:
-%   the current snapshot supports very high purity for fitted BH classifications
-%   and good recovery of $a$/$P_\mathrm{orb}$, but not 80 per cent recovery of
-%   $M_\mathrm{acc}$ under the strict 10 per cent criterion.
-
-Self-lensing systems binary systems which are close to being edge-on, consisting of a star in orbit with a compact object. With an appropriate separation distance, the Einstein radius of the compact object can be larger than its surface radius, and if the orbital inclination is close enough to $\frac{1}{2}\pi$ this can result in a measurable microlensing amplification of the stellar flux once per orbit.
+Self-lensing systems are binary systems which are close to being edge-on, consisting of a star in orbit with a compact object. With an appropriate separation distance, the Einstein radius of the compact object can be larger than its surface radius, and if the orbital inclination is close enough to $\frac{1}{2}\pi$ this can result in a measurable microlensing amplification of the stellar flux once per orbit.
 
 To date, five self-lensing binaries have been confirmed, each containing a white dwarf-stellar binary, all of which have relatively close, short-period orbits. However, it is expected that stellar-compact object binaries should span the full range of masses of such objects, as well as the full range of orbital configurations.
 
-photometry remains the best way to detect self-lensing binaries, and previous works have assessed the detectability of self-lensing binaries in various photometric surveys. These results look promising, with modern all-sky surveys expected to imminently uncover a population of compact objects in self-lensing binaries, including the previously unstudied population of quiescent black holes.
+Photometry remains the best way to detect self-lensing binaries, and previous works have assessed the detectability of self-lensing binaries in various photometric surveys (\textbf{TODO: Add citations}). These results look promising, with modern all-sky surveys expected to imminently uncover a population of compact objects in self-lensing binaries, including the currently under-studied population of quiescent black holes.
 
 While detection of self-lensing systems with photometry alone has been demonstrated, modelling of such systems and characterisation of the compact component is subject to numerous degeneracies between the physical parameters which prevent the mass from being determined unless the star's radial velocity can be measured. For short-period binaries it should be possible to derive a photometric RV by modelling Doppler boosting (CITATIONS, including COBALT-BLUE), but for systems with no detectable Doppler boosting effect, spectroscopic observations are required.
 
-In this work, we therefore consider the question of how many spectroscopic RV measurements are required, and at what level of precision, in order to correctly model the self-lensing system parameters, as a function of those parameters, including systems with orbital periods on the order of centuries. This will inform observing strategies for follow-up of the large number of candidates expected to come from new surveys, allowing the most efficient use of resources by not obtaining more observations than necessary.
+In this work, we therefore consider the question of how many spectroscopic RV measurements are required, and at what level of precision, in order to correctly model the self-lensing system parameters, as a function of those parameters, including systems with orbital periods on the order of centuries. This will inform observing strategies for follow-up of the large number of candidates expected to come from new surveys, allowing the most efficient use of resources by not obtaining more observations than necessary. We also consider the usefulness of photometric-only fitting to guide RV observing strategy.
 
 % We present a systematic method for planning an observing campaign, determining the timing and number of observartions required for successful modelling, based on the amplitufe, microlensing event duration, and peak timing/orbital phase.
 
@@ -144,26 +134,30 @@ In this work, we therefore consider the question of how many spectroscopic RV me
 %     \item Combine these results with previous population synthesis results to determine how many such systems could be discovered by each instrument/strategy. \textbf{We maybe don't need to do this if we determine we can recover \textit{everything}?}
 % \end{enumerate}
 
-We take a library of simulated TESS photometry of self-lensing systems (which was produced as part of work to be published in a separate paper, currently in prep), and generate simulated radial velocity curves for the same input parameters. We simulate a range of observing strategies, varying observing campaign duration (baseline), frequency of observations (cadence), and accuracy of RV measruements. We then fit a self-lensing model jointly to the photometry and radial velocity curves to attempt to recover the physical properties of each self-lensing system (the lens mass, semi-major axis, inclination angle, eccentricity, and periapsis phase angle). We assume the stellar properties (mass, radius effective temperature, and distance from Earth) are known.
+We take a library of simulated TESS photometry of self-lensing systems (which was produced as part of work to be published in a separate paper, currently in prep), and generate simulated radial velocity curves for the same input parameters. We simulate a range of observing strategies, varying observing campaign duration (baseline), frequency of observations (cadence), and accuracy of RV measruements. We then fit a self-lensing model to attempt to recover the physical properties of each self-lensing system (the lens mass, semi-major axis, inclination angle, eccentricity, and periapsis phase angle). We assume the stellar properties (mass, radius, effective temperature, and distance from Earth) are known.
 
-We will show that it is possible to model very long period self-lensing binaries with a handful of RV measurements. Photometric-only fits can come close to determining the properties, and the photometry gives us the orbital phase and narrows down the inclination, so that we don't need many RV measurements to fit everything.
+We will show that it is possible to accurately model very long period self-lensing binaries with a handful of RV measurements. In many cases, photometric-only fits can come close to determining the properties, so that we don't need many RV measurements to fit the parameters accurately.
 
-The main distinguishing feature of self-lensing vs microlensing is the periodicity of the lensing flares. To claim photometric discovery of a self-lensing system, ideally we would aim to detect this periodicity.
+The main distinguishing feature of self-lensing vs microlensing is the periodicity of the lensing flares. To claim photometric discovery of a self-lensing system, ideally we would aim to detect this periodicity. We show that self-lensing can be confirmed even when periodicity can not be observed.
 
 It's worth really stressing how unique self-lensing binaries are when it comes to determining the lens mass. Spectroscopically, they're like SB1s but with the possibility of jointly fitting photometry. They're to SB1s as eclipsing binaries are to SB2s. The photometry can possibly give us the orbital period, and a single event gives us information about the orbital configuration and lens mass via the amplitude, duration, and shape of the lensing curve. By including limb darkening in the model, we potentially learn even more about the semi-major axis, as limb darkening effects will be more pronounced for closer orbits.
 
 \section{Methods}
 
-The aim of this work is to quantitfy the observational requirements for radial velocity (RV) meadurements that will allow us to determine the lens mass and orbital configuration of self-lensing binary candidates discovered via our ongoing photometric search. WE investigate the relationship between observing cadence, observing campaign duration (baseline), and accuracy of RV measurements, and the rate of recovery of phyiscal parameters as a fuction of lens mass. We investigate recovery rate by both accurate lens mass (determined to within 10\% of the true value) and broad compact object class (i.e. distinguishing black holes from other compact objects even if the recovered mass deviates from the true mass by more than 10 \%).
+The aim of this work is to quantitfy the observational requirements for radial velocity (RV) meadurements that will allow us to determine the lens mass and orbital configuration of self-lensing binary candidates discovered via our ongoing photometric search. We investigate the relationship between observing cadence, observing campaign duration (baseline), and accuracy of RV measurements, and the rate of recovery of phyiscal parameters as a fuction of lens mass. We investigate recovery rate by both accurate lens mass (determined to within 10\% of the true value) and broad compact object class (i.e. distinguishing black holes from other compact objects even if the recovered mass deviates from the true mass by more than 10\%).
 
-We use as the basis of this work a library of self-lensing photometric simulations produced in another work. These simulations are described in brief in Section~\ref{sec:phot-sims}. A full description of how these were generated will be published in a future work (currently in prep). The photometric simulations are loaded and then radial velocity measurements are simulated for the same set of simulation parameters (Section~\ref{sec:rv-sims}). The RV simulations are then sampled according to a range of observign schedules, and Gaussian noise is added to simnulate a range of spectrograph accuracies (Section~\ref{sec:rv-realistic}). An MCMC fit is then performed to find the self-lensing physical parameters which jointly best fit the photometry and RV (Section~\ref{sec:fitting}). We then aggregate the recovery rates across observing parameters and self-lensing physical parameters to investigate the effect of each parameter on the recovery rate.
+We use as the basis of this work a library of self-lensing photometric simulations. The full library of simulations actually includes both lensing and non-lensing light curves. For this work, we select only the ``lensing'' subset from the library of simulations; i.e. we use only the simulated light curves which contain visible lensing peaks, where the peak amplitude is larger than the photometric noise. This subset excludes systems overflowing their Roche lobe and any systems where lensing is not geometrically possible. These simulations are described in brief in Section~\ref{sec:phot-sims}. A full description of how these were generated, including the simnulations not used in the present work, will be published in a future work (currently in prep).
+
+The radial velocity measurements are simulated for the same set of simulation parameters as the photometry (Section~\ref{sec:rv-sims}). The RV simulations are then sampled according to a range of observign schedules, and Gaussian noise is added to simnulate a range of spectrograph accuracies (Section~\ref{sec:rv-realistic}). An MCMC fit is then performed to find the self-lensing physical parameters which jointly best fit the photometry and RV (Section~\ref{sec:fitting}). We then aggregate the recovery rates across observing parameters and self-lensing physical parameters to investigate the effect of each parameter on the recovery rate.
+
+Finally, we map the recovery rates onto previous population synthesis results to estimate the numbers of self-lensing systems which can be confirmed following detection in various photometric surveys (Section~\ref{sec:pop-synth}).
 
 \subsection{Photometric simulations} \label{sec:phot-sims}
 We note that the photometric model described here is similar to the recently published COBALT-BLUE model \citep{...}, but uses a simpler approximation to the full photometric forward model. Compared with COBALT-BLUE, our model adopts a local approximation to the eccentric self-lensing geometry and lower-order treatments of Doppler boosting and ellipsoidal variability, while adding the spectroscopic radial-velocity component needed to study the recovery of lens mass and other physical parameters. We anticipate combining the two models in a future work.
 
-These simulations comprise a sample of self-lensing system parameters which is physically complete (i.e. covering the full plausible range of physical parameters) but not realistic (i.e. parameters are not sampled according to the frequency they are expected to occur in nature). This is ideal as the basis for determining the ranges of parameters which produce self-lensing effects which are detectable, independent of how common or uncommon particular parameter ranges are expected to be.
+These simulations comprise a sample of self-lensing system parameters which is physically complete (i.e. covering the full plausible range of physical parameters) but not physically realistic (i.e. parameters are not sampled according to the frequency they are expected to occur in nature). This is ideal as the basis for determining the ranges of parameters which produce self-lensing effects which are detectable, independent of how common or uncommon particular parameter ranges are expected to be.
 
-The library of simulations includes realistic simulated TESS light curves (including stellar noise generated with a Gaussian process) for each sample self-lensing system, stored alongside the original parameter values. When generating the simulations, the parameter values were sampled uniformly between the following limits, with the exception of semi-major axis and eccentricity which are sampled on a log scale to favour smaller values:
+The photometric simulations comprise realistic simulated TESS light curves (including stellar noise generated with a Gaussian process) for each sample self-lensing system. When generating the simulations, the parameter values were sampled uniformly between the following limits given in Table~\ref{tab:phot_sim_parameter_ranges}, with the exception of semi-major axis and eccentricity which are sampled on a log scale to favour smaller values.
 
 \begin{table}
     \centering
@@ -184,8 +178,6 @@ The library of simulations includes realistic simulated TESS light curves (inclu
     \end{tabular}
 \end{table}
 
-The full library of simulations actually includes both lensing and non-lensing light curves. For this work, we select only the ``lensing'' subset from the library of simulations; i.e. we use only the simulated light curves which contain visible lensing peaks, where the peak amplitude is larger than the photometric noise. This subset excludes systems overflowing their Roche lobe and any systems where lensing is not geometrically possible.
-
 Three photometric effects are included when generating the light curves: self-lensing, ellipsoidal variations, and Doppler boosting. At small values of $a$ the light curve is dominated by ellipsoidal variations and Doppler boosting (though lensing is often visible too); at large $a$ lensing is dominant, with ellipsoidal variation and Doppler boosting tending to zero as $a$ increases.
 
 Calculation of self-lensing magnifications is performed using the finite-source point-lens formalism of \cite{witt_can_1994}. We use the Einstein radius and impact-parameter convention of \cite{wiktorowicz_predicting_2021}, generalised from the circular-orbit case by replacing the orbital separation with the instantaneous Keplerian lens-source separation,
@@ -196,7 +188,7 @@ Calculation of self-lensing magnifications is performed using the finite-source 
     \quad
     b_\mathrm{max} = 1 + \frac{R_\star}{R_\mathrm{E}},
 \end{equation}
-where $t_0$ is the time of maximum lensing magnification and $r(t_0)$ is the lens-source separation at that time. For a circular orbit, $r(t_0)=a$ and this reduces to the expression used by \cite{wiktorowicz_predicting_2021}. We define the orbital phase relative to $t_0$ as the true orbital longitude, using the true anomaly $\nu(t)$,
+where $t_0$ is the time of maximum lensing magnification, $r(t_0)$ is the lens-source separation at that time, $a$ is the semi-major axis, $e$ is the eccentricity, and $\omega$ is the phase angle of periapsis relative to $t_0$. . For a circular orbit, $r(t_0)=a$ and this reduces to the expression used by \cite{wiktorowicz_predicting_2021}. We define the orbital phase relative to $t_0$ as the true orbital longitude, using the true anomaly $\nu(t)$,
 \begin{equation}
     \phi(t) = \omega + \nu(t),
 \end{equation}
@@ -217,7 +209,7 @@ with $\mathcal{M}_0$ chosen such that $\phi(t_0)=0$. For this orbital phase, the
     \frac{a(1 - e^2)}
     {1 + e\cos[\phi(t) - \omega]}.
 \end{equation}
-Here $a$ is the semi-major axis, $e$ is the eccentricity, and $\omega$ is the phase angle of periapsis relative to $t_0$. The projected lens-source separation in Einstein-radius units is
+The projected lens-source separation in Einstein-radius units is
 \begin{equation}
     u(t) = \frac{1}{R_\mathrm{E}}
     \left[
@@ -249,7 +241,7 @@ where $K$, $E$, and $\Pi$ are complete elliptic integrals of the first, second, 
 \end{align}
 with the same limb-darkening coefficient $\gamma=0.6$ used below for the ellipsoidal-variation term.
 
-Calculation of ellipsoidal variations and Doppler boosting are adapted from \cite{sorabella_modeling_2022}, with the orbital separation generalised to the eccentric case. The ellipsoidal-variation term is
+\textbf{TODO: Check/explain how this is different to how e is handled in Sorabella} Calculation of ellipsoidal variations and Doppler boosting are adapted from \cite{sorabella_modeling_2022}, with the orbital separation generalised to the eccentric case. The ellipsoidal-variation term is
 \begin{align}
     A_\mathrm{EV}(t) & =
     -\beta
@@ -273,17 +265,17 @@ where $\nu_\mathrm{TESS}$ is the TESS-band effective frequency and $v_r(t)$ is t
 \begin{equation}
     F(t) = F_0 A_\mathrm{SL}(t)\left[1 + A_\mathrm{EV}(t) + A_\mathrm{DB}(t)\right].
 \end{equation}
-These effects all depend on the orbital phase at a given time during the simulation. The zero point for this is defined as the moment of maximum lensing magnification (i.e. the time of minimum projected separation between source and lens, $t_0$). The periapsis phase angle is defined in terms of this zero point; i.e. the phase angle at which periastron passage occurs, relative to the position at $t_0$. The source-lens distance is calculated for each time according to the phase angle at that time, meaning the source-lens distance changes during the microlensing event according to the eccentricity. Strictly speaking, the Einstein ring radius should also change as a function of orbital phase, but this is not accounted for in the present work. Instead, the radius at $t_0$ is used for all calculations.
+\textbf{TODO: Redundant? Cut or move up} These effects all depend on the orbital phase at a given time during the simulation. The zero point for this is defined as the moment of maximum lensing magnification (i.e. the time of minimum projected separation between source and lens, $t_0$). The periapsis phase angle is defined in terms of this zero point; i.e. the phase angle at which periastron passage occurs, relative to the position at $t_0$. The source-lens distance is calculated for each time according to the phase angle at that time, meaning the source-lens distance changes during the microlensing event according to the eccentricity. Strictly speaking, the Einstein ring radius should also change as a function of orbital phase, but this is not accounted for in the present work. Instead, the radius at $t_0$ is used for all calculations.
 
 For a sufficiently close binary, a self-lensing system would be indistinguishable from a binary undergoing ellipsoidal variations with no self-lensing effect, since the lensing magnification would so small as to be undetectable. Indeed the only physical difference is the angle of inclination; there is no inherent difference between the two classes of system. In this work we consider only systems which are are close enough to edge-on to create a lensing effect.
 
-All simulated light curves start at 1 January 2025 and end at 27 January 2025. The peak time, i.e. $\phi = 0$, is randomly selected for each light curve to fall somewhere between this time window.
+All simulated light curves start at 1 January 2025 and end at 27 January 2025. The peak time, $t_0$, is randomly selected for each light curve to fall somewhere between this time window.
 
 \subsection{Radial velocity simulations} \label{sec:rv-sims}
 
 The simulated RV curves start at randomised times between 1 year and 10 years from the end of the photometry. This is to simulate a realistic delay in identifying candidates in the photometry and organising follow-up of those candidates.
 
-The RV simulations use the same physical parameters and phase convention as the photometric simulations. Let $\nu(t)=\phi(t)-\omega$ be the true anomaly relative to periapsis, $\mu=G(M_\mathrm{lens}+M_\star)$, and $h=[\mu a(1-e^2)]^{1/2}$. The source-star barycentric radial and tangential orbital-velocity components are
+The RV simulations use the same physical parameters and phase convention as the photometric simulations. Let $\mu=G(M_\mathrm{lens}+M_\star)$, and $h=[\mu a(1-e^2)]^{1/2}$ (\textbf{TODO: Fix dupe use of $\mu$}). The source-star barycentric radial and tangential orbital-velocity components are
 \begin{align}
     v_{\mathrm{rad},\star}(t) & =
     \frac{M_\mathrm{lens}}{M_\mathrm{lens}+M_\star}
@@ -308,9 +300,7 @@ This reduces to the circular-orbit convention $v_r(t)\propto\sin\phi(t)$ when $e
 
 We generate baseline RV curves which contain one RV measurement per day for five years from the start time.
 
-\subsection{Simulated realistic observations} \label{sec:rv-realistic}
-
-We sample the baseline RV curves to create more realistic RV observations, also adding Gaussian noise to simulate varying instrument accuracies. Each RV curve is resampled using every combination of the parameters in Table~\ref{tab:realistic_observing_grid}, giving $3 \times 3 \times 5 = 45$ realistic observing configurations per pristine simulation. We do not attempt to simulate fully realistic observing (with observing seasons, seeing, varying weather conditions, etc.) as we are mainly interesrted in measuring the effects of instrument selection, total length of observations, and number of observations.
+We sample the baseline RV curves to create more realistic RV observations, also adding Gaussian noise to simulate varying instrument accuracies. Each RV curve is resampled using every combination of the parameters in Table~\ref{tab:realistic_observing_grid}, giving $3 \times 3 \times 5 = 45$ realistic observing configurations per baseline simulation. We do not attempt to simulate fully realistic observing (with observing seasons, seeing, varying weather conditions, etc.) as we are mainly interesrted in measuring the effects of instrument selection, total length of observations, and number of observations.
 
 \begin{table}
     \centering
@@ -367,8 +357,6 @@ The quantity sampled by the MCMC is then the sum of these terms plus the paramet
 
 Before running the full joint fit, a photometry-only prefit is run for each simulated light curve (1,000 steps) and the walker state from this is used as the initial walker state for the 45 joint fits (an additional 1,000 steps). For computational efficiency, the joint fits are run as simultaneous vecotrised fits on a GPU.
 
-In both the prefit and the joint fits, the photometry is truncated to a window centred on the self-lensing peak time, from $t_0 - \tau_\mathrm{eff}$ to $t_0 + \tau_\mathrm{eff}$. This gives a total window width of $2\tau_\mathrm{eff}$, which is divided into 100 equal-width bins of size $2\tau_\mathrm{eff}/100$.
-
 \subsection{Combining with pop synthesis} \label{sec:pop-synth}
 In order to inform expecations about how many self-lensing systems might be correctly characterised as a result of detection in modern photometric surveys, we seek to combine our estimates of the recoverability of the physical properties of self-lensing systems with the detectability estimates of \cite{wiktorowicz_predicting_2021}. One important difference between \cite{wiktorowicz_predicting_2021} and the present work is that they use population synthesis to generate a physically plausible distribution of physical properties, as the basis for simulating the total number of detectable systems observed by each photometric survey. In the present work, we do not simulate a physically representative distribution of parameters, because our primary aim is to explore the ability to recover those parameters regardless of how common a given configuration will be in the galaxy. In other words, we want to simulate very rare configurations as thoroughly as more common ones. We are also concerned only with characterisation of lenses/recovery of physical parameters via spectrocopic RV measurements after detection in photometry, while \cite{wiktorowicz_predicting_2021} investigates photometric detectability.
 
@@ -404,99 +392,53 @@ where $q_i$ is the measured RV outcome and $v_i$ indicates whether that neighbou
 
 
 \section{Results and discussion}
-% CODE/PAPER REVIEW:
-% - The new overview explains the 10 per cent recovery metric, but also define
-%   the 80 per cent success threshold before Table~\ref{tab:rv-accuracy-requirements}.
-% - The current snapshot has a non-monotonic dependence on instrumental RV
-%   accuracy in some panels. Before making a physical claim, check whether this
-%   comes from the partial sample, stochastic fitting/noise realisations,
-%   convergence issues, or the fixed 10 m/s stellar-noise floor.
-% - Discuss degeneracies visible in the fitted parameters, especially a--Macc,
-%   inclination/impact parameter, eccentricity/periapsis phase, and the limits
-%   of deriving very long orbital periods from short RV baselines.
-% - Discuss whether realistic survey cadence, candidate-discovery delay, and
-%   instrument-specific precision should replace or supplement the current
-%   simple grid.
+We evaluate the fits based on their ability to recover the true simulated parameters, with partocular interest in lens mass and orbital period. The following subsections evaluate the fitting results in terms of recovering the accurate lens mass (we adopt a threshold of 10\% to denote ``accurate'' recovery), recovering the correct compact object class regardless of the accuracy of the fitted mass (i.e. can we distinguish black holes from white dwarfs and neutron stars, as this distinction affects plannign for further followup observations; we adopt four object categories: white dwarfs/neutron stars, BH mass gap, lower mass BH, and higher mass BH), recovering the accurate orbital period (using the same 10\% threshold as the lens mass), and then we evaluate the efficacy of fitting photometry alone versus jointly fitting photometry and RV, assessing how few RV measurements are required to achieve the desired recovery accuracy. Finally we use these results to emulate recovery rates for the sythesised population from \cite{wiktorowicz_predicting_2021}, to estimate the number of detected systems which can be correctly characterised for each survey.
 
+It is worth noting that these results represent an ideal best case scenario for obtaining followup observations. We aim to assess a representative range of observing schedules, rather than rigorously simulating realistic observations. We do not account for observing seasons, we assume every target is always observable, we do not simnulate weather or bad seeing, and we assume only a simple model of noise in the RV measurements (varying amounts of Gaussian noise to simulate spectrograph accuracy, ranging from sub-metre per second accuracy up to kilometre per second accuracy, to represent the range of spectrograph facilities currenty available), plus a fixed 10 m/s Gaussian stellar noise). We also assume the exact time of the lensing peak ($t_0$) is known precisely, along iwth the properties of the stellar companion (mass, radius, effective temperature, and distance from Earth); in practice these would all be subject to some amount of uncertainty.
 
-We evaluate the fits based on their ability to recover the true simulated parameters, with partocular interest in lens mass and orbital period. Note that orbital period is not one of the model parameters (our Keplerian self-lensing model includes only the fudamental phsyical properties of the binary), but is derived here from the fitted lens mass and semi-major axis. Fitting the physical properies makes the most sense when modelling the lensing effect, while orbital period is significant when planning RV observations.
+% \input{paper/tables/sample_summary}
 
-The following subsections evaluate the fitting results in terms of recovering the accurate lens mass (we adopt a threshold of 10\% to denote ``accurate'' recovery), recovering the correct compact object class regardless of the accuracy of the fitted mass (i.e. can we distinguish black holes from white dwarfs and neutron stars, as this distinction affects plannign for further followup observations; we adopt four object categories: white dwarfs/neutron stars, BH mass gap, lower mass BH, and higher mass BH), recovering the accurate orbital period (using the same 10\% threshold as the lens mass), and then finally we evaluate the efficacy of fitting photometry alone versus jointly fitting photometry and RV, assessing how few RV measurements are required to achieve the desired recovery accuracy.
-
-It is owrth noting that these results represent an ideal best case scenario for obtaining followup observations. We aim to assess a representative range of observing schedules, rather than rigorously simulating realistic observations. We do not account for observing seasons, we assume every target is always observable, we do not simnulate weather or bad seeing, and we assume only a simple model of noise in the RV measurements (varying amounts of Gaussian noise to simulate spectrograph accuracy, ranging from sub-metre per second accuracy up to kilometre per second accuracy, to represent the range of spectrograph facilities currenty available), plus a fixed 10 m/s Gaussian stellar noise). We also assume the exact time of the lensing peak ($t_0$) is known precisely, along iwth the properties of the stellar companion (mass, radius, effective temperature, and distance from Earth); in practice these would all be subject to some amount of uncertainty.
-
-\input{paper/tables/sample_summary}
-
-% \FloatBarrier
 \subsection{Lens mass recovery}
-% CODE/PAPER REVIEW:
-% - For Figure~\ref{fig:mass-recovery-by-strategy}, the main prose should say
-%   that longer baselines and more RV measurements improve median mass accuracy,
-%   but that no grid strategy in the current snapshot reaches the 80 per cent
-%   success threshold for $M_\mathrm{acc}$ under the strict 10 per cent
-%   relative-error criterion.
-% - Decide whether to keep Figure~\ref{fig:mass-recovery-by-strategy}; if it
-%   stays, use it only as the broad strategy summary and let the binned figures
-%   carry the mass-dependent interpretation.
-% - Mention that high-mass lenses are much easier to recover, and that the
-%   low-mass and mass-gap bins contain far fewer systems than the black-hole
-%   bins.
-% - Use Figure~\ref{fig:lens-mass-relative-error-by-lens-mass} to separate
-%   typical performance from scatter: the median relative error can be below
-%   10 per cent even when the recovery fraction remains well below 80 per cent
-%   because the error distribution has a broad upper tail.
 
-\begin{figure*}
-    \centering
-    \includegraphics[width=\textwidth]{paper/figures/mass_recovery_by_strategy.pdf}
-    \caption{Snapshot lens mass recovery fraction across the fitted observing-strategy grid. A system is counted as recovered when $|\Delta M_\mathrm{acc}|/M_\mathrm{acc} \leq 0.1$. Separate panels show the observing baselines, with cadence on the vertical axis and instrumental RV accuracy on the horizontal axis; cell values give the percentage of fitted systems recovered for each strategy.}
-    \label{fig:mass-recovery-by-strategy}
-\end{figure*}
+% \begin{figure*}
+%     \centering
+%     \includegraphics[width=\textwidth]{paper/figures/mass_recovery_by_strategy.pdf}
+%     \caption{Lens mass recovery fraction across the fitted observing-strategy grid. A system is counted as recovered when $|\Delta M_\mathrm{acc}|/M_\mathrm{acc} \leq 0.1$. Separate panels show the observing baselines, with cadence on the vertical axis and instrumental RV accuracy on the horizontal axis; cell values give the percentage of fitted systems recovered for each strategy.}
+%     \label{fig:mass-recovery-by-strategy}
+% \end{figure*}
 
-Figure~\ref{fig:mass-recovery-by-strategy} Not sure this will stay in. Shows that shorter cadences and longer baselines improve recovery, though suggests if the baseline is long enough then the recovery is less susceptible to cadence. Averaging the results at such a high level loses a lot of the detail which is shown in Figure~\ref{fig:lens-mass-recovery-by-lens-mass}; probably better to only include the other figure.
+% Figure~\ref{fig:mass-recovery-by-strategy} Not sure this will stay in. Shows that shorter cadences and longer baselines improve recovery, though suggests if the baseline is long enough then the recovery is less susceptible to cadence. Averaging the results at such a high level loses a lot of the detail which is shown in Figure~\ref{fig:lens-mass-recovery-by-lens-mass}; probably better to only include the other figure.
 
-\input{paper/tables/mass_recovery_by_strategy}
+% \input{paper/tables/mass_recovery_by_strategy}
 
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/lens_mass_recovery_by_lens_mass.pdf}
-    \caption{Snapshot lens mass recovery fraction as a function of the true lens mass, using the same $|\Delta M_\mathrm{acc}|/M_\mathrm{acc} \leq 0.1$ recovery criterion as Figure~\ref{fig:mass-recovery-by-strategy}. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against fixed true lens-mass ranges.}
+    \caption{Lens mass recovery fraction as a function of the true lens mass, using the same $|\Delta M_\mathrm{acc}|/M_\mathrm{acc} \leq 0.1$ recovery criterion as Figure~\ref{fig:mass-recovery-by-strategy}. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against fixed true lens-mass ranges.}
     \label{fig:lens-mass-recovery-by-lens-mass}
 \end{figure*}
 
-Figure~\ref{fig:lens-mass-recovery-by-lens-mass}:
-\begin{itemize}
-    \item Higher masses are recovered more reliably.
-    \item Baseline makes some difference, but cadence makes a huge differec.e
-    \item The ideal is a high cadence for as long as possible.
-\end{itemize}
+Figure~\ref{fig:lens-mass-recovery-by-lens-mass}: shows that higher masses are recovered more reliably. Baseline also has a noticable effect, with longer observing baselines improving recovery rates. Observing cadence also has a large effect, with more frequent observations improving parameter recovery, epecially for shorter baselines. In other words, obsving more often is more effective than observing for longer. What seems to matter is the number of observations more than how spread out they are in time. RV accuracy seems to matter less; the least accurate spectrograph is more or less the same as the most accurate.
 
-\begin{figure*}
-    \centering
-    \begin{minipage}{0.49\textwidth}
-        \centering
-        \includegraphics[width=\textwidth]{paper/figures/lens_mass_relative_error_by_lens_mass.pdf}
-        \small (a) Median relative error.
-    \end{minipage}
-    \hfill
-    \begin{minipage}{0.49\textwidth}
-        \centering
-        \includegraphics[width=\textwidth]{paper/figures/lens_mass_relative_error_iqr_by_lens_mass.pdf}
-        \small (b) Interquartile range.
-    \end{minipage}
-    \caption{Snapshot lens-mass relative-error distribution as a function of the true lens mass. Panel (a) shows the median $|\Delta M_\mathrm{acc}|/M_\mathrm{acc}$ in per cent for each fitted subset, while panel (b) shows the interquartile range of the same relative-error distribution. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against fixed true lens-mass ranges.}
-    \label{fig:lens-mass-relative-error-by-lens-mass}
-\end{figure*}
+% \begin{figure*}
+%     \centering
+%     \begin{minipage}{0.49\textwidth}
+%         \centering
+%         \includegraphics[width=\textwidth]{paper/figures/lens_mass_relative_error_by_lens_mass.pdf}
+%         \small (a) Median relative error.
+%     \end{minipage}
+%     \hfill
+%     \begin{minipage}{0.49\textwidth}
+%         \centering
+%         \includegraphics[width=\textwidth]{paper/figures/lens_mass_relative_error_iqr_by_lens_mass.pdf}
+%         \small (b) Interquartile range.
+%     \end{minipage}
+%     \caption{Lens mass relative-error distribution as a function of the true lens mass. Panel (a) shows the median $|\Delta M_\mathrm{acc}|/M_\mathrm{acc}$ in per cent for each fitted subset, while panel (b) shows the interquartile range of the same relative-error distribution. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against fixed true lens-mass ranges.}
+%     \label{fig:lens-mass-relative-error-by-lens-mass}
+% \end{figure*}
 
-% \FloatBarrier
 \subsection{Recovering object class}
-% CODE/PAPER REVIEW:
-% - Use Table~\ref{tab:compact-object-class-confusion} and
-%   Figure~\ref{fig:compact-object-class-confusion} to support claims about
-%   fitted-class purity, especially the false-positive rate for fitted
-%   black-hole classifications.
-
-While the ultimate goal of our observing campaign will be to accurately measure tge lens mass and other physical properties of th epopulation of self-lensing systems, we anticipate having to grapple with many orders of magnitude more false positives than true self-lensing systems. This situation will therefore require an informed, systematic way of triaging and prioritising taregts for followup. The volume of false positives is anticipated to be so large that we will want to obtain as few observations of each target as possible in order to characterise what type of compact object the lens is (or, indeed, whether each tatget is even a self-lensing system to begin with). in the present work we assume every target is \textit{some} kind of selflensing system, but even with that assumption, some classes of object will be more astrophysically interesting than others, and some will require more or fewer observations in order to confirm.
+While the ultimate goal of our observing campaign will be to accurately measure the lens mass and other physical properties of the population of self-lensing systems, we anticipate having to grapple with many orders of magnitude more false positives than true self-lensing systems. This situation will therefore require an informed, systematic way of triaging and prioritising taregts for followup. The volume of false positives is anticipated to be so large that we will want to obtain as few observations of each target as possible in order to characterise what type of compact object the lens is (or, indeed, whether each tatget is even a self-lensing system to begin with). in the present work we assume every target is \textit{some} kind of selflensing system, but even with that assumption, some classes of object will be more astrophysically interesting than others, and some will require more or fewer observations in order to confirm.
 
 It is therefore informative to know whether we can accurately predict the \textit{class} of the lens, even in cases where we can not accurately predict the mass. Being able to do so will allow us to allocate resources accordingly when we plan follow-up observations.
 
@@ -505,90 +447,63 @@ We adopt the following mass bins and object classes: $<3 \text{ M}_\odot$ (white
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/lens_mass_class_recovery_by_lens_mass.pdf}
-    \caption{Snapshot compact-object class recovery fraction as a function of the true lens mass. A system is counted as recovered when the fitted mass falls in the same compact-object mass bin as the true mass, using $M_\mathrm{acc}<3\,M_\odot$ for white dwarf or neutron-star lenses, $3 \leq M_\mathrm{acc}/M_\odot < 5$ for the mass gap, $5 \leq M_\mathrm{acc}/M_\odot < 20$ for lower-mass black holes, and $20 \leq M_\mathrm{acc}/M_\odot < 50$ for higher-mass black holes. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against fixed true lens-mass ranges.}
+    \caption{Compact-object class recovery fraction as a function of the true lens mass. A system is counted as recovered when the fitted mass falls in the same compact-object mass bin as the true mass, using $M_\mathrm{acc}<3\,M_\odot$ for white dwarf or neutron-star lenses, $3 \leq M_\mathrm{acc}/M_\odot < 5$ for the mass gap, $5 \leq M_\mathrm{acc}/M_\odot < 20$ for lower-mass black holes, and $20 \leq M_\mathrm{acc}/M_\odot < 50$ for higher-mass black holes. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against fixed true lens-mass ranges.}
     \label{fig:lens-mass-class-recovery-by-lens-mass}
 \end{figure*}
 
 
-Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fitted mass will land in the right object class, rather than whether the mass is correct to within some arbitrary threshold, the results look very promising. Even with just two RV measurements (baseline=1, cadence=300) we can be confident that a system with a fitted mass over 5 solar masses will in fact be a balck hole, even if the fitted mass has a large error. This can inform our priorities when planning observations; we can choose to obtain additional observations of targets with fitted masses that fall in the WD/NS range or in the mass gap, and/or we can treat higher mass systems as confirmed with fewer observations.
+\textbf{TODO: Rewrite this and add something about how obs strategy affects the classification} Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass}: If we ask whether the fitted mass will land in the right object class, rather than whether the mass is correct to within some arbitrary threshold, the results look very promising. Even with just two RV measurements (baseline=1, cadence=300) we can be confident that a system with a fitted mass over 5 solar masses will in fact be a balck hole, even if the fitted mass has a large error. This can inform our priorities when planning observations; we can choose to obtain additional observations of targets with fitted masses that fall in the WD/NS range or in the mass gap, and/or we can treat higher mass systems as confirmed with fewer observations.
 
+\textbf{TODO: Add something about Figure~\ref{fig:compact-object-class-confusion}, or is it not needed?}
 
-
-\input{paper/tables/compact_object_class_confusion}
+% \input{paper/tables/compact_object_class_confusion}
 
 \begin{figure}
     \centering
     \includegraphics[width=\linewidth]{paper/figures/compact_object_class_confusion.pdf}
-    \caption{Snapshot compact-object class confusion matrix for the joint photometry plus RV fits. Rows are defined by the class inferred from the fitted lens mass, columns show the true compact-object class, and each cell gives the row-normalised percentage with the number of fitted rows in parentheses.}
+    \caption{Compact-object class confusion matrix for the joint photometry plus RV fits. Rows are defined by the class inferred from the fitted lens mass, columns show the true compact-object class, and each cell gives the row-normalised percentage with the number of fitted rows in parentheses.}
     \label{fig:compact-object-class-confusion}
 \end{figure}
 
-% \FloatBarrier
 \subsection{Recovering orbital period}
 
-The orbital period strongly influences the shape of the RV curve. Not only that but it also determines the absolute RV at a given time post-lensing, because the photometric event tells us the orbital phase at a given time. In the circular-orbit limit the RV is zero at the lensing event and reaches an extremum half an orbit later; for the eccentric systems fitted here, eccentricity and periapsis phase shift the detailed RV shape and extrema. Measuring the change in RV, even over a parital orbit, therefore can tightly constrain the orbital period even for very long orbits.
+The orbital period strongly influences the shape of the RV curve. Not only that but it also determines the absolute RV at a given time, because the photometric event tells us the orbital phase at a given time. In the circular-orbit limit the RV is zero at the lensing event and reaches an extremum half an orbit later; for the eccentric systems fitted here, eccentricity and periapsis phase shift the detailed RV shape and extrema. Measuring the change in RV, even over a parital orbit, therefore can tightly constrain the orbital period even for very long orbits.
 
-% - Mention the regimes visible in the plot: sparse 300-day cadence struggles
-%   for the shortest-period bin with only a one-year baseline, while longer
-%   baselines recover many systems with periods far longer than the RV
-%   follow-up window.
+Figure~\ref{fig:orbital-period-recovery-by-period}: shows the percentage of sysrems whose physical parameters could be recovered, as a function of cadence, baseline, RV accuracy, nad orbital period. There is a clear depencence upon observing cadence and observing baseline for the recovery of the parameters. In all cases, recovery is worse for the shortest orbital period range than foe the 2.5-18 year range. This suggests the observing candence needs to be frequent enough to repeatedly sample a single orbit, rather than sampling multiple orbits. For the shortest orbits, a longer observing baseline actually mkaes recovery worse; this suggests the model is confused when presented with many sparse measruements of multiple orbits.
 
-Figure~\ref{fig:orbital-period-recovery-by-period}: shows the percentage of sysrems whose physical parameters could be recovered, as a function of cadence, baseline, RV accuracy, nad orbital period. There is a clear depencence upon observing cadence and observing baseline for the recovery of the parameters. In all cases, recovery is worse for the shortest orbital period range than foe the 2.4-18 year range. This suggests the observing candence needs to be frequent enough to repeatedly sample a single orbit, rather than sampling multiple orbits. For the shortest orbits, a longer observing baseline actually mkaes recovery worse; this suggests the model is confused when presented with many sparse measruements of multiple orbits.
-
-% - If the parameter-recovery-curves figure remains commented out, make sure
-%   the table and the period/mass panels still give readers enough evidence for
-%   the multi-parameter recovery claims in the conclusion.
-
-RV accuracy does not appear to have a measurable effect. This =suggests that in manby cases, even kilometre scale accuracy is sufficient to recover the parameters, and improvign this further does not inmprove revovery. This is good news for our planned followup observing campaign; measruements from any available spectrograph will be useful to us. However, for systems with very long orbital periods, more accurate RV measurements become important. This is due to the smaler rate of chante of the RV in these systmes; a. more accurate spectrograph is required to detect the relatively small change in RV over the course of a few years when the orbital period is decades or dcenturies long. While challenging, hwoever, this does not completely prevent such systems from being characterised. With sufficiently accurate RV measurements we can characterise self-elnign systems with orbital periods of many centuries.
-
+RV accuracy also has a measurable effect, but this varies by orbital period. This suggests that in many cases, even kilometre scale accuracy is sufficient to recover the parameters, and improvign this further does not inmprove revovery. However, for longer orbital periods the recovery becomes more sensistive to rV accuracy. This is due to the smaler rate of chante of the RV in these systmes; a. more accurate spectrograph is required to detect the relatively small change in RV over the course of a few years when the orbital period is decades or dcenturies long. While challenging, hwoever, this does not completely prevent such systems from being characterised. With sufficiently accurate RV measurements we can characterise self-elnign systems with orbital periods of many centuries.
 
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/orbital_period_recovery_by_period.pdf}
-    \caption{Snapshot orbital-period recovery fraction as a function of the true orbital period. A system is counted as recovered when $|\Delta P_\mathrm{orb}|/P_\mathrm{orb} \leq 0.1$. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against equal-population true-period bins from the currently fitted subset.}
+    \caption{Orbital-period recovery fraction as a function of the true orbital period. A system is counted as recovered when $|\Delta P_\mathrm{orb}|/P_\mathrm{orb} \leq 0.1$. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against equal-population true-period bins from the currently fitted subset.}
     \label{fig:orbital-period-recovery-by-period}
 \end{figure*}
 
 % \begin{figure*}
 %     \centering
 %     \includegraphics[width=\textwidth]{paper/figures/parameter_recovery_curves.pdf}
-%     \caption{Snapshot parameter recovery fraction as a function of instrumental RV accuracy, where recovery means $|\Delta x|/x \leq 0.1$ for each inferred parameter $x$. Rows show the inferred parameters, columns show observing baselines, and line colour and marker style distinguish cadence. Dashed horizontal lines mark the 80 per cent recovery threshold used in Table~\ref{tab:rv-accuracy-requirements}.}
+%     \caption{Parameter recovery fraction as a function of instrumental RV accuracy, where recovery means $|\Delta x|/x \leq 0.1$ for each inferred parameter $x$. Rows show the inferred parameters, columns show observing baselines, and line colour and marker style distinguish cadence. Dashed horizontal lines mark the 80 per cent recovery threshold used in Table~\ref{tab:rv-accuracy-requirements}.}
 %     \label{fig:parameter-recovery-curves}
 % \end{figure*}
 
-% \FloatBarrier
-\subsection{Photometry-only fits vs joint fits}
-% CODE/PAPER REVIEW:
-% - Quantify the improvement from photometry-only prefit to joint RV+LC fit
-%   using the plotted median errors/recovery fractions, rather than only
-%   describing the trend qualitatively.
-% - The photometry-only prefit is run once per pristine system and the same
-%   prefit result is copied onto every RV observing configuration for that
-%   system. Make this explicit when interpreting the prefit comparison plots.
-% - Figure~\ref{fig:prefit-improvement-by-n-rv} averages over observing
-%   baseline, cadence, RV accuracy, and true system properties at fixed
-%   $N_\mathrm{RV}$. Say this explicitly or add a complementary statement from
-%   the strategy/binned figures so readers do not interpret $N_\mathrm{RV}$ as
-%   the only control variable.
-% - Note the negative/limited result as well: impact parameter $b$ remains
-%   poorly recovered compared with $a$ and $P_\mathrm{orb}$, so conclusions
-%   should not imply all derived geometry is equally well constrained.
+\subsection{Photometry-only fits vs joint fits and $N_\text{RV}$}
 
 These simulations are generated on the assumption thar we first detect a candidate self-lensing microlensing event photometerically and then follow up with RV measurents some time later. In order to optimise the RV observing schedule we therefore explore the question of how informative the photometry is alone and wehtehr information derived from the photometry an be used in planning RV observations.
 
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/prefit_improvement_by_n_rv.pdf}
-    \caption{Snapshot comparison between the photometry-only prefit accuracy and the improvement from the joint photometry plus RV fit for all fitted rows with saved prefit values. Separate panels show the fitted parameters. Points show the median relative error in each parameter as a function of the number of RV measurements, and shaded regions show the interquartile range. The horizontal dotted line marks the 0.1 relative-error recovery threshold.}
+    \caption{Comparison between the photometry-only prefit accuracy and the improvement from the joint photometry plus RV fit for all fitted rows with saved prefit values. Separate panels show the fitted parameters. Points show the median relative error in each parameter as a function of the number of RV measurements, and shaded regions show the interquartile range. The horizontal dotted line marks the 0.1 relative-error recovery threshold.}
     \label{fig:prefit-improvement-by-n-rv}
 \end{figure*}
 
-Figure~\ref{fig:prefit-improvement-by-n-rv} shows the median improvement of fitted parameters (in terms of the relative error in trhe fitted values) as a function of the numebr of RV measurements. For all parameters, the median relative error is less than unity even with a photometry-only fit. the addition of just two RV measuremnts substantially improves recovery for lens mass, semi-major axis,a nd orbital period, and the relative error levels off after five RV measurements (there is some scatter in the values/it appears non-monotonic; \textbf{this may be due to incomplete results at the itme of writing}). The improveent int he impact parameter is more modest, but the addition of RV does appear to improve the ones which fit the worst with only ohotometry (as shown by the reduction in the upper quartile).
+Figure~\ref{fig:prefit-improvement-by-n-rv} shows the median improvement of fitted parameters (in terms of the relative error in trhe fitted values) as a function of the numebr of RV measurements. For all parameters, the median relative error is less than unity even with a photometry-only fit. the addition of just two RV measuremnts substantially improves recovery for lens mass, semi-major axis,a nd orbital period, and the relative error levels off after five RV measurements (there is some scatter in the values/it appears non-monotonic; \textbf{TODO: Explain this}). The improvement in the impact parameter is more modest, but the addition of RV does appear to improve the ones which fit the worst with only photometry (as shown by the reduction in the upper quartile) (\textbf{TODO: Clarify/reword this}).
 
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/prefit_improvement_by_lens_mass_range.pdf}
-    \caption{Snapshot comparison between photometry-only prefit accuracy and the joint photometry plus RV fit, separated by true lens-mass range. Rows show fitted parameters and columns show true lens-mass ranges. Points show the median relative error as a function of the number of RV measurements, shaded regions show the interquartile range, and the horizontal dotted line marks the 0.1 relative-error recovery threshold.}
+    \caption{Comparison between photometry-only prefit accuracy and the joint photometry plus RV fit, separated by true lens-mass range. Rows show fitted parameters and columns show true lens-mass ranges. Points show the median relative error as a function of the number of RV measurements, shaded regions show the interquartile range, and the horizontal dotted line marks the 0.1 relative-error recovery threshold.}
     \label{fig:prefit-improvement-by-lens-mass-range}
 \end{figure*}
 
@@ -597,82 +512,47 @@ Figure~\ref{fig:prefit-improvement-by-lens-mass-range} shows the median improvem
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/prefit_compact_object_class_by_lens_mass_range.pdf}
-    \caption{Snapshot compact-object class recovery for the photometry-only prefit and the joint photometry plus RV fit, separated by true lens-mass range. A system is counted as correct when the fitted lens mass falls in the same broad compact-object class as the true mass, using $M_\mathrm{acc}<3\,M_\odot$ for white dwarf or neutron-star lenses, $3 \leq M_\mathrm{acc}/M_\odot < 5$ for the mass gap, and $M_\mathrm{acc}\geq5\,M_\odot$ for black-hole lenses. Points show the percentage of fitted systems in the correct class as a function of the number of RV measurements; the horizontal dotted line marks 80 per cent.}
+    \caption{Compact-object class recovery for the photometry-only prefit and the joint photometry plus RV fit, separated by true lens-mass range. A system is counted as correct when the fitted lens mass falls in the same broad compact-object class as the true mass, using $M_\mathrm{acc}<3\,M_\odot$ for white dwarf or neutron-star lenses, $3 \leq M_\mathrm{acc}/M_\odot < 5$ for the mass gap, and $M_\mathrm{acc}\geq5\,M_\odot$ for black-hole lenses. Points show the percentage of fitted systems in the correct class as a function of the number of RV measurements; the horizontal dotted line marks 80 per cent.}
     \label{fig:prefit-compact-object-class-by-lens-mass-range}
 \end{figure*}
 
 Figure~\ref{fig:prefit-compact-object-class-by-lens-mass-range} shows the percentage of systems which fall into the correct compact object mass bin regardless of the accuracy of the fitted mass. There is a clear trend where higher mass objects can be more accurately determined to be such, even if their exact mass can not be constrained. A higher mass black hole creates such a prominent lensing curve that it can be identified more easily, whereas neutron stars and white dwarfs are more ambiguous. IT may be suprrosing that the photometry-only fits look so much worse foe low mass lenses in Figure~\ref{fig:prefit-compact-object-class-by-lens-mass-range} than in Figure~\ref{fig:prefit-improvement-by-lens-mass-range}; remember that Figure~\ref{fig:prefit-improvement-by-lens-mass-range} shows the relative error, with a median error close to 50\% for the smallest mass bin. An error of that scale is more likely to result in lower mass systems falling in the wrong mass bin than larger mass systems (which have wider bins in this analysis). This is important astrophyscialy, as it makes it harder to distinguish neutron stars from mass gap black hoels from photometry alone; for such candidates it is therefore more important to obtain RV measurements in order to characterise the nature of the lens.
 
 
-\input{paper/tables/rv_accuracy_requirements}
-% CODE/PAPER REVIEW:
-% - The requirements table is useful, but the text should not imply an RV
-%   precision requirement exists for every parameter: in the current snapshot
-%   $M_\mathrm{acc}$ and $b$ do not reach 80 per cent recovery for any tested
-%   strategy under the 10 per cent threshold, while $a$ and $P_\mathrm{orb}$
-%   often do.
-% - Consider adding one sentence explaining why coarser RV precision can still
-%   appear adequate for some strategies: the grid includes a fixed 10 m/s
-%   stellar-noise floor and the signal is often dominated by cadence/baseline
-%   and model constraints rather than the formal instrumental accuracy alone.
+% \input{paper/tables/rv_accuracy_requirements}
 
-% \FloatBarrier
 \subsection{Population-weighted follow-up}
-% CODE/PAPER REVIEW:
-% - Write this subsection as RV follow-up characterisation only, not as a
-%   photometric detection/yield calculation.
-% - Explain that the population-synthesis table provides the astrophysical
-%   prior for candidates that have already shown self-lensing light curves.
-% - Compare the km/s RV regime with 100, 10, 1, and 0.1 m/s regimes.
-% - Use the survey-count heatmaps to translate the same recovery fractions into
-%   absolute recovered-system estimates for ZTF, LSST, and TESS using the
-%   standard-IMF n_sl values from Wiktorowicz et al. (2021), Table 2.
-% - Separate broad compact-object classification from accurate mass/period
-%   measurement; these are not the same science product.
-% - Discuss the all-candidate table separately from the BH-like subset table;
-%   the full detected population is dominated by lower-mass compact objects,
-%   while the BH-like subset is the more direct comparison for quiescent-BH
-%   follow-up.
-% - Note whether high-mass BH candidates remain classifiable with coarse RVs,
-%   and where precise or dense follow-up is needed for 10 per cent recovery.
-% - Caveat that low response coverage indicates incomplete fitted-grid support
-%   for parts of the detected population; those regions need either more fitted
-%   simulations or direct follow-up simulations before making a strong rate
-%   claim.
-% - Clarify how lenses outside the 0--50 M_sun simulation/classification range
-%   are handled in the population-weighted transfer. The plotting labels include
-%   a >=50 M_sun population bin, while compact-object classification is evaluated
-%   only for the lower four bins in the current code.
+\textbf{TODO: Write this! Also rework figures; drop ``both'' row, and regroup to have one fig each or class $M_\text{acc}$, and $P_\text{orb}$, with each figure comparing the three surveys.}
 
-\input{paper/tables/population_weighted_followup_summary}
+% \input{paper/tables/population_weighted_followup_summary}
 
-\input{paper/tables/population_weighted_bh_followup_summary}
+% \input{paper/tables/population_weighted_bh_followup_summary}
 
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps.pdf}
-    \caption{Population-weighted RV follow-up recovery fractions for an already photometrically detected self-lensing candidate population. Rows show the transferred follow-up outcome, columns show observing baseline, and each panel separates cadence and instrumental RV accuracy.}
+    \caption{Population-weighted RV follow-up recovery fractions for an already photometrically detected self-lensing candidate population. Rows show the emulated follow-up outcome, columns show observing baseline, and each panel separates cadence and instrumental RV accuracy.}
     \label{fig:population-weighted-rv-followup-heatmaps}
 \end{figure*}
 
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps_counts_ztf.pdf}
-    \caption{Survey-scaled RV follow-up recovery counts for the ZTF detected self-lensing population. The heatmaps use the same transferred recovery fractions as Fig.~\ref{fig:population-weighted-rv-followup-heatmaps}, scaled by the standard-IMF ZTF self-lensing yield from Wiktorowicz et al. (2021).}
+    \caption{Survey-scaled RV follow-up recovery counts for the ZTF detected self-lensing population. The heatmaps use the same emulated recovery fractions as Fig.~\ref{fig:population-weighted-rv-followup-heatmaps}, scaled by the standard-IMF ZTF self-lensing yield from Wiktorowicz et al. (2021).}
     \label{fig:population-weighted-rv-followup-heatmaps-counts-ztf}
 \end{figure*}
 
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps_counts_lsst.pdf}
-    \caption{Survey-scaled RV follow-up recovery counts for the LSST detected self-lensing population. The heatmaps use the same transferred recovery fractions as Fig.~\ref{fig:population-weighted-rv-followup-heatmaps}, scaled by the standard-IMF LSST self-lensing yield from Wiktorowicz et al. (2021).}
+    \caption{Survey-scaled RV follow-up recovery counts for the LSST detected self-lensing population. The heatmaps use the same emulated recovery fractions as Fig.~\ref{fig:population-weighted-rv-followup-heatmaps}, scaled by the standard-IMF LSST self-lensing yield from Wiktorowicz et al. (2021).}
     \label{fig:population-weighted-rv-followup-heatmaps-counts-lsst}
 \end{figure*}
 
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps_counts_tess.pdf}
-    \caption{Survey-scaled RV follow-up recovery counts for the TESS detected self-lensing population. The heatmaps use the same transferred recovery fractions as Fig.~\ref{fig:population-weighted-rv-followup-heatmaps}, scaled by the standard-IMF TESS self-lensing yield from Wiktorowicz et al. (2021).}
+    \caption{Survey-scaled RV follow-up recovery counts for the TESS detected self-lensing population. The heatmaps use the same emulated recovery fractions as Fig.~\ref{fig:population-weighted-rv-followup-heatmaps}, scaled by the standard-IMF TESS self-lensing yield from Wiktorowicz et al. (2021).}
     \label{fig:population-weighted-rv-followup-heatmaps-counts-tess}
 \end{figure*}
 
@@ -683,23 +563,7 @@ Figure~\ref{fig:prefit-compact-object-class-by-lens-mass-range} shows the percen
     \label{fig:population-weighted-mass-period-recovery}
 \end{figure*}
 
-% \FloatBarrier
-
 \section{Conclusions}
-% CODE/PAPER REVIEW:
-% - Conclusions should wait for aggregate recovery statistics from the fitted
-%   result table. At minimum, report the observing configurations that recover
-%   Macc, a, $P_\mathrm{orb}$, and b to a defined tolerance, and the regimes
-%   where recovery fails.
-% - Decide whether eccentricity and periapsis phase belong in the conclusions:
-%   they are fitted parameters, but the current paper-output figures/tables do
-%   not summarise their recovery.
-% - Avoid concluding that the method works for all long-period systems unless
-%   the final analysis shows this across the external simulation library and
-%   accounts for the fixed-known stellar/photometric inputs.
-% - If no population-synthesis analysis is added, do not conclude survey
-%   yields or instrument-strategy counts from this code alone.
-
 The last numbered section should briefly summarise what has been done, and describe
 the final conclusions which the authors draw from their work.
 
@@ -740,12 +604,6 @@ The inclusion of a Data Availability Statement is a requirement for articles pub
 \appendix
 
 \section{Some extra material}
-% CODE/PAPER REVIEW:
-% - This appendix is still template text. Possible useful appendices for this
-%   project: full observing-grid table; prior/parameter-limit details from
-%   selflensing.models.DEFAULT_LIMITS; validation plots for photometry-only
-%   prefit; additional recovery heat maps; or convergence diagnostics for the
-%   MCMC chains.
 
 If you want to present additional material which would interrupt the flow of the main paper,
 it can be placed in an Appendix which appears after the list of references.
