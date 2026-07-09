@@ -226,8 +226,11 @@ def prefit_comparison_parameters(results):
     parameters = {}
     for param, spec in PARAMETERS.items():
         prefit_column = f"prefit_{spec['fitted']}"
+        rvfit_column = f"rvfit_{spec['fitted']}"
         if prefit_column in results.columns:
             parameters[param] = {**spec, "prefit": prefit_column}
+            if rvfit_column in results.columns:
+                parameters[param]["rvfit"] = rvfit_column
     if not parameters:
         raise KeyError(
             "Fitted results table has no photometry-only prefit columns. "
@@ -241,29 +244,29 @@ def prefit_joint_error_rows(results):
 
     rows = []
     for param, spec in parameters.items():
-        needed = list(dict.fromkeys([param, "Macc", spec["fitted"], spec["prefit"], "pristine_id", "n_rv"]))
-        finite = results.dropna(subset=needed).copy()
-        if finite.empty:
-            continue
-
-        finite[param] = numeric_scalar_series(finite[param])
-        finite["Macc"] = numeric_scalar_series(finite["Macc"])
-        finite[spec["fitted"]] = numeric_scalar_series(finite[spec["fitted"]])
-        finite[spec["prefit"]] = numeric_scalar_series(finite[spec["prefit"]])
-        finite = finite[
-            numpy.isfinite(finite[param])
-            & numpy.isfinite(finite["Macc"])
-            & numpy.isfinite(finite[spec["fitted"]])
-            & numpy.isfinite(finite[spec["prefit"]])
-        ]
-        if finite.empty:
-            continue
-        mass_range = lens_mass_range(finite["Macc"])
-
         for fit_stage, value_column in (
             ("Photometry only", spec["prefit"]),
             ("Photometry + RV", spec["fitted"]),
+            ("RV only", spec.get("rvfit")),
         ):
+            if value_column is None:
+                continue
+            needed = list(dict.fromkeys([param, "Macc", value_column, "pristine_id", "n_rv"]))
+            finite = results.dropna(subset=needed).copy()
+            if finite.empty:
+                continue
+
+            finite[param] = numeric_scalar_series(finite[param])
+            finite["Macc"] = numeric_scalar_series(finite["Macc"])
+            finite[value_column] = numeric_scalar_series(finite[value_column])
+            finite = finite[
+                numpy.isfinite(finite[param])
+                & numpy.isfinite(finite["Macc"])
+                & numpy.isfinite(finite[value_column])
+            ]
+            if finite.empty:
+                continue
+            mass_range = lens_mass_range(finite["Macc"])
             errors = relative_error(finite[param], finite[value_column])
             stage_rows = pandas.DataFrame(
                 {
@@ -368,6 +371,7 @@ def plot_prefit_improvement_by_n_rv(results):
     stage_styles = {
         "Photometry only": {"color": "#CC79A7", "marker": None, "linestyle": "--"},
         "Photometry + RV": {"color": "#0072B2", "marker": "o", "linestyle": "-"},
+        "RV only": {"color": "#009E73", "marker": "s", "linestyle": "-."},
     }
     for axis, param in zip(axes, plot_params):
         param_data = summary[summary["parameter"] == param]
@@ -430,7 +434,7 @@ def plot_prefit_improvement_by_n_rv(results):
     fig.legend(
         handles=legend_handles,
         loc="upper center",
-        ncol=3,
+        ncol=4,
         bbox_to_anchor=(0.5, 1.04),
         frameon=False,
     )
@@ -482,6 +486,7 @@ def plot_prefit_improvement_by_lens_mass_range(results):
     stage_styles = {
         "Photometry only": {"color": "#CC79A7", "marker": None, "linestyle": "--"},
         "Photometry + RV": {"color": "#0072B2", "marker": "o", "linestyle": "-"},
+        "RV only": {"color": "#009E73", "marker": "s", "linestyle": "-."},
     }
     for row_index, param in enumerate(plot_params):
         for col_index, mass_range_label in enumerate(mass_ranges):
@@ -560,7 +565,7 @@ def plot_prefit_improvement_by_lens_mass_range(results):
     fig.legend(
         handles=legend_handles,
         loc="upper center",
-        ncol=3,
+        ncol=4,
         bbox_to_anchor=(0.5, 1.04),
         frameon=False,
     )

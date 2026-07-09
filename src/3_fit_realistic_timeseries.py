@@ -142,6 +142,12 @@ FIT_BATCHED_JOINT = os.environ.get("SLRV_FIT_BATCHED_JOINT", "1").lower() in (
     "yes",
     "on",
 )
+FIT_BATCHED_RV_ONLY = os.environ.get("SLRV_FIT_BATCHED_RV_ONLY", "1").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 FIT_SAVE_SAMPLERS = os.environ.get("SLRV_FIT_SAVE_SAMPLERS", "0").lower() in (
     "1",
     "true",
@@ -183,6 +189,19 @@ def blackjax_sampler_kwargs(return_sampler, return_walker_state=True):
 FIT_PARAMETER_NAMES = numpy.asarray(
     ["a", "i", "Macc", "e", "periapsis_phase"], dtype=str
 )
+FIT_RESULT_COLUMNS = (
+    "fitted_a",
+    "fitted_b",
+    "fitted_b_max",
+    "fitted_i",
+    "fitted_Macc",
+    "fitted_e",
+    "fitted_periapsis_phase",
+    "fitted_porb",
+    "fitted_tau_eff",
+)
+PREFIT_RESULT_COLUMNS = tuple(f"prefit_{column}" for column in FIT_RESULT_COLUMNS)
+RV_ONLY_RESULT_COLUMNS = tuple(f"rvfit_{column}" for column in FIT_RESULT_COLUMNS)
 
 
 def safe_path_token(value):
@@ -469,6 +488,80 @@ def fitted_key_sets(results):
     return realistic_ids, realistic_indices
 
 
+def scalar_is_finite(value):
+    try:
+        array = numpy.asarray(value, dtype=float)
+    except (TypeError, ValueError):
+        return False
+    if array.shape == ():
+        return bool(numpy.isfinite(array))
+    if array.size == 1:
+        return bool(numpy.isfinite(array.reshape(-1)[0]))
+    return bool(numpy.all(numpy.isfinite(array)))
+
+
+def fit_columns_complete(row, columns):
+    return all(column in row and scalar_is_finite(row[column]) for column in columns)
+
+
+def row_needs_prefit(row):
+    return FIT_USE_LC and not fit_columns_complete(row, PREFIT_RESULT_COLUMNS)
+
+
+def row_needs_joint_fit(row):
+    return not fit_columns_complete(row, FIT_RESULT_COLUMNS)
+
+
+def row_needs_rv_only_fit(row):
+    return not fit_columns_complete(row, RV_ONLY_RESULT_COLUMNS)
+
+
+def row_needs_any_fit(row):
+    return row_needs_prefit(row) or row_needs_joint_fit(row) or row_needs_rv_only_fit(row)
+
+
+def existing_result_map(results):
+    mapped = {}
+    if results.empty:
+        return mapped
+    for _, row in results.iterrows():
+        mapped[result_checkpoint_key(row)] = row
+    logger.debug("Prepared %d existing result rows by checkpoint key", len(mapped))
+    return mapped
+
+
+def merge_existing_result(row, existing):
+    if existing is None:
+        return row
+    merged = pandas.Series(row).copy()
+    for column, value in existing.items():
+        merged[column] = value
+    return merged
+
+
+def rows_requiring_fits(realistic_rows, existing_results):
+    existing_by_key = existing_result_map(existing_results)
+    selected = []
+    complete_count = 0
+    for index, row in realistic_rows.iterrows():
+        checkpoint_key = result_checkpoint_key(row)
+        merged = merge_existing_result(row, existing_by_key.get(checkpoint_key))
+        if row_needs_any_fit(merged):
+            selected.append((index, merged))
+        else:
+            complete_count += 1
+            logger.debug("Skipping fully fitted row checkpoint_key=%s", checkpoint_key)
+    logger.info(
+        "Fit-stage completion check selected %d row(s); %d row(s) already have "
+        "photometry-only, photometry+RV, and RV-only fits",
+        len(selected),
+        complete_count,
+    )
+    if not selected:
+        return realistic_rows.iloc[0:0].copy()
+    return pandas.DataFrame([row for _, row in selected], index=[index for index, _ in selected])
+
+
 def load_batch_realistic_ids(path):
     batch = pandas.read_csv(path)
     if "realistic_id" not in batch.columns:
@@ -731,24 +824,22 @@ def fitted_timeseries_row(i, ts, truth_sls, sls):
     return new_ts
 
 
-def add_prefit_columns(ts, prefit_ts):
-    if prefit_ts is None:
+def add_fit_stage_columns(ts, fit_ts, stage_prefix):
+    if fit_ts is None:
         return ts
     new_ts = pandas.Series(ts)
-    for column in (
-        "fitted_a",
-        "fitted_b",
-        "fitted_b_max",
-        "fitted_i",
-        "fitted_Macc",
-        "fitted_e",
-        "fitted_periapsis_phase",
-        "fitted_porb",
-        "fitted_tau_eff",
-    ):
-        if column in prefit_ts:
-            new_ts[f"prefit_{column}"] = prefit_ts[column]
+    for column in FIT_RESULT_COLUMNS:
+        if column in fit_ts:
+            new_ts[f"{stage_prefix}_{column}"] = fit_ts[column]
     return new_ts
+
+
+def add_prefit_columns(ts, prefit_ts):
+    return add_fit_stage_columns(ts, prefit_ts, "prefit")
+
+
+def add_rv_only_columns(ts, rvfit_ts):
+    return add_fit_stage_columns(ts, rvfit_ts, "rvfit")
 
 
 def fit_photometry_prefit(i, ts, curve):
@@ -797,20 +888,26 @@ def fit(a):
 
 
 def run_fit(a):
-    if len(a) == 5:
+    if len(a) == 6:
+        i, ts, curve, initial_walker_state, mcmc_desc, fit_use_lc = a
+    elif len(a) == 5:
         i, ts, curve, initial_walker_state, mcmc_desc = a
+        fit_use_lc = FIT_USE_LC
     elif len(a) == 4:
         i, ts, curve, initial_walker_state = a
         mcmc_desc = f"MCMC joint {short_id(ts.get('realistic_id', None))}"
+        fit_use_lc = FIT_USE_LC
     elif len(a) == 3:
         i, ts, curve = a
         initial_walker_state = None
         mcmc_desc = f"MCMC joint {short_id(ts.get('realistic_id', None))}"
+        fit_use_lc = FIT_USE_LC
     else:
         i, ts = a
         curve = load_realistic_timeseries_curve(ts)
         initial_walker_state = None
         mcmc_desc = f"MCMC joint {short_id(ts.get('realistic_id', None))}"
+        fit_use_lc = FIT_USE_LC
     logger.info(
         "Starting fit for row index=%s realistic_id=%s path=%s",
         i,
@@ -818,7 +915,7 @@ def run_fit(a):
         ts.get("realistic_path", None),
     )
     truth_sls = truth_self_lensing_system(ts)
-    fit_lc = lightcurve_fit_window(curve, ts) if FIT_USE_LC else None
+    fit_lc = lightcurve_fit_window(curve, ts) if fit_use_lc else None
     logger.info(
         "Fit inputs row index=%s: %d RV samples, %d LC samples%s",
         i,
@@ -839,12 +936,12 @@ def run_fit(a):
             rv_times=Time(curve["rv_times"], format="jd"),
             observed_rv=curve["rv"] * units.m / units.s,
             observed_rv_err=curve["rv_err"] * units.m / units.s,
-            lc_times=Time(fit_lc["lc_times"], format="jd") if FIT_USE_LC else None,
+            lc_times=Time(fit_lc["lc_times"], format="jd") if fit_use_lc else None,
             observed_lc=(
-                fit_lc["lc"] * units.dimensionless_unscaled if FIT_USE_LC else None
+                fit_lc["lc"] * units.dimensionless_unscaled if fit_use_lc else None
             ),
             observed_lc_err=(
-                fit_lc["lc_err"] * units.dimensionless_unscaled if FIT_USE_LC else None
+                fit_lc["lc_err"] * units.dimensionless_unscaled if fit_use_lc else None
             ),
             peak_time=Time(ts["peak_time"], format="jd"),
             Mcomp=ts["Mcomp"] * units.M_sun,
@@ -875,6 +972,19 @@ def run_fit(a):
         time.perf_counter() - fit_start,
     )
     return i, ts, truth_sls, sls, sampler, walker_state, curve
+
+
+def run_rv_only_fit(i, ts, curve):
+    return run_fit(
+        (
+            i,
+            ts,
+            curve,
+            None,
+            f"MCMC RV-only {short_id(ts.get('realistic_id', None))}",
+            False,
+        )
+    )
 
 
 def materialize_fit_result(
@@ -916,6 +1026,21 @@ def materialize_fit_result(
     return new_ts, sampler, curve
 
 
+def materialize_rv_only_fit_result(fit_result, row):
+    i, _, truth_sls, sls, sampler, walker_state, curve = fit_result
+    rvfit_ts = fitted_timeseries_row(i, row, truth_sls, sls)
+    new_ts = add_rv_only_columns(row, rvfit_ts)
+    logger.info(
+        "Materialized RV-only fit result for row index=%s: "
+        "rvfit_fitted_a=%.6g rvfit_fitted_Macc=%.6g rvfit_fitted_e=%.6g",
+        i,
+        new_ts["rvfit_fitted_a"],
+        new_ts["rvfit_fitted_Macc"],
+        new_ts["rvfit_fitted_e"],
+    )
+    return new_ts, sampler, walker_state, curve
+
+
 def finish_pending_fit(pending_fit):
     if pending_fit is None:
         return None
@@ -924,6 +1049,10 @@ def finish_pending_fit(pending_fit):
 
 def can_use_batched_joint_fit():
     return FIT_BATCHED_JOINT
+
+
+def can_use_batched_rv_only_fit():
+    return FIT_BATCHED_RV_ONLY
 
 
 def walker_state_for_batch_row(walker_state, batch_index):
@@ -946,7 +1075,7 @@ def padded_series(series, fill_value=0.0, fill_from_first=False):
     return data, mask
 
 
-def batched_joint_fit_inputs(rows, curves):
+def batched_fit_inputs(rows, curves, include_lc):
     rv_times = []
     rv = []
     rv_err = []
@@ -958,7 +1087,7 @@ def batched_joint_fit_inputs(rows, curves):
         rv_times.append(curve["rv_times"])
         rv.append(curve["rv"])
         rv_err.append(curve["rv_err"])
-        if FIT_USE_LC:
+        if include_lc:
             fit_lc = lightcurve_fit_window(curve, ts)
             lc_times.append(fit_lc["lc_times"])
             lc.append(fit_lc["lc"])
@@ -973,7 +1102,7 @@ def batched_joint_fit_inputs(rows, curves):
         "observed_rv_err": rv_err,
         "rv_mask": rv_mask,
     }
-    if FIT_USE_LC:
+    if include_lc:
         lc_times, lc_mask = padded_series(lc_times, fill_from_first=True)
         lc, _ = padded_series(lc)
         lc_err, _ = padded_series(lc_err, fill_value=1.0)
@@ -986,6 +1115,10 @@ def batched_joint_fit_inputs(rows, curves):
             }
         )
     return inputs
+
+
+def batched_joint_fit_inputs(rows, curves):
+    return batched_fit_inputs(rows, curves, include_lc=FIT_USE_LC)
 
 
 def fit_joint_batch(
@@ -1082,6 +1215,60 @@ def fit_joint_batch(
     return results
 
 
+def fit_rv_only_batch(rows, curves):
+    start = time.perf_counter()
+    inputs = batched_fit_inputs(rows, curves, include_lc=False)
+    row_table = pandas.DataFrame([ts for _, ts in rows])
+    logger.info(
+        "Running batched RV-only MCMC for %d rows: max_rv=%d",
+        len(rows),
+        inputs["rv_times"].shape[1],
+    )
+    systems, sampler, walker_state = self_lensing_systems_from_batched_fit_blackjax(
+        rv_times=Time(inputs["rv_times"], format="jd"),
+        observed_rv=inputs["observed_rv"] * units.m / units.s,
+        observed_rv_err=inputs["observed_rv_err"] * units.m / units.s,
+        rv_mask=inputs["rv_mask"],
+        peak_time=Time(row_table["peak_time"].to_numpy(dtype=float), format="jd"),
+        Mcomp=row_table["Mcomp"].to_numpy(dtype=float) * units.M_sun,
+        Rcomp=row_table["Rcomp"].to_numpy(dtype=float) * units.R_sun,
+        Teff=row_table["Teff"].to_numpy(dtype=float) * units.K,
+        false_alarm_probability=0.5,
+        nsteps=FIT_NSTEPS,
+        nwalkers=FIT_NWALKERS,
+        burn=FIT_BURN,
+        progress=FIT_MCMC_PROGRESS,
+        progress_desc=f"MCMC batched RV-only {short_id(rows[0][1].get('pristine_id', None))}",
+        progress_chunk_size=FIT_PROGRESS_CHUNK_SIZE,
+        lensing_method=FIT_LENSING_METHOD,
+        center_lc_model=True,
+        device=FIT_DEVICE,
+        prefer_gpu=FIT_DEVICE == "auto",
+        return_sampler=False,
+        return_walker_state=False,
+    )
+    logger.info(
+        "Batched RV-only MCMC returned %d systems in %.2f s",
+        len(systems),
+        time.perf_counter() - start,
+    )
+    results = []
+    for (i, row), sls in zip(rows, systems):
+        curve = curves[str(row["realistic_id"])]
+        rvfit_ts = fitted_timeseries_row(i, row, truth_self_lensing_system(row), sls)
+        new_ts = add_rv_only_columns(row, rvfit_ts)
+        logger.info(
+            "Materialized batched RV-only fit result for row index=%s: "
+            "rvfit_fitted_a=%.6g rvfit_fitted_Macc=%.6g rvfit_fitted_e=%.6g",
+            i,
+            new_ts["rvfit_fitted_a"],
+            new_ts["rvfit_fitted_Macc"],
+            new_ts["rvfit_fitted_e"],
+        )
+        results.append((new_ts, sampler, walker_state, curve))
+    return results
+
+
 def batched_row_chunks(rows):
     if FIT_BATCH_SIZE is None or FIT_BATCH_SIZE >= len(rows):
         yield rows
@@ -1101,16 +1288,30 @@ def fit_realistic_file(rows):
     logger.info("Loading grouped realistic curves from %s", path)
     curves = load_realistic_timeseries_curves(rows)
     logger.info("Loaded %d grouped realistic curves from %s", len(curves), path)
+    rows_by_key = {result_checkpoint_key(ts): pandas.Series(ts).copy() for _, ts in rows}
+    rows_needing_prefit = [
+        (i, ts) for i, ts in rows if row_needs_prefit(ts) or row_needs_joint_fit(ts)
+    ]
+    rows_needing_joint = [(i, ts) for i, ts in rows if row_needs_joint_fit(ts)]
+    rows_needing_rv_only = [(i, ts) for i, ts in rows if row_needs_rv_only_fit(ts)]
+    logger.info(
+        "Grouped fit stage needs for %s: prefit=%d joint=%d rv_only=%d",
+        path,
+        len(rows_needing_prefit),
+        len(rows_needing_joint),
+        len(rows_needing_rv_only),
+    )
     initial_walker_state = None
     prefit_sampler_state = None
     prefit_sampler_state_path = None
+    prefit_ts = None
     sampler_writer = shared_sampler_writer()
     close_sampler_writer = False
     if sampler_writer is None:
         sampler_writer = SamplerStateWriter()
         close_sampler_writer = True
-    if FIT_USE_LC:
-        prefit_i, prefit_ts = rows[0]
+    if FIT_USE_LC and rows_needing_prefit:
+        prefit_i, prefit_ts = rows_needing_prefit[0]
         prefit_curve = curves[str(prefit_ts["realistic_id"])]
         logger.info(
             "Prefitting photometry once for %d-row realistic group from %s using row index=%s",
@@ -1125,13 +1326,16 @@ def fit_realistic_file(rows):
             prefit_ts,
             prefit_sampler_state,
         )
+        for key, row in list(rows_by_key.items()):
+            if row_needs_prefit(row):
+                rows_by_key[key] = add_prefit_columns(row, prefit_ts)
     results = []
-    if can_use_batched_joint_fit():
-        batches = list(batched_row_chunks(rows))
+    if rows_needing_joint and can_use_batched_joint_fit():
+        batches = list(batched_row_chunks(rows_needing_joint))
         if len(batches) > 1:
             logger.info(
                 "Splitting %d realistic rows into %d batched joint chunks of up to %d",
-                len(rows),
+                len(rows_needing_joint),
                 len(batches),
                 FIT_BATCH_SIZE,
             )
@@ -1154,13 +1358,15 @@ def fit_realistic_file(rows):
                     prefit_ts=prefit_ts,
                 )
             )
-    else:
+            for new_ts, _, _ in results:
+                rows_by_key[result_checkpoint_key(new_ts)] = new_ts
+    elif rows_needing_joint:
         file_progress_desc = (
             f"RV joint fits {short_id(rows[0][1].get('pristine_id', Path(path).stem))}"
         )
         row_iterator = tqdm(
-            rows,
-            total=len(rows),
+            rows_needing_joint,
+            total=len(rows_needing_joint),
             desc=file_progress_desc,
             leave=False,
             dynamic_ncols=True,
@@ -1171,18 +1377,19 @@ def fit_realistic_file(rows):
                 logger.info(
                     "Starting joint fit %d/%d for realistic_id=%s",
                     row_number,
-                    len(rows),
+                    len(rows_needing_joint),
                     ts.get("realistic_id", None),
                 )
                 curve = curves[str(ts["realistic_id"])]
                 mcmc_desc = (
-                    f"MCMC joint {row_number}/{len(rows)} "
+                    f"MCMC joint {row_number}/{len(rows_needing_joint)} "
                     f"{short_id(ts.get('realistic_id', None))}"
                 )
                 fit_result = run_fit((i, ts, curve, initial_walker_state, mcmc_desc))
                 finished_fit = finish_pending_fit(pending_fit)
                 if finished_fit is not None:
                     results.append(finished_fit)
+                    rows_by_key[result_checkpoint_key(finished_fit[0])] = finished_fit[0]
                 pending_fit = row_executor.submit(
                     materialize_fit_result,
                     fit_result,
@@ -1193,11 +1400,73 @@ def fit_realistic_file(rows):
             finished_fit = finish_pending_fit(pending_fit)
             if finished_fit is not None:
                 results.append(finished_fit)
+                rows_by_key[result_checkpoint_key(finished_fit[0])] = finished_fit[0]
     logger.info("Finished all joint fits for %s", path)
+    rv_only_results = []
+    if rows_needing_rv_only:
+        if can_use_batched_rv_only_fit():
+            current_rv_only_rows = [
+                (i, rows_by_key.get(result_checkpoint_key(ts), ts))
+                for i, ts in rows_needing_rv_only
+            ]
+            batches = list(batched_row_chunks(current_rv_only_rows))
+            if len(batches) > 1:
+                logger.info(
+                    "Splitting %d realistic rows into %d batched RV-only chunks of up to %d",
+                    len(rows_needing_rv_only),
+                    len(batches),
+                    FIT_BATCH_SIZE,
+                )
+            for batch_number, batch_rows in enumerate(batches, start=1):
+                if len(batches) > 1:
+                    logger.info(
+                        "Starting batched RV-only chunk %d/%d with %d rows from %s",
+                        batch_number,
+                        len(batches),
+                        len(batch_rows),
+                        path,
+                    )
+                batch_results = fit_rv_only_batch(batch_rows, curves)
+                rv_only_results.extend(batch_results)
+                for new_ts, _, _, _ in batch_results:
+                    rows_by_key[result_checkpoint_key(new_ts)] = new_ts
+        else:
+            file_progress_desc = (
+                f"RV-only fits {short_id(rows[0][1].get('pristine_id', Path(path).stem))}"
+            )
+            for row_number, (i, ts) in enumerate(
+                tqdm(
+                    rows_needing_rv_only,
+                    total=len(rows_needing_rv_only),
+                    desc=file_progress_desc,
+                    leave=False,
+                    dynamic_ncols=True,
+                ),
+                start=1,
+            ):
+                key = result_checkpoint_key(ts)
+                row = rows_by_key.get(key, ts)
+                logger.info(
+                    "Starting RV-only fit %d/%d for realistic_id=%s",
+                    row_number,
+                    len(rows_needing_rv_only),
+                    row.get("realistic_id", None),
+                )
+                curve = curves[str(row["realistic_id"])]
+                rv_fit_result = run_rv_only_fit(i, row, curve)
+                rv_only_result = materialize_rv_only_fit_result(rv_fit_result, row)
+                rv_only_results.append(rv_only_result)
+                rows_by_key[result_checkpoint_key(rv_only_result[0])] = rv_only_result[0]
+    logger.info("Finished all RV-only fits for %s", path)
     if close_sampler_writer:
         sampler_writer.close()
     logger.info("Finished grouped fit for %s", path)
-    return [(ts, None, None) for ts, _, _ in results]
+    updated_keys = {
+        result_checkpoint_key(ts)
+        for _, ts in rows
+        if row_needs_prefit(ts) or row_needs_joint_fit(ts) or row_needs_rv_only_fit(ts)
+    }
+    return [(rows_by_key[key], None, None) for key in updated_keys]
 
 
 def grouped_realistic_rows(table):
@@ -1280,8 +1549,9 @@ if __name__ == "__main__":
     logger.info("Fit device setting: FIT_DEVICE=%s", FIT_DEVICE)
     logger.info("Fit lensing method: FIT_LENSING_METHOD=%s", FIT_LENSING_METHOD)
     logger.info(
-        "Batched joint fit setting: FIT_BATCHED_JOINT=%s",
+        "Batched fit settings: FIT_BATCHED_JOINT=%s FIT_BATCHED_RV_ONLY=%s",
         FIT_BATCHED_JOINT,
+        FIT_BATCHED_RV_ONLY,
     )
     logger.info(
         "Sampler state saving: FIT_SAVE_SAMPLERS=%s SAMPLER_STATE_PATH=%s",
@@ -1311,35 +1581,23 @@ if __name__ == "__main__":
 
     logger.info("Loading existing fitted results from %s", TIMESERIES_TABLE_PATH)
     existing_results = load_fitted_timeseries()
-    fitted_ids, fitted_indices = fitted_key_sets(existing_results)
     logger.info(
         "Loaded %d realistic rows and %d existing fitted rows",
         len(rts),
         len(existing_results),
     )
 
-    if fitted_ids or fitted_indices:
-        logger.info(
-            "Filtering already fitted rows using %d ids and %d legacy indices",
-            len(fitted_ids),
-            len(fitted_indices),
-        )
-        rts = rts[
-            ~rts.apply(
-                lambda row: is_already_fitted(row, fitted_ids, fitted_indices),
-                axis=1,
-            )
-        ].copy()
-        logger.info("Filtered realistic rows down to %d unfitted rows", len(rts))
+    rts = rows_requiring_fits(rts, existing_results)
+    logger.info("Filtered realistic rows down to %d rows with missing fit stages", len(rts))
 
     if len(rts) == 0:
-        logger.info("No realistic rows left to fit; exiting")
+        logger.info("No realistic rows left with missing fit stages; exiting")
         raise SystemExit
 
     if FIT_BATCH_FILE:
-        logger.info("Using all %d manifest rows for fitting", len(rts))
+        logger.info("Using all %d incomplete manifest rows for fitting", len(rts))
     elif FIT_SAMPLE_SIZE is None:
-        logger.info("Using all %d unfitted rows for standalone fitting", len(rts))
+        logger.info("Using all %d incomplete rows for standalone fitting", len(rts))
     else:
         rts = sample_realistic_path_groups(rts, FIT_SAMPLE_SIZE)
 
