@@ -67,7 +67,7 @@
 
 % Title of the paper, and the short title which is used in the headers.
 % Keep the title short and informative.
-\title{Characterising the self-lensing binary population}
+\title{Confirming candidate self-lensing binary detections with radial velocity measurements}
 
 % The list of authors, and the short list which is used in the headers.
 % If you need two or more lines of authors, add an extra line using \newauthor
@@ -114,41 +114,27 @@ $^{3}$Another Department, Different Institution, Street Address, City Postal Cod
 %%%%%%%%%%%%%%%%% BODY OF PAPER %%%%%%%%%%%%%%%%%%
 
 \section{Introduction}
-Self-lensing systems are binary systems which are close to being edge-on, consisting of a star in orbit with a compact object. With an appropriate separation distance, the Einstein radius of the compact object can be larger than its surface radius, and if the orbital inclination is close enough to $\frac{1}{2}\pi$ this can result in a measurable microlensing amplification of the stellar flux once per orbit.
+Self-lensing systems are binary systems which are close to being edge-on, consisting of a star in orbit with a compact object. With an appropriate separation distance, the Einstein radius of the compact object can be larger than its surface radius, and if the orbital inclination is close enough to edge-on this can result in a measurable microlensing amplification of the stellar flux once per orbit.
 
-To date, five self-lensing binaries have been confirmed, each containing a white dwarf-stellar binary, all of which have relatively close, short-period orbits. However, it is expected that stellar-compact object binaries should span the full range of masses of such objects, as well as the full range of orbital configurations.
+To date, five self-lensing binaries have been confirmed, each containing a white dwarf-stellar binary, all of which have relatively close, short-period orbits. However, it is expected that stellar-compact object binaries should span the full range of compact object masses, as well as the full range of orbital configurations.
 
-Photometry remains the best way to detect self-lensing binaries, and previous works have assessed the detectability of self-lensing binaries in various photometric surveys (\textbf{TODO: Add citations}). These results look promising, with modern all-sky surveys expected to imminently uncover a population of compact objects in self-lensing binaries, including the currently under-studied population of quiescent black holes.
+Photometry remains the best way to detect self-lensing binaries, and previous works have assessed the detectability of self-lensing binaries in various photometric surveys \citep{wiktorowicz_predicting_2021}. These results look promising, with modern all-sky surveys expected to imminently uncover a population of compact objects in self-lensing binaries, including the currently under-studied population of quiescent black holes.
 
-While detection of self-lensing systems with photometry alone has been demonstrated, modelling of such systems and characterisation of the compact component is subject to numerous degeneracies between the physical parameters which prevent the mass from being determined unless the star's radial velocity can be measured. For short-period binaries it should be possible to derive a photometric RV by modelling Doppler boosting (CITATIONS, including COBALT-BLUE), but for systems with no detectable Doppler boosting effect, spectroscopic observations are required.
+While detection of self-lensing systems with photometry alone has been demonstrated, modelling of such systems and characterisation of the compact component is subject to several degeneracies between the physical parameters which can make it challenging to accurately determine the mass of the lens. For short-period binaries it should be possible to derive a photometric RV by modelling Doppler boosting (\textbf{TODO: }CITATIONS, including COBALT-BLUE), but for systems with no detectable Doppler boosting effect, spectroscopic observations are the best way to solve the binary's physical parameters. This is especially true for systems with the longest orbital periods, for which we may only be able to observe a single lensing event.
 
-In this work, we therefore consider the question of how many spectroscopic RV measurements are required, and at what level of precision, in order to correctly model the self-lensing system parameters, as a function of those parameters, including systems with orbital periods on the order of centuries. This will inform observing strategies for follow-up of the large number of candidates expected to come from new surveys, allowing the most efficient use of resources by not obtaining more observations than necessary. We also consider the usefulness of photometric-only fitting to guide RV observing strategy.
-
-% We present a systematic method for planning an observing campaign, determining the timing and number of observartions required for successful modelling, based on the amplitufe, microlensing event duration, and peak timing/orbital phase.
-
-% Paper aims:
-% \begin{enumerate}
-%     \item Produce a library of ``pristine'' simulated self-lensing light curves and RV curves, covering all plausible physical parameter space.
-%     \item Simulate observing those systems under a range of observing schedules (a small number of representative schedules, not fully comprehensive as it'll be too much) and with a variety of instrument accuracies.
-%     \item Fit simulated observations and determine which parameters can and can not be recovered as a function of instrument accuracies, for each observing schedule.
-%     \item Combine these results with previous population synthesis results to determine how many such systems could be discovered by each instrument/strategy. \textbf{We maybe don't need to do this if we determine we can recover \textit{everything}?}
-% \end{enumerate}
-
-We take a library of simulated TESS photometry of self-lensing systems (which was produced as part of work to be published in a separate paper, currently in prep), and generate simulated radial velocity curves for the same input parameters. We simulate a range of observing strategies, varying observing campaign duration (baseline), frequency of observations (cadence), and accuracy of RV measurements. We then fit a self-lensing model to attempt to recover the physical properties of each self-lensing system (the lens mass, semi-major axis, inclination angle, eccentricity, and periapsis phase angle). We assume the stellar properties (mass, radius, effective temperature, and distance from Earth) are known.
+In this work, we therefore consider the question of how many spectroscopic RV measurements are required, and at what level of precision, in order to accurately model the self-lensing system parameters, as a function of those parameters, including systems with orbital periods on the order of centuries for which the orbital period can not be determined photometrically. This will inform observing strategies for follow-up of the large number of candidates expected to come from new surveys, allowing the most efficient use of resources by not obtaining more observations than necessary. We also consider the usefulness of photometric-only fitting to guide RV observing strategy.
 
 We will show that it is possible to accurately model very long period self-lensing binaries with a handful of RV measurements. In many cases, photometric-only fits can come close to determining the properties, so that we don't need many RV measurements to fit the parameters accurately.
 
 The main distinguishing feature of self-lensing vs microlensing is the periodicity of the lensing flares. To claim photometric discovery of a self-lensing system, ideally we would aim to detect this periodicity. We show that self-lensing can be confirmed even when periodicity can not be observed.
 
-It's worth really stressing how unique self-lensing binaries are when it comes to determining the lens mass. Spectroscopically, they're like SB1s but with the possibility of jointly fitting photometry. They're to SB1s as eclipsing binaries are to SB2s. The photometry can possibly give us the orbital period, and a single event gives us information about the orbital configuration and lens mass via the amplitude, duration, and shape of the lensing curve. By including limb darkening in the model, we potentially learn even more about the semi-major axis, as limb darkening effects will be more pronounced for closer orbits.
-
 \section{Methods}
 
-The aim of this work is to quantity the observational requirements for radial velocity (RV) measurements that will allow us to determine the lens mass and orbital configuration of self-lensing binary candidates discovered via our ongoing photometric search. We investigate the relationship between observing cadence, observing campaign duration (baseline), and accuracy of RV measurements, and the rate of recovery of physical parameters as a function of lens mass. We investigate recovery rate by both accurate lens mass (determined to within 10\% of the true value) and broad compact object class (i.e. distinguishing black holes from other compact objects even if the recovered mass deviates from the true mass by more than 10\%).
+The aim of this work is to quantity the observational requirements for radial velocity (RV) measurements that will allow us to determine or confirm the lens mass and orbital configuration of self-lensing binary candidates discovered via our ongoing photometric search. We investigate the relationship between observing cadence, observing campaign duration (baseline), and accuracy of RV measurements, and the rate of recovery of physical parameters as a function of lens mass. We investigate recovery rate by both accurate lens mass (determined to within 10\% of the true value) and broad compact object class (i.e. distinguishing black holes from other compact objects even if the recovered mass deviates from the true mass by more than 10\%).
 
-We use as the basis of this work a library of self-lensing photometric simulations. The full library of simulations actually includes both lensing and non-lensing light curves. For this work, we select only the ``lensing'' subset from the library of simulations; i.e. we use only the simulated light curves which contain visible lensing peaks, where the peak amplitude is larger than the photometric noise. This subset excludes systems overflowing their Roche lobe and any systems where lensing is not geometrically possible. These simulations are described in brief in Section~\ref{sec:phot-sims}. A full description of how these were generated, including the simulations not used in the present work, will be published in a future work (currently in prep).
+As the basis of this work, we have generated a library of self-lensing photometric simulations. This was generated for a range of physical parameters, filtered to include only the simulated light curves which contain visible lensing peaks, where the peak amplitude is larger than the photometric noise. We also exclude systems overflowing their Roche lobe and any systems where lensing is not geometrically possible. These simulations are described in Section~\ref{sec:phot-sims}.
 
-The radial velocity measurements are simulated for the same set of simulation parameters as the photometry (Section~\ref{sec:rv-sims}). The RV simulations are then sampled according to a range of observing schedules, and Gaussian noise is added to simulate a range of spectrograph accuracies (Section~\ref{sec:rv-realistic}). An MCMC fit is then performed to find the self-lensing physical parameters which jointly best fit the photometry and RV (Section~\ref{sec:fitting}). We then aggregate the recovery rates across observing parameters and self-lensing physical parameters to investigate the effect of each parameter on the recovery rate.
+The radial velocity measurements are simulated for the same set of simulation parameters as the photometry (Section~\ref{sec:rv-sims}). The RV simulations are then sampled according to a range of observing schedules, and Gaussian noise is added to simulate a range of spectrograph accuracies (Section~\ref{sec:rv-realistic}). An MCMC fit is then performed to find the self-lensing physical parameters (the lens mass, semi-major axis, inclination angle, eccentricity, and periapsis phase angle; we assume the stellar properties, mass, radius, effective temperature, and distance from Earth, are known) which jointly best fit the photometry and RV (Section~\ref{sec:fitting}). We then aggregate the recovery rates across observing parameters and self-lensing physical parameters to investigate the effect of each parameter on the recovery rate.
 
 Finally, we map the recovery rates onto previous population synthesis results to estimate the numbers of self-lensing systems which can be confirmed following detection in various photometric surveys (Section~\ref{sec:pop-synth}).
 
@@ -157,7 +143,7 @@ We note that the photometric model described here is similar to the recently pub
 
 These simulations comprise a sample of self-lensing system parameters which is physically complete (i.e. covering the full plausible range of physical parameters) but not physically realistic (i.e. parameters are not sampled according to the frequency they are expected to occur in nature). This is ideal as the basis for determining the ranges of parameters which produce self-lensing effects which are detectable, independent of how common or uncommon particular parameter ranges are expected to be.
 
-The photometric simulations comprise realistic simulated TESS light curves (including stellar noise generated with a Gaussian process) for each sample self-lensing system. When generating the simulations, the parameter values were sampled uniformly between the following limits given in Table~\ref{tab:phot_sim_parameter_ranges}, with the exception of semi-major axis and eccentricity which are sampled on a log scale to favour smaller values.
+The photometric simulations comprise realistic simulated TESS light curves (including stellar noise generated with a Gaussian process) for each sample self-lensing system. When generating the simulations, the parameter values were sampled uniformly between the limits given in Table~\ref{tab:phot_sim_parameter_ranges}, with the exception of semi-major axis and eccentricity which are sampled on a log scale to increase the number of samples at smaller values (the light curve morphology changes roughly in proportion to the relative change in these values; e.g. a 5 AU change in semi-major axis has a much larger effect going from 1 AU to 6 AU than for 100 AU to 105 AU).
 
 \begin{table}
     \centering
@@ -178,7 +164,7 @@ The photometric simulations comprise realistic simulated TESS light curves (incl
     \end{tabular}
 \end{table}
 
-Three photometric effects are included when generating the light curves: self-lensing, ellipsoidal variations, and Doppler boosting. At small values of $a$ the light curve is dominated by ellipsoidal variations and Doppler boosting (though lensing is often visible too); at large $a$ lensing is dominant, with ellipsoidal variation and Doppler boosting tending to zero as $a$ increases.
+Three photometric effects are included when generating the light curves: self-lensing, ellipsoidal variations, and Doppler boosting. At small values of $a$ the light curve is dominated by ellipsoidal variations and Doppler boosting (though lensing is often visible too); at large $a$ lensing is dominant, with ellipsoidal variation and Doppler boosting tending to zero as $a$ increases \citep{sorabella_modeling_2022}.
 
 Calculation of self-lensing magnifications is performed using the finite-source point-lens formalism of \cite{witt_can_1994}. We use the Einstein radius and impact-parameter convention of \cite{wiktorowicz_predicting_2021}, generalised from the circular-orbit case by replacing the orbital separation with the instantaneous Keplerian lens-source separation,
 \begin{equation}
@@ -239,7 +225,7 @@ where $K$, $E$, and $\Pi$ are complete elliptic integrals of the first, second, 
     \quad
     I(\mu) = 1 - \gamma(1-\mu),
 \end{align}
-with the same limb-darkening coefficient $\gamma=0.6$ used below for the ellipsoidal-variation term.
+where $\gamma$ is the linear limb-darkening coefficient.
 
 \textbf{TODO: Check/explain how this is different to how e is handled in Sorabella} Calculation of ellipsoidal variations and Doppler boosting are adapted from \cite{sorabella_modeling_2022}, with the orbital separation generalised to the eccentric case. The ellipsoidal-variation term is
 \begin{align}
@@ -251,7 +237,11 @@ with the same limb-darkening coefficient $\gamma=0.6$ used below for the ellipso
     \nonumber                                                           \\
     \beta            & = 0.15\,\frac{(1 + g)(15 + \gamma)}{3 - \gamma},
 \end{align}
-where $\beta$ is the ellipsoidal-variation coefficient, calculated using gravity-darkening coefficient $g=0.4$ and limb-darkening coefficient $\gamma=0.6$. The Doppler-boosting term is
+where $\beta$ is the ellipsoidal-variation coefficient and $g$ is the gravity-darkening coefficient.
+
+We adopt the gravity-darkening coefficient $g=0.32$ \citep{lucy_gravity-darkening_1967} and limb-darkening coefficient $\gamma=0.6$ \citep{claret_limb_2017}, which are suitable for Sun-like stars observed by TESS.
+
+The Doppler-boosting term is
 \begin{equation}
     A_\mathrm{DB}(t) =
     (3 - \alpha)\frac{v_r(t)}{c},
