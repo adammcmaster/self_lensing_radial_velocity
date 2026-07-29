@@ -158,6 +158,9 @@ FIT_SAMPLER_WRITE_MAX_WORKERS = int(
     os.environ.get("SLRV_FIT_SAMPLER_WRITE_MAX_WORKERS", 16)
 )
 FIT_BATCH_SIZE = optional_positive_int(os.environ.get("SLRV_FIT_BATCH_SIZE", 50))
+FIT_PROPOSAL_SCALE_FRACTION = float(
+    os.environ.get("SLRV_FIT_PROPOSAL_SCALE_FRACTION", 0.005)
+)
 REQUIRE_GPU = os.environ.get("SLRV_REQUIRE_GPU", "").lower() in (
     "1",
     "true",
@@ -179,10 +182,30 @@ def configure_fit_parameter_limits():
 
 configure_fit_parameter_limits()
 
+
+def blackjax_proposal_scale():
+    scale_fraction = FIT_PROPOSAL_SCALE_FRACTION
+    return numpy.asarray(
+        [
+            scale_fraction * (DEFAULT_LIMITS["a"][1] - DEFAULT_LIMITS["a"][0]),
+            scale_fraction * (DEFAULT_LIMITS["i"][1] - DEFAULT_LIMITS["i"][0]),
+            scale_fraction * (DEFAULT_LIMITS["Macc"][1] - DEFAULT_LIMITS["Macc"][0]),
+            scale_fraction * (DEFAULT_LIMITS["e"][1] - DEFAULT_LIMITS["e"][0]),
+            scale_fraction
+            * (
+                DEFAULT_LIMITS["periapsis_phase"][1]
+                - DEFAULT_LIMITS["periapsis_phase"][0]
+            ),
+        ],
+        dtype=float,
+    )
+
+
 def blackjax_sampler_kwargs(return_sampler, return_walker_state=True):
     return {
         "return_sampler": return_sampler,
         "return_walker_state": return_walker_state,
+        "proposal_scale": blackjax_proposal_scale(),
     }
 
 
@@ -1179,6 +1202,7 @@ def fit_joint_batch(
         device=FIT_DEVICE,
         prefer_gpu=FIT_DEVICE == "auto",
         initial_walker_state=initial_walker_state,
+        proposal_scale=blackjax_proposal_scale(),
         return_sampler=FIT_SAVE_SAMPLERS,
         return_walker_state=FIT_SAVE_SAMPLERS,
     )
@@ -1244,6 +1268,7 @@ def fit_rv_only_batch(rows, curves):
         center_lc_model=True,
         device=FIT_DEVICE,
         prefer_gpu=FIT_DEVICE == "auto",
+        proposal_scale=blackjax_proposal_scale(),
         return_sampler=False,
         return_walker_state=False,
     )
@@ -1531,12 +1556,14 @@ if __name__ == "__main__":
     logger.info("Fit batch file: %s", FIT_BATCH_FILE)
     logger.info(
         "MCMC settings: FIT_NSTEPS=%d FIT_NWALKERS=%d FIT_BURN=%d "
-        "FIT_PROGRESS_CHUNK_SIZE=%d FIT_BATCH_SIZE=%s MP_START_METHOD=%s",
+        "FIT_PROGRESS_CHUNK_SIZE=%d FIT_BATCH_SIZE=%s "
+        "FIT_PROPOSAL_SCALE_FRACTION=%g MP_START_METHOD=%s",
         FIT_NSTEPS,
         FIT_NWALKERS,
         FIT_BURN,
         FIT_PROGRESS_CHUNK_SIZE,
         FIT_BATCH_SIZE if FIT_BATCH_SIZE is not None else "all",
+        FIT_PROPOSAL_SCALE_FRACTION,
         MP_START_METHOD,
     )
     logger.info("Fit eccentricity limits: %s", DEFAULT_LIMITS["e"])
