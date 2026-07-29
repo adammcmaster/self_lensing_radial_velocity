@@ -809,7 +809,7 @@ def short_id(value, length=8):
 
 
 def fitted_timeseries_row(i, ts, truth_sls, sls):
-    new_ts = pandas.Series(ts)
+    new_ts = pandas.Series(ts).copy()
     new_ts["realistic_idx"] = i
     new_ts["b_max"] = truth_sls.b_max.value
     new_ts["fitted_a"] = sls.a.value
@@ -827,7 +827,7 @@ def fitted_timeseries_row(i, ts, truth_sls, sls):
 def add_fit_stage_columns(ts, fit_ts, stage_prefix):
     if fit_ts is None:
         return ts
-    new_ts = pandas.Series(ts)
+    new_ts = pandas.Series(ts).copy()
     for column in FIT_RESULT_COLUMNS:
         if column in fit_ts:
             new_ts[f"{stage_prefix}_{column}"] = fit_ts[column]

@@ -81,6 +81,12 @@ PARAMETERS = {
     },
 }
 
+PREFIT_COMPARISON_STAGE_STYLES = {
+    "Photometry only": {"color": "#CC79A7", "marker": None, "linestyle": "--"},
+    "Photometry + RV": {"color": "#0072B2", "marker": "o", "linestyle": "-"},
+    "RV only": {"color": "#009E73", "marker": "s", "linestyle": "-."},
+}
+
 
 def candidate_result_paths():
     env_path = os.environ.get("SLRV_FIT_OUTPUT_PATH")
@@ -241,6 +247,7 @@ def prefit_comparison_parameters(results):
 
 def prefit_joint_error_rows(results):
     parameters = prefit_comparison_parameters(results)
+    warn_on_matching_joint_and_rv_only_columns(results, parameters)
 
     rows = []
     for param, spec in parameters.items():
@@ -288,6 +295,30 @@ def prefit_joint_error_rows(results):
             "available in the fitted results table."
         )
     return pandas.concat(rows, ignore_index=True)
+
+
+def warn_on_matching_joint_and_rv_only_columns(results, parameters):
+    for param, spec in parameters.items():
+        rvfit_column = spec.get("rvfit")
+        if rvfit_column is None:
+            continue
+        needed = [spec["fitted"], rvfit_column]
+        finite = results.dropna(subset=needed).copy()
+        if finite.empty:
+            continue
+        joint = numeric_scalar_series(finite[spec["fitted"]])
+        rv_only = numeric_scalar_series(finite[rvfit_column])
+        valid = numpy.isfinite(joint) & numpy.isfinite(rv_only)
+        if valid.any() and numpy.allclose(joint[valid], rv_only[valid], equal_nan=True):
+            logger.warning(
+                "RV-only column %s matches joint-fit column %s for all %d finite %s "
+                "row(s); the plotted RV-only series will overlap the photometry+RV "
+                "series.",
+                rvfit_column,
+                spec["fitted"],
+                int(valid.sum()),
+                param,
+            )
 
 
 def summarise_prefit_joint_errors(error_rows):
@@ -368,14 +399,9 @@ def plot_prefit_improvement_by_n_rv(results):
     )
     axes = numpy.atleast_1d(axes).ravel()
 
-    stage_styles = {
-        "Photometry only": {"color": "#CC79A7", "marker": None, "linestyle": "--"},
-        "Photometry + RV": {"color": "#0072B2", "marker": "o", "linestyle": "-"},
-        "RV only": {"color": "#009E73", "marker": "s", "linestyle": "-."},
-    }
     for axis, param in zip(axes, plot_params):
         param_data = summary[summary["parameter"] == param]
-        for stage, style in stage_styles.items():
+        for stage, style in PREFIT_COMPARISON_STAGE_STYLES.items():
             stage_data = param_data[param_data["fit_stage"] == stage].sort_values("n_rv")
             if stage_data.empty:
                 continue
@@ -419,7 +445,7 @@ def plot_prefit_improvement_by_n_rv(results):
             markersize=4,
             label=stage,
         )
-        for stage, style in stage_styles.items()
+        for stage, style in PREFIT_COMPARISON_STAGE_STYLES.items()
     ]
     legend_handles.append(
         Line2D(
@@ -483,11 +509,6 @@ def plot_prefit_improvement_by_lens_mass_range(results):
     elif len(mass_ranges) == 1:
         axes = numpy.asarray([[axis] for axis in axes])
 
-    stage_styles = {
-        "Photometry only": {"color": "#CC79A7", "marker": None, "linestyle": "--"},
-        "Photometry + RV": {"color": "#0072B2", "marker": "o", "linestyle": "-"},
-        "RV only": {"color": "#009E73", "marker": "s", "linestyle": "-."},
-    }
     for row_index, param in enumerate(plot_params):
         for col_index, mass_range_label in enumerate(mass_ranges):
             axis = axes[row_index, col_index]
@@ -495,7 +516,7 @@ def plot_prefit_improvement_by_lens_mass_range(results):
                 (summary["parameter"] == param)
                 & (summary["lens_mass_range"] == mass_range_label)
             ]
-            for stage, style in stage_styles.items():
+            for stage, style in PREFIT_COMPARISON_STAGE_STYLES.items():
                 stage_data = panel_data[
                     panel_data["fit_stage"] == stage
                 ].sort_values("n_rv")
@@ -550,7 +571,7 @@ def plot_prefit_improvement_by_lens_mass_range(results):
             markersize=4,
             label=stage,
         )
-        for stage, style in stage_styles.items()
+        for stage, style in PREFIT_COMPARISON_STAGE_STYLES.items()
     ]
     legend_handles.append(
         Line2D(
@@ -579,6 +600,7 @@ def plot_prefit_improvement_by_lens_mass_range(results):
 
 def prefit_compact_object_class_rows(results):
     parameters = prefit_comparison_parameters(results)
+    warn_on_matching_joint_and_rv_only_columns(results, parameters)
     mass_spec = parameters.get("Macc")
     if mass_spec is None:
         raise KeyError(
@@ -586,48 +608,48 @@ def prefit_compact_object_class_rows(results):
             "Expected prefit_fitted_Macc."
         )
 
-    needed = [
-        "Macc",
-        mass_spec["fitted"],
-        mass_spec["prefit"],
-        "pristine_id",
-        "n_rv",
-    ]
+    needed = ["Macc", "pristine_id", "n_rv"]
     finite = results.dropna(subset=needed).copy()
     if finite.empty:
         raise ValueError(
-            "No finite paired photometry-only prefit and joint-fit mass values "
+            "No finite paired truth and fitted mass values "
             "were available in the fitted results table."
         )
 
-    for column in ("Macc", mass_spec["fitted"], mass_spec["prefit"]):
-        finite[column] = numeric_scalar_series(finite[column])
-    finite = finite[
-        numpy.isfinite(finite["Macc"])
-        & numpy.isfinite(finite[mass_spec["fitted"]])
-        & numpy.isfinite(finite[mass_spec["prefit"]])
-    ].copy()
+    finite["Macc"] = numeric_scalar_series(finite["Macc"])
+    finite = finite[numpy.isfinite(finite["Macc"])].copy()
     if finite.empty:
         raise ValueError(
-            "No finite paired photometry-only prefit and joint-fit mass values "
-            "were available in the fitted results table."
+            "No finite truth masses were available in the fitted results table."
         )
 
-    true_class = compact_object_class(finite["Macc"])
-    mass_range = lens_mass_range(finite["Macc"])
-    rows = []
-    for fit_stage, value_column in (
+    fit_stages = (
         ("Photometry only", mass_spec["prefit"]),
         ("Photometry + RV", mass_spec["fitted"]),
-    ):
-        fitted_class = compact_object_class(finite[value_column])
+        ("RV only", mass_spec.get("rvfit")),
+    )
+    rows = []
+    for fit_stage, value_column in fit_stages:
+        if value_column is None:
+            continue
+        stage_data = finite.dropna(subset=[value_column]).copy()
+        if stage_data.empty:
+            continue
+        stage_data[value_column] = numeric_scalar_series(stage_data[value_column])
+        stage_data = stage_data[numpy.isfinite(stage_data[value_column])].copy()
+        if stage_data.empty:
+            continue
+
+        true_class = compact_object_class(stage_data["Macc"])
+        fitted_class = compact_object_class(stage_data[value_column])
+        mass_range = lens_mass_range(stage_data["Macc"])
         rows.append(
             pandas.DataFrame(
                 {
                     "fit_stage": fit_stage,
                     "lens_mass_range": mass_range.astype(str).to_numpy(),
-                    "n_rv": finite["n_rv"].astype(int).to_numpy(),
-                    "pristine_id": finite["pristine_id"].astype(str).to_numpy(),
+                    "n_rv": stage_data["n_rv"].astype(int).to_numpy(),
+                    "pristine_id": stage_data["pristine_id"].astype(str).to_numpy(),
                     "correct_class": (
                         true_class.notna()
                         & fitted_class.notna()
@@ -635,6 +657,12 @@ def prefit_compact_object_class_rows(results):
                     ).to_numpy(),
                 }
             )
+        )
+
+    if not rows:
+        raise ValueError(
+            "No finite photometry-only, photometry+RV, or RV-only fitted mass values "
+            "were available in the fitted results table."
         )
     return pandas.concat(rows, ignore_index=True)
 
@@ -684,13 +712,9 @@ def plot_prefit_compact_object_class_by_lens_mass_range(results):
     if len(mass_ranges) == 1:
         axes = [axes]
 
-    stage_styles = {
-        "Photometry only": {"color": "#CC79A7", "marker": None, "linestyle": "--"},
-        "Photometry + RV": {"color": "#0072B2", "marker": "o", "linestyle": "-"},
-    }
     for axis, mass_range_label in zip(axes, mass_ranges):
         panel_data = summary[summary["lens_mass_range"] == mass_range_label]
-        for stage, style in stage_styles.items():
+        for stage, style in PREFIT_COMPARISON_STAGE_STYLES.items():
             stage_data = panel_data[
                 panel_data["fit_stage"] == stage
             ].sort_values("n_rv")
@@ -730,7 +754,7 @@ def plot_prefit_compact_object_class_by_lens_mass_range(results):
             markersize=4,
             label=stage,
         )
-        for stage, style in stage_styles.items()
+        for stage, style in PREFIT_COMPARISON_STAGE_STYLES.items()
     ]
     legend_handles.append(
         Line2D(
@@ -745,7 +769,7 @@ def plot_prefit_compact_object_class_by_lens_mass_range(results):
     fig.legend(
         handles=legend_handles,
         loc="upper center",
-        ncol=3,
+        ncol=4,
         bbox_to_anchor=(0.5, 1.08),
         frameon=False,
     )
