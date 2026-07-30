@@ -1424,95 +1424,6 @@ def survey_scaled_followup_counts(summary):
     return pandas.concat(rows, ignore_index=True)
 
 
-def plot_survey_count_heatmaps(survey_counts):
-    metrics = [
-        ("classified_survey_count", "Class"),
-        ("measured_mass_survey_count", r"$M_\mathrm{acc}$"),
-        ("measured_period_survey_count", r"$P_\mathrm{orb}$"),
-        ("measured_mass_and_period_survey_count", "Both"),
-    ]
-    baselines = numpy.sort(survey_counts["baseline"].unique())
-    for survey in SURVEY_DETECTED_COUNTS:
-        survey_data = survey_counts[survey_counts["survey"] == survey]
-        vmax = numpy.nanmax(survey_data[[metric for metric, _ in metrics]].to_numpy(dtype=float))
-        fig, axes = pyplot.subplots(
-            len(metrics),
-            len(baselines),
-            figsize=(11.0, 7.6),
-            sharex=True,
-            sharey=True,
-            constrained_layout=False,
-        )
-        last_mesh = None
-        for row_index, (metric, label) in enumerate(metrics):
-            for col_index, baseline in enumerate(baselines):
-                axis = axes[row_index, col_index]
-                subset = survey_data[survey_data["baseline"] == baseline]
-                matrix = subset.pivot(
-                    index="cadence",
-                    columns="RV accuracy",
-                    values=metric,
-                ).sort_index().sort_index(axis=1)
-                heatmap = seaborn.heatmap(
-                    matrix,
-                    ax=axis,
-                    vmin=0,
-                    vmax=vmax,
-                    cmap="viridis",
-                    annot=True,
-                    annot_kws={"fontsize": 6.3},
-                    fmt=".1f" if vmax < 200 else ".0f",
-                    linewidths=0.35,
-                    linecolor="white",
-                    square=True,
-                    cbar=False,
-                )
-                last_mesh = heatmap.collections[0]
-                if row_index == 0:
-                    axis.set_title(f"{baseline / 365:g} yr")
-                if col_index == 0:
-                    axis.set_ylabel(f"{label}\nCadence [d]", labelpad=18)
-                else:
-                    axis.set_ylabel("")
-                if row_index == len(metrics) - 1:
-                    axis.set_xlabel(r"RV accuracy [m s$^{-1}$]")
-                    axis.set_xticklabels(
-                        rv_accuracy_tick_labels(matrix.columns),
-                        rotation=40,
-                        ha="right",
-                    )
-                else:
-                    axis.set_xlabel("")
-                    axis.set_xticklabels([])
-        for axis in axes[:, 0]:
-            axis.yaxis.set_tick_params(pad=2)
-        fig.subplots_adjust(
-            left=0.12,
-            right=0.89,
-            top=0.95,
-            bottom=0.12,
-            wspace=0.08,
-            hspace=0.04,
-        )
-        if last_mesh is not None:
-            colorbar = fig.colorbar(
-                last_mesh,
-                ax=axes,
-                location="right",
-                shrink=0.82,
-                pad=0.03,
-                label=f"{survey} recovered systems",
-            )
-            colorbar.ax.tick_params(labelsize=8)
-        slug = survey.lower()
-        for suffix in ("pdf", "png"):
-            fig.savefig(
-                FIGURE_DIR / f"population_weighted_rv_followup_heatmaps_counts_{slug}.{suffix}",
-                bbox_inches="tight",
-            )
-        pyplot.close(fig)
-
-
 def plot_mass_period_recovery(precision_tiers):
     rv_order = [1000.0, 100.0, 10.0, 1.0, 0.1]
     rv_labels = [PRECISION_TIER_LABELS[value] for value in rv_order]
@@ -1663,8 +1574,6 @@ def main():
     )
     write_latex_summary(summary)
     write_latex_bh_summary(bh_summary)
-    plot_followup_heatmaps(summary)
-    plot_survey_count_heatmaps(survey_counts)
     plot_mass_period_recovery(precision_tiers)
     logger.info("Wrote population-weighted follow-up tables and figures")
 

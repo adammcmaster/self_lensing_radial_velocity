@@ -87,6 +87,13 @@ PREFIT_COMPARISON_STAGE_STYLES = {
     "RV only": {"color": "#009E73", "marker": "s", "linestyle": "-."},
 }
 
+SURVEY_DETECTED_COUNTS = {
+    # Wiktorowicz et al. (2021), Table 2, standard-IMF n_sl values.
+    "ZTF": 4027.97,
+    "LSST": 10284.91,
+    "TESS": 123.28,
+}
+
 
 def candidate_result_paths():
     env_path = os.environ.get("SLRV_FIT_OUTPUT_PATH")
@@ -198,6 +205,10 @@ def run_step(label, fn, *args, **kwargs):
     result = fn(*args, **kwargs)
     logger.info("Finished %s in %.1f s", label, time.perf_counter() - start)
     return result
+
+
+def rv_accuracy_tick_labels(values):
+    return [f"{float(value):g}" for value in values]
 
 
 def summarise_strategy_recovery(results):
@@ -786,6 +797,113 @@ def percent_matrix(table, value_column, baseline):
     matrix = subset.pivot(index="cadence", columns="RV accuracy", values=value_column)
     matrix = matrix.sort_index().sort_index(axis=1)
     return 100.0 * matrix
+
+
+def plot_population_weighted_survey_followup_heatmaps():
+    survey_counts_path = TABLE_DIR / "population_weighted_followup_survey_counts.csv"
+    if not survey_counts_path.exists():
+        logger.warning(
+            "Skipping population-weighted survey follow-up heatmaps because %s "
+            "does not exist. Run src/5_population_weighted_followup.py first.",
+            survey_counts_path.relative_to(PROJECT_ROOT),
+        )
+        return
+
+    survey_counts = pandas.read_csv(survey_counts_path)
+    metrics = [
+        ("classified_survey_count", "class", "Class"),
+        ("measured_mass_survey_count", "macc", r"$M_\mathrm{acc}$"),
+        ("measured_period_survey_count", "porb", r"$P_\mathrm{orb}$"),
+    ]
+    baselines = numpy.sort(survey_counts["baseline"].unique())
+    for metric, slug, label in metrics:
+        fig, axes = pyplot.subplots(
+            len(SURVEY_DETECTED_COUNTS),
+            len(baselines),
+            figsize=(11.0, 7.6),
+            sharex=True,
+            sharey=True,
+            constrained_layout=False,
+        )
+        last_mesh = None
+        for row_index, survey in enumerate(SURVEY_DETECTED_COUNTS):
+            survey_data = survey_counts[survey_counts["survey"] == survey].copy()
+            if survey_data.empty:
+                logger.warning("No survey-count rows found for %s", survey)
+                continue
+            detected_count = survey_data["survey_detected_count"].iloc[0]
+            survey_data["_recovered_percent"] = (
+                100.0 * survey_data[metric] / detected_count
+            )
+            for col_index, baseline in enumerate(baselines):
+                axis = axes[row_index, col_index]
+                subset = survey_data[survey_data["baseline"] == baseline]
+                matrix = subset.pivot(
+                    index="cadence",
+                    columns="RV accuracy",
+                    values="_recovered_percent",
+                ).sort_index().sort_index(axis=1)
+                heatmap = seaborn.heatmap(
+                    matrix,
+                    ax=axis,
+                    vmin=0,
+                    vmax=100,
+                    cmap="viridis",
+                    annot=True,
+                    annot_kws={"fontsize": 6.3},
+                    fmt=".0f",
+                    linewidths=0.35,
+                    linecolor="white",
+                    square=False,
+                    cbar=False,
+                )
+                last_mesh = heatmap.collections[0]
+                if row_index == 0:
+                    axis.set_title(f"{baseline / 365:g} yr")
+                if col_index == 0:
+                    axis.set_ylabel(
+                        f"{survey}\n$N_\\mathrm{{det}}={detected_count:.0f}$\nCadence [d]",
+                        labelpad=18,
+                    )
+                else:
+                    axis.set_ylabel("")
+                if row_index == len(SURVEY_DETECTED_COUNTS) - 1:
+                    axis.set_xlabel(r"RV accuracy [m s$^{-1}$]")
+                    axis.set_xticklabels(
+                        rv_accuracy_tick_labels(matrix.columns),
+                        rotation=40,
+                        ha="right",
+                    )
+                else:
+                    axis.set_xlabel("")
+                    axis.set_xticklabels([])
+        for axis in axes[:, 0]:
+            axis.yaxis.set_tick_params(pad=2)
+        fig.subplots_adjust(
+            left=0.12,
+            right=0.89,
+            top=0.95,
+            bottom=0.10,
+            wspace=0.08,
+            hspace=0.025,
+        )
+        if last_mesh is not None:
+            colorbar = fig.colorbar(
+                last_mesh,
+                ax=axes,
+                location="right",
+                shrink=0.82,
+                pad=0.03,
+                label=f"{label} recovered [per cent of detectable systems]",
+            )
+            colorbar.ax.tick_params(labelsize=8)
+        for suffix in ("pdf", "png"):
+            fig.savefig(
+                FIGURE_DIR
+                / f"population_weighted_rv_followup_heatmaps_percent_{slug}.{suffix}",
+                bbox_inches="tight",
+            )
+        pyplot.close(fig)
 
 
 def plot_mass_recovery_by_strategy(strategy_summary):
@@ -1673,6 +1791,10 @@ def main():
         "prefit compact-object class by lens-mass range figure",
         plot_prefit_compact_object_class_by_lens_mass_range,
         results,
+    )
+    run_step(
+        "population-weighted survey follow-up heatmaps",
+        plot_population_weighted_survey_followup_heatmaps,
     )
     run_step("sample summary table", write_sample_summary, results)
     run_step("mass recovery table", write_mass_recovery_table, strategy_summary)
