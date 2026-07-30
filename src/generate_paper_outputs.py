@@ -820,7 +820,7 @@ def plot_population_weighted_survey_followup_heatmaps():
         fig, axes = pyplot.subplots(
             len(SURVEY_DETECTED_COUNTS),
             len(baselines),
-            figsize=(11.0, 7.6),
+            figsize=(11.0, 5.7),
             sharex=True,
             sharey=True,
             constrained_layout=False,
@@ -854,7 +854,7 @@ def plot_population_weighted_survey_followup_heatmaps():
                     fmt=".0f",
                     linewidths=0.35,
                     linecolor="white",
-                    square=False,
+                    square=True,
                     cbar=False,
                 )
                 last_mesh = heatmap.collections[0]
@@ -883,9 +883,9 @@ def plot_population_weighted_survey_followup_heatmaps():
             left=0.12,
             right=0.89,
             top=0.95,
-            bottom=0.10,
+            bottom=0.12,
             wspace=0.08,
-            hspace=0.025,
+            hspace=0.04,
         )
         if last_mesh is not None:
             colorbar = fig.colorbar(
