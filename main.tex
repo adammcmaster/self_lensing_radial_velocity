@@ -60,6 +60,7 @@
 % Please keep new commands to a minimum, and use \newcommand not \def to avoid
 % overwriting existing commands. Example:
 %\newcommand{\pcm}{\,cm$^{-2}$}	% per cm-squared
+\newcommand{\slrvmultirow}[2]{\smash{\raisebox{\dimexpr-#1\baselineskip/2+\baselineskip/2\relax}{#2}}}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -374,7 +375,7 @@ where $d_{ij} = \lVert\mathbf{x}_i - \mathbf{x}_j\rVert$ and $\epsilon = 10^{-12
     \qquad
     C_j = \sum_{i \in \mathcal{N}_k(j)} v_i w_{ij},
 \end{equation}
-where $q_i$ is the measured RV outcome and $v_i$ indicates whether that neighbouring simulation has a valid fit for the relevant strategy. The associated coverage $C_j$ is therefore the fraction of the neighbour weight supported by valid fitted simulations. We emulate four outcomes in this way: correct compact-object class, lens-mass recovery to 10 per cent, orbital-period recovery to 10 per cent, and simultaneous lens-mass and orbital-period recovery to 10 per cent. The final population-weighted fractions are obtained by averaging these emulated probabilities over the detected population-synthesis systems using their population weights $W_j$,
+where $q_i$ is the measured RV outcome and $v_i$ indicates whether that neighbouring simulation has a valid fit for the relevant strategy. The associated coverage $C_j$ is therefore the fraction of the neighbour weight supported by valid fitted simulations. We emulate three outcomes in this way: correct compact-object class, lens-mass recovery to 10 per cent, and orbital-period recovery to 10 per cent. The final population-weighted fractions are obtained by averaging these emulated probabilities over the detected population-synthesis systems using their population weights $W_j$,
 \begin{equation}
     \bar{p} = \frac{\sum_j W_j \hat{p}_j}{\sum_j W_j}.
 \end{equation}
@@ -497,48 +498,41 @@ Figure~\ref{fig:prefit-compact-object-class-by-lens-mass-range} shows the percen
 
 \textbf{TODO: Add something about RV-only fits. What do we learn from them?}
 
-% \input{paper/tables/rv_accuracy_requirements}
-
-\subsection{Population-weighted follow-up}
+\subsection{Predicted detection rates}
 \textbf{TODO: Write this!}
 
-% \input{paper/tables/population_weighted_followup_summary}
-
-% \input{paper/tables/population_weighted_bh_followup_summary}
+We first used the emulator to estimate the recovery rates for parameters based on the population synthesis-based parameter distribution. Recovery rates are the predicted percentages of detectable systems we could recover, calculated using the emulator to transfer the results of our RV simulations onto the physically-motivated population-synthesis distribution used in \cite{wiktorowicz_predicting_2021}. These recovery rates are independent of photometric survey in this model, but still depend on the RV observing strategy.
 
 \begin{figure*}
     \centering
-    \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps_percent_class.pdf}
-    \caption{Survey-scaled RV follow-up compact-object class recovery percentages for the ZTF-, LSST-, and TESS-detected self-lensing populations. Rows show photometric surveys, columns show observing baseline, and each panel separates cadence and instrumental RV accuracy. Percentages are relative to the standard-IMF detectable survey yields from Wiktorowicz et al. (2021).}
-    \label{fig:population-weighted-rv-followup-heatmaps-percent-class}
+    \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps_counts_class.pdf}
+    \caption{Population-weighted RV follow-up compact-object class recovery percentage from the emulator. Columns show observing baseline, and each panel separates cadence and instrumental RV accuracy.}
+    \label{fig:population-weighted-rv-followup-heatmaps-counts-class}
 \end{figure*}
 
-Figure~\ref{fig:population-weighted-rv-followup-heatmaps-percent-class}.
+Figure~\ref{fig:population-weighted-rv-followup-heatmaps-counts-class} shows the recovery rates for compact-object class. Class recovery spans roughly 50--80\% depending on RV observing strategy, with a mean of 70.4\%. Recovery improves modestly with longer baseline on average (67.1, 71.7, 72.6 per cent for 1, 3, 5 yr). 300 d cadence is generally poorer than 1 or 30 d cadence. The dependence on RV accuracy is weak/non-monotonic compared with cadence and baseline.
 
 \begin{figure*}
     \centering
-    \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps_percent_macc.pdf}
-    \caption{Survey-scaled RV follow-up lens-mass recovery percentages for the ZTF-, LSST-, and TESS-detected self-lensing populations. Rows show photometric surveys, columns show observing baseline, and each panel separates cadence and instrumental RV accuracy. Percentages are relative to the standard-IMF detectable survey yields from Wiktorowicz et al. (2021).}
-    \label{fig:population-weighted-rv-followup-heatmaps-percent-macc}
+    \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps_counts_macc.pdf}
+    \caption{Population-weighted RV follow-up lens-mass recovery percentage from the emulator. Columns show observing baseline, and each panel separates cadence and instrumental RV accuracy.}
+    \label{fig:population-weighted-rv-followup-heatmaps-counts-macc}
 \end{figure*}
 
-Figure~\ref{fig:population-weighted-rv-followup-heatmaps-percent-macc}.
+Figure~\ref{fig:population-weighted-rv-followup-heatmaps-counts-macc} shows the recovery rates for lens mass. Lens-mass recovery to within 10\% is much harder than class recovery (18.8--53.2\%, with a mean of 39.2\%). We can determine the class more easily than the accurate mass, so a sensible strategy would be to obtain a small number of RV observations to determine the likely object class, and then prioritise further RV observations based on those results to accuratrly determine the mass for the most interesting systems. Observing baseline has a large effect on the recovery rate, with the mean rising from 27.8 per cent at 1 yr to 42.4 per cent at 3 yr and 47.5 per cent at 5 yr. The 300 d cadence rows are generally worse than 1 or 30 d cadence, so observing cadence will also be an important consideration.
 
 \begin{figure*}
     \centering
-    \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps_percent_porb.pdf}
-    \caption{Survey-scaled RV follow-up orbital-period recovery percentages for the ZTF-, LSST-, and TESS-detected self-lensing populations. Rows show photometric surveys, columns show observing baseline, and each panel separates cadence and instrumental RV accuracy. Percentages are relative to the standard-IMF detectable survey yields from Wiktorowicz et al. (2021).}
-    \label{fig:population-weighted-rv-followup-heatmaps-percent-porb}
+    \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps_counts_porb.pdf}
+    \caption{Population-weighted RV follow-up orbital-period recovery percentage from the emulator. Columns show observing baseline, and each panel separates cadence and instrumental RV accuracy.}
+    \label{fig:population-weighted-rv-followup-heatmaps-counts-porb}
 \end{figure*}
 
-Figure~\ref{fig:population-weighted-rv-followup-heatmaps-percent-porb}.
+Figure~\ref{fig:population-weighted-rv-followup-heatmaps-counts-porb} shows the recovery rates for orbital period. The recovery rate ranges from 36.2--81.5\%, with a mean of 66.8\%. As with the other parameters, the cadence and observing baseline affect recovery, with RV accurcy having a smaller effect.
 
-% \begin{figure*}
-%     \centering
-%     \includegraphics[width=\textwidth]{paper/figures/population_weighted_mass_period_recovery.pdf}
-%     \caption{Population-weighted 10 per cent recovery fractions for lens mass and orbital period in the longest-baseline, highest-cadence observing strategy. Columns split the detected population by orbital-period range, rows show lens-mass and orbital-period recovery, and curves show lens-mass ranges as a function of RV accuracy.}
-%     \label{fig:population-weighted-mass-period-recovery}
-% \end{figure*}
+Table~\ref{tab:population-weighted-followup-counts-summary} shows a summary of the results of applying these recovery rates to the survey-specific photometric detection yields given by \cite{wiktorowicz_predicting_2021} (i.e. it shows the number of photometrically detectable systems in each survey for which each parameter can be accurately measured after RV follow-up). Full values are given in Tables \ref{tab:population-weighted-followup-counts-class}, \ref{tab:population-weighted-followup-counts-macc}, and \ref{tab:population-weighted-followup-counts-porb}. Note that the recovery rate is the same regardless of survey, as this is based on the RV followup observations; differences in recovered population sizes reflects the different numbers of photometrically-detectable systems in each survey.
+
+\input{paper/tables/population_weighted_followup_counts_summary}
 
 \section{Conclusions}
 The last numbered section should briefly summarise what has been done, and describe
@@ -580,10 +574,14 @@ The inclusion of a Data Availability Statement is a requirement for articles pub
 
 \appendix
 
-\section{Some extra material}
+\section{Population-weighted follow-up count tables}
+\label{app:population-weighted-followup-counts}
 
-If you want to present additional material which would interrupt the flow of the main paper,
-it can be placed in an Appendix which appears after the list of references.
+\input{paper/tables/population_weighted_followup_counts_class}
+
+\input{paper/tables/population_weighted_followup_counts_macc}
+
+\input{paper/tables/population_weighted_followup_counts_porb}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

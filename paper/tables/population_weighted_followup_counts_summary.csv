@@ -1,0 +1,10 @@
+parameter,label,survey,minimum,maximum,mean
+class,compact-object class,ZTF,2028.9,3230.5,2836.5222222222224
+class,compact-object class,LSST,5180.5,8248.6,7242.70222222222
+class,compact-object class,TESS,62.1,98.9,86.81555555555555
+macc,$M_\mathrm{acc}$,ZTF,755.3,2143.0,1580.244444444444
+macc,$M_\mathrm{acc}$,LSST,1928.5,5471.9,4034.9555555555557
+macc,$M_\mathrm{acc}$,TESS,23.1,65.6,48.362222222222215
+porb,$P_\mathrm{orb}$,ZTF,1458.5,3282.5,2691.591111111111
+porb,$P_\mathrm{orb}$,LSST,3724.0,8381.4,6872.648888888889
+porb,$P_\mathrm{orb}$,TESS,44.6,100.5,82.37555555555556

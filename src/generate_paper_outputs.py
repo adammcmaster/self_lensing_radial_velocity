@@ -811,96 +811,78 @@ def plot_population_weighted_survey_followup_heatmaps():
 
     survey_counts = pandas.read_csv(survey_counts_path)
     metrics = [
-        ("classified_survey_count", "class", "Class"),
-        ("measured_mass_survey_count", "macc", r"$M_\mathrm{acc}$"),
-        ("measured_period_survey_count", "porb", r"$P_\mathrm{orb}$"),
+        ("classified_fraction", "classified_survey_count", "class", "compact-object class"),
+        ("measured_mass_fraction", "measured_mass_survey_count", "macc", r"$M_\mathrm{acc}$"),
+        ("measured_period_fraction", "measured_period_survey_count", "porb", r"$P_\mathrm{orb}$"),
     ]
     baselines = numpy.sort(survey_counts["baseline"].unique())
-    for metric, slug, label in metrics:
-        fig, axes = pyplot.subplots(
-            len(SURVEY_DETECTED_COUNTS),
-            len(baselines),
-            figsize=(11.0, 5.7),
-            sharex=True,
-            sharey=True,
-            constrained_layout=False,
-        )
-        last_mesh = None
-        for row_index, survey in enumerate(SURVEY_DETECTED_COUNTS):
-            survey_data = survey_counts[survey_counts["survey"] == survey].copy()
-            if survey_data.empty:
-                logger.warning("No survey-count rows found for %s", survey)
-                continue
-            detected_count = survey_data["survey_detected_count"].iloc[0]
-            survey_data["_recovered_percent"] = (
-                100.0 * survey_data[metric] / detected_count
-            )
-            for col_index, baseline in enumerate(baselines):
-                axis = axes[row_index, col_index]
-                subset = survey_data[survey_data["baseline"] == baseline]
-                matrix = subset.pivot(
-                    index="cadence",
-                    columns="RV accuracy",
-                    values="_recovered_percent",
-                ).sort_index().sort_index(axis=1)
-                heatmap = seaborn.heatmap(
-                    matrix,
-                    ax=axis,
-                    vmin=0,
-                    vmax=100,
-                    cmap="viridis",
-                    annot=True,
-                    annot_kws={"fontsize": 6.3},
-                    fmt=".0f",
-                    linewidths=0.35,
-                    linecolor="white",
-                    square=True,
-                    cbar=False,
-                )
-                last_mesh = heatmap.collections[0]
-                if row_index == 0:
-                    axis.set_title(f"{baseline / 365:g} yr")
-                if col_index == 0:
-                    axis.set_ylabel(
-                        f"{survey}\n$N_\\mathrm{{det}}={detected_count:.0f}$\nCadence [d]",
-                        labelpad=18,
-                    )
-                else:
-                    axis.set_ylabel("")
-                if row_index == len(SURVEY_DETECTED_COUNTS) - 1:
-                    axis.set_xlabel(r"RV accuracy [m s$^{-1}$]")
-                    axis.set_xticklabels(
-                        rv_accuracy_tick_labels(matrix.columns),
-                        rotation=40,
-                        ha="right",
-                    )
-                else:
-                    axis.set_xlabel("")
-                    axis.set_xticklabels([])
-        for axis in axes[:, 0]:
-            axis.yaxis.set_tick_params(pad=2)
-        fig.subplots_adjust(
-            left=0.12,
-            right=0.89,
-            top=0.95,
-            bottom=0.12,
+    for fraction_metric, count_metric, slug, label in metrics:
+        reference_survey = next(iter(SURVEY_DETECTED_COUNTS))
+        reference_data = survey_counts[
+            survey_counts["survey"] == reference_survey
+        ].copy()
+        cadences = numpy.sort(reference_data["cadence"].unique())
+        rv_values = numpy.sort(reference_data["RV accuracy"].unique())
+        n_baselines = len(baselines)
+
+        fig = pyplot.figure(figsize=(8.8, 2.8))
+        grid = fig.add_gridspec(
+            1,
+            n_baselines + 1,
+            width_ratios=[1.0] * n_baselines + [0.045],
+            left=0.10,
+            right=0.90,
+            top=0.88,
+            bottom=0.24,
             wspace=0.08,
-            hspace=0.04,
         )
-        if last_mesh is not None:
-            colorbar = fig.colorbar(
-                last_mesh,
-                ax=axes,
-                location="right",
-                shrink=0.82,
-                pad=0.03,
-                label=f"{label} recovered [per cent of detectable systems]",
+        axes = numpy.empty(n_baselines, dtype=object)
+        colorbar_axis = fig.add_subplot(grid[0, -1])
+        for col_index in range(n_baselines):
+            sharey = axes[0] if col_index > 0 else None
+            axes[col_index] = fig.add_subplot(grid[0, col_index], sharey=sharey)
+
+        for col_index, baseline in enumerate(baselines):
+            axis = axes[col_index]
+            subset = reference_data[reference_data["baseline"] == baseline]
+            matrix = subset.pivot(
+                index="cadence",
+                columns="RV accuracy",
+                values=fraction_metric,
+            ).reindex(index=cadences, columns=rv_values)
+            heatmap = seaborn.heatmap(
+                100.0 * matrix,
+                ax=axis,
+                vmin=0,
+                vmax=100,
+                cmap="viridis",
+                annot=True,
+                annot_kws={"fontsize": 6.3},
+                fmt=".0f",
+                linewidths=0.35,
+                linecolor="white",
+                square=True,
+                cbar=col_index == n_baselines - 1,
+                cbar_ax=colorbar_axis if col_index == n_baselines - 1 else None,
+                cbar_kws={"label": "Recovered [per cent]"},
             )
-            colorbar.ax.tick_params(labelsize=8)
+            if col_index == 0:
+                axis.set_ylabel("Cadence [d]", labelpad=10)
+            else:
+                axis.set_ylabel("")
+                axis.tick_params(axis="y", left=False, labelleft=False)
+            axis.set_title(f"{baseline / 365:g} yr")
+            axis.set_xlabel(r"RV accuracy [m s$^{-1}$]")
+            axis.set_xticklabels(
+                rv_accuracy_tick_labels(rv_values),
+                rotation=40,
+                ha="right",
+            )
+        colorbar_axis.tick_params(labelsize=8)
         for suffix in ("pdf", "png"):
             fig.savefig(
                 FIGURE_DIR
-                / f"population_weighted_rv_followup_heatmaps_percent_{slug}.{suffix}",
+                / f"population_weighted_rv_followup_heatmaps_counts_{slug}.{suffix}",
                 bbox_inches="tight",
             )
         pyplot.close(fig)
@@ -1393,6 +1375,185 @@ def plot_compact_object_class_confusion(results):
     pyplot.close(fig)
 
 
+def write_population_weighted_survey_count_tables():
+    survey_counts_path = TABLE_DIR / "population_weighted_followup_survey_counts.csv"
+    if not survey_counts_path.exists():
+        logger.warning(
+            "Skipping population-weighted survey count tables because %s "
+            "does not exist. Run src/5_population_weighted_followup.py first.",
+            survey_counts_path.relative_to(PROJECT_ROOT),
+        )
+        return
+
+    survey_counts = pandas.read_csv(survey_counts_path)
+    metrics = [
+        ("classified_fraction", "classified_survey_count", "class", "compact-object class"),
+        ("measured_mass_fraction", "measured_mass_survey_count", "macc", r"$M_\mathrm{acc}$"),
+        ("measured_period_fraction", "measured_period_survey_count", "porb", r"$P_\mathrm{orb}$"),
+    ]
+    strategy_columns = ["baseline_years", "cadence", "RV accuracy"]
+    reference_survey = next(iter(SURVEY_DETECTED_COUNTS))
+    rv_column = r"RV accuracy [m s$^{-1}$]"
+    summary_rows = []
+
+    for fraction_metric, count_metric, slug, label in metrics:
+        reference = survey_counts[survey_counts["survey"] == reference_survey].copy()
+        table = reference[strategy_columns + [fraction_metric]].rename(
+            columns={
+                "baseline_years": "Baseline [yr]",
+                "cadence": "Cadence [d]",
+                "RV accuracy": rv_column,
+                fraction_metric: "Recovered [per cent]",
+            }
+        )
+        for survey in SURVEY_DETECTED_COUNTS:
+            survey_table = survey_counts[survey_counts["survey"] == survey]
+            counts = survey_table[strategy_columns + [count_metric]].rename(
+                columns={count_metric: survey}
+            )
+            table = table.merge(
+                counts,
+                left_on=["Baseline [yr]", "Cadence [d]", rv_column],
+                right_on=strategy_columns,
+                how="left",
+            )
+            table = table.drop(columns=strategy_columns)
+
+        table = table.sort_values(
+            ["Baseline [yr]", "Cadence [d]", rv_column]
+        )
+        table["Recovered [per cent]"] = (100.0 * table["Recovered [per cent]"]).round(1)
+        for survey in SURVEY_DETECTED_COUNTS:
+            table[survey] = table[survey].round(1)
+
+        csv_path = TABLE_DIR / f"population_weighted_followup_counts_{slug}.csv"
+        table.to_csv(csv_path, index=False)
+        for survey in SURVEY_DETECTED_COUNTS:
+            minimum = table[survey].min()
+            maximum = table[survey].max()
+            mean = table[survey].mean()
+            summary_rows.append(
+                {
+                    "parameter": slug,
+                    "label": label,
+                    "survey": survey,
+                    "minimum": minimum,
+                    "maximum": maximum,
+                    "mean": mean,
+                }
+            )
+
+        lines = [
+            r"\begin{table*}",
+            r"    \centering",
+            r"    \tiny",
+            r"    \renewcommand{\arraystretch}{0.64}",
+            r"    \setlength{\tabcolsep}{2pt}",
+            r"    \setlength{\arrayrulewidth}{0.25pt}",
+            (
+                "    "
+                + rf"\caption{{Population-weighted RV follow-up {label} recovery. "
+                + "Recovered percentages are survey-independent emulator outputs; "
+                + "ZTF, LSST, and TESS columns give the corresponding expected "
+                + "absolute recovered counts after scaling by each survey's "
+                + r"standard-IMF detectable yield.}"
+            ),
+            rf"    \label{{tab:population-weighted-followup-counts-{slug}}}",
+            r"    \resizebox{\textwidth}{!}{%",
+            r"    \begin{tabular}{rrrrrrr}",
+            r"        \hline",
+            (
+                r"        Baseline [yr] & Cadence [d] & RV accuracy [m s$^{-1}$] "
+                r"& Recovered [per cent] & ZTF & LSST & TESS \\"
+            ),
+            r"        \hline",
+        ]
+        grouped_cells = {}
+        for column_index, column in enumerate(
+            ["Baseline [yr]", "Cadence [d]", rv_column]
+        ):
+            group_columns = ["Baseline [yr]", "Cadence [d]", rv_column][
+                : column_index + 1
+            ]
+            for _, group in table.groupby(group_columns, sort=False):
+                row_indices = list(group.index)
+                row_span = len(row_indices)
+                value = group.iloc[0][column]
+                if row_span > 1:
+                    grouped_cells[(row_indices[0], column)] = (
+                        rf"\slrvmultirow{{{row_span}}}{{{value:g}}}"
+                    )
+                    for row_index in row_indices[1:]:
+                        grouped_cells[(row_index, column)] = ""
+                else:
+                    grouped_cells[(row_indices[0], column)] = f"{value:g}"
+
+        ordered_rows = list(table.iterrows())
+        for ordered_index, (row_index, row) in enumerate(ordered_rows):
+            lines.append(
+                "        "
+                + f"{grouped_cells[(row_index, 'Baseline [yr]')]} & "
+                + f"{grouped_cells[(row_index, 'Cadence [d]')]} & "
+                + f"{grouped_cells[(row_index, rv_column)]} & "
+                + f"{row['Recovered [per cent]']:.1f} & "
+                + f"{row['ZTF']:.1f} & "
+                + f"{row['LSST']:.1f} & "
+                + f"{row['TESS']:.1f} \\\\"
+            )
+            if ordered_index == len(ordered_rows) - 1:
+                continue
+
+            _, next_row = ordered_rows[ordered_index + 1]
+            if row["Baseline [yr]"] != next_row["Baseline [yr]"]:
+                lines.append(r"        \noalign{\vskip 1.5pt}\hline\noalign{\vskip 1.5pt}")
+            elif row["Cadence [d]"] != next_row["Cadence [d]"]:
+                lines.append(r"        \noalign{\vskip 1pt}\cline{2-7}\noalign{\vskip 2.5pt}")
+        lines.extend(
+            [
+                r"        \hline",
+                r"    \end{tabular}",
+                r"    }",
+                r"    \setlength{\arrayrulewidth}{0.4pt}",
+                r"    \renewcommand{\arraystretch}{1}",
+                r"\end{table*}",
+                "",
+            ]
+        )
+        tex_path = TABLE_DIR / f"population_weighted_followup_counts_{slug}.tex"
+        tex_path.write_text("\n".join(lines))
+
+    summary_path = TABLE_DIR / "population_weighted_followup_counts_summary.csv"
+    summary = pandas.DataFrame(summary_rows)
+    summary.to_csv(summary_path, index=False)
+    summary_lines = [
+        r"\begin{table}",
+        r"    \centering",
+        r"    \caption{Summary of survey-scaled recovered-count ranges and means across the RV follow-up strategies shown in Figs.~\ref{fig:population-weighted-rv-followup-heatmaps-counts-class}--\ref{fig:population-weighted-rv-followup-heatmaps-counts-porb}. Full strategy-by-strategy counts are given in Tables~\ref{tab:population-weighted-followup-counts-class}, \ref{tab:population-weighted-followup-counts-macc}, and \ref{tab:population-weighted-followup-counts-porb}.}",
+        r"    \label{tab:population-weighted-followup-counts-summary}",
+        r"    \begin{tabular}{llrr}",
+        r"        \hline",
+        r"        Parameter & Survey & Range & Mean \\",
+        r"        \hline",
+    ]
+    for _, row in summary.iterrows():
+        summary_lines.append(
+            "        "
+            + rf"{row['label']} & {row['survey']} & "
+            + f"{row['minimum']:.1f}--{row['maximum']:.1f} & "
+            + f"{row['mean']:.1f} \\\\"
+        )
+    summary_lines.extend(
+        [
+            r"        \hline",
+            r"    \end{tabular}",
+            r"\end{table}",
+            "",
+        ]
+    )
+    summary_tex_path = TABLE_DIR / "population_weighted_followup_counts_summary.tex"
+    summary_tex_path.write_text("\n".join(summary_lines))
+
+
 def plot_lens_mass_recovery_by_mass(results):
     plot_recovery_by_truth_range(
         results,
@@ -1795,6 +1956,10 @@ def main():
     run_step(
         "population-weighted survey follow-up heatmaps",
         plot_population_weighted_survey_followup_heatmaps,
+    )
+    run_step(
+        "population-weighted survey follow-up count tables",
+        write_population_weighted_survey_count_tables,
     )
     run_step("sample summary table", write_sample_summary, results)
     run_step("mass recovery table", write_mass_recovery_table, strategy_summary)
