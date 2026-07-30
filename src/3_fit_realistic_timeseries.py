@@ -27,7 +27,40 @@ os.environ.setdefault(
 if "SLRV_JAX_PLATFORMS" in os.environ:
     os.environ.setdefault("JAX_PLATFORMS", os.environ["SLRV_JAX_PLATFORMS"])
 
+DEFAULT_JAX_COMPILATION_CACHE_DIR = (
+    Path(__file__).resolve().parent.parent / "data" / "jax_compilation_cache"
+)
+os.environ.setdefault(
+    "JAX_COMPILATION_CACHE_DIR",
+    os.environ.get(
+        "SLRV_JAX_COMPILATION_CACHE_DIR",
+        str(DEFAULT_JAX_COMPILATION_CACHE_DIR),
+    ),
+)
+os.environ.setdefault(
+    "JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS",
+    os.environ.get("SLRV_JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS", "1"),
+)
+os.environ.setdefault(
+    "JAX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES",
+    os.environ.get("SLRV_JAX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES", "0"),
+)
+Path(os.environ["JAX_COMPILATION_CACHE_DIR"]).mkdir(parents=True, exist_ok=True)
+
 import jax
+
+jax.config.update(
+    "jax_compilation_cache_dir",
+    os.environ["JAX_COMPILATION_CACHE_DIR"],
+)
+jax.config.update(
+    "jax_persistent_cache_min_compile_time_secs",
+    float(os.environ["JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS"]),
+)
+jax.config.update(
+    "jax_persistent_cache_min_entry_size_bytes",
+    int(os.environ["JAX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES"]),
+)
 
 JAX_DEVICES = jax.devices()
 
@@ -118,7 +151,7 @@ MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "spawn")
 FIT_NSTEPS = int(os.environ.get("SLRV_FIT_NSTEPS", 2000))
 FIT_NWALKERS = int(os.environ.get("SLRV_FIT_NWALKERS", 128))
 FIT_BURN = int(os.environ.get("SLRV_FIT_BURN", 200))
-FIT_PROGRESS_CHUNK_SIZE = int(os.environ.get("SLRV_FIT_PROGRESS_CHUNK_SIZE", 10))
+FIT_PROGRESS_CHUNK_SIZE = int(os.environ.get("SLRV_FIT_PROGRESS_CHUNK_SIZE", 100))
 FIT_LC_BINS = 100
 FIT_E_MIN = os.environ.get("SLRV_FIT_E_MIN")
 FIT_E_MAX = os.environ.get("SLRV_FIT_E_MAX")
@@ -183,29 +216,11 @@ def configure_fit_parameter_limits():
 configure_fit_parameter_limits()
 
 
-def blackjax_proposal_scale():
-    scale_fraction = FIT_PROPOSAL_SCALE_FRACTION
-    return numpy.asarray(
-        [
-            scale_fraction * (DEFAULT_LIMITS["a"][1] - DEFAULT_LIMITS["a"][0]),
-            scale_fraction * (DEFAULT_LIMITS["i"][1] - DEFAULT_LIMITS["i"][0]),
-            scale_fraction * (DEFAULT_LIMITS["Macc"][1] - DEFAULT_LIMITS["Macc"][0]),
-            scale_fraction * (DEFAULT_LIMITS["e"][1] - DEFAULT_LIMITS["e"][0]),
-            scale_fraction
-            * (
-                DEFAULT_LIMITS["periapsis_phase"][1]
-                - DEFAULT_LIMITS["periapsis_phase"][0]
-            ),
-        ],
-        dtype=float,
-    )
-
-
 def blackjax_sampler_kwargs(return_sampler, return_walker_state=True):
     return {
         "return_sampler": return_sampler,
         "return_walker_state": return_walker_state,
-        "proposal_scale": blackjax_proposal_scale(),
+        "proposal_scale_fraction": FIT_PROPOSAL_SCALE_FRACTION,
     }
 
 
@@ -1085,10 +1100,14 @@ def walker_state_for_batch_row(walker_state, batch_index):
     return coords[batch_index]
 
 
-def padded_series(series, fill_value=0.0, fill_from_first=False):
+def padded_series(series, fill_value=0.0, fill_from_first=False, length=None):
     max_len = max(len(values) for values in series)
-    data = numpy.full((len(series), max_len), fill_value, dtype=float)
-    mask = numpy.zeros((len(series), max_len), dtype=bool)
+    if length is None:
+        length = max_len
+    elif max_len > length:
+        raise ValueError(f"Cannot pad series of length {max_len} to fixed length {length}")
+    data = numpy.full((len(series), length), fill_value, dtype=float)
+    mask = numpy.zeros((len(series), length), dtype=bool)
     for index, values in enumerate(series):
         values = numpy.asarray(values, dtype=float)
         if fill_from_first and len(values) > 0:
@@ -1126,9 +1145,13 @@ def batched_fit_inputs(rows, curves, include_lc):
         "rv_mask": rv_mask,
     }
     if include_lc:
-        lc_times, lc_mask = padded_series(lc_times, fill_from_first=True)
-        lc, _ = padded_series(lc)
-        lc_err, _ = padded_series(lc_err, fill_value=1.0)
+        lc_times, lc_mask = padded_series(
+            lc_times,
+            fill_from_first=True,
+            length=FIT_LC_BINS,
+        )
+        lc, _ = padded_series(lc, length=FIT_LC_BINS)
+        lc_err, _ = padded_series(lc_err, fill_value=1.0, length=FIT_LC_BINS)
         inputs.update(
             {
                 "lc_times": lc_times,
@@ -1202,7 +1225,7 @@ def fit_joint_batch(
         device=FIT_DEVICE,
         prefer_gpu=FIT_DEVICE == "auto",
         initial_walker_state=initial_walker_state,
-        proposal_scale=blackjax_proposal_scale(),
+        proposal_scale_fraction=FIT_PROPOSAL_SCALE_FRACTION,
         return_sampler=FIT_SAVE_SAMPLERS,
         return_walker_state=FIT_SAVE_SAMPLERS,
     )
@@ -1268,7 +1291,7 @@ def fit_rv_only_batch(rows, curves):
         center_lc_model=True,
         device=FIT_DEVICE,
         prefer_gpu=FIT_DEVICE == "auto",
-        proposal_scale=blackjax_proposal_scale(),
+        proposal_scale_fraction=FIT_PROPOSAL_SCALE_FRACTION,
         return_sampler=False,
         return_walker_state=False,
     )
@@ -1590,6 +1613,7 @@ if __name__ == "__main__":
         jax.default_backend(),
         jax_device_summary(),
     )
+    logger.info("JAX compilation cache: %s", os.environ["JAX_COMPILATION_CACHE_DIR"])
     if REQUIRE_GPU and not any(device.platform == "gpu" for device in JAX_DEVICES):
         raise RuntimeError(
             "SLRV_REQUIRE_GPU is set, but JAX does not see a GPU. "
