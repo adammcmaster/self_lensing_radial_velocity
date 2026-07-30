@@ -46,6 +46,10 @@ os.environ.setdefault(
     "JAX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES",
     os.environ.get("SLRV_JAX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES", "0"),
 )
+os.environ.setdefault(
+    "JAX_COMPILATION_CACHE_MAX_SIZE",
+    os.environ.get("SLRV_JAX_COMPILATION_CACHE_MAX_SIZE", str(1024**3)),
+)
 Path(os.environ["JAX_COMPILATION_CACHE_DIR"]).mkdir(parents=True, exist_ok=True)
 
 import jax
@@ -61,6 +65,10 @@ jax.config.update(
 jax.config.update(
     "jax_persistent_cache_min_entry_size_bytes",
     int(os.environ["JAX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES"]),
+)
+jax.config.update(
+    "jax_compilation_cache_max_size",
+    int(os.environ["JAX_COMPILATION_CACHE_MAX_SIZE"]),
 )
 
 JAX_DEVICES = jax.devices()
@@ -1875,7 +1883,11 @@ if __name__ == "__main__":
         jax.default_backend(),
         jax_device_summary(),
     )
-    logger.info("JAX compilation cache: %s", os.environ["JAX_COMPILATION_CACHE_DIR"])
+    logger.info(
+        "JAX compilation cache: %s max_size=%s bytes",
+        os.environ["JAX_COMPILATION_CACHE_DIR"],
+        os.environ["JAX_COMPILATION_CACHE_MAX_SIZE"],
+    )
     if REQUIRE_GPU and not any(device.platform == "gpu" for device in JAX_DEVICES):
         raise RuntimeError(
             "SLRV_REQUIRE_GPU is set, but JAX does not see a GPU. "

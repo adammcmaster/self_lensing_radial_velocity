@@ -17,6 +17,7 @@ dependencies = [
     "fastparquet (>=2024.11.0,<2025.0.0)",
     "emcee (>=3.1.6,<4.0.0)",
     "corner (>=2.2.3,<3.0.0)",
+    "filelock (>=3.16.0,<4.0.0)",
     "jax[cuda12] (>=0.10.0,<1.0.0)",
     "selflensing[cuda12] @ git+ssh://git@github.com/COBALT-lensing/py-self-lensing.git",
 ]
