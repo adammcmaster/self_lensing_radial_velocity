@@ -152,7 +152,7 @@ CHECKPOINT_RESULTS = os.environ.get("SLRV_FIT_CHECKPOINT_RESULTS", "1").lower() 
     "yes",
     "on",
 )
-FIT_CHECKPOINT_INTERVAL = int(os.environ.get("SLRV_FIT_CHECKPOINT_INTERVAL", 10))
+FIT_CHECKPOINT_INTERVAL = int(os.environ.get("SLRV_FIT_CHECKPOINT_INTERVAL", 45))
 MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "spawn")
 FIT_NSTEPS = int(os.environ.get("SLRV_FIT_NSTEPS", 1000))
 FIT_NWALKERS = int(os.environ.get("SLRV_FIT_NWALKERS", 128))
@@ -169,7 +169,7 @@ FIT_USE_LC = os.environ.get("SLRV_FIT_USE_LC", "1").lower() in (
 )
 FIT_DEVICE = os.environ.get("SLRV_FIT_DEVICE", default_fit_device())
 FIT_LENSING_METHOD = os.environ.get("SLRV_FIT_LENSING_METHOD")
-FIT_MCMC_PROGRESS = os.environ.get("SLRV_FIT_MCMC_PROGRESS", "1").lower() in (
+FIT_MCMC_PROGRESS = os.environ.get("SLRV_FIT_MCMC_PROGRESS", "0").lower() in (
     "1",
     "true",
     "yes",
@@ -209,6 +209,9 @@ FIT_BATCH_SIZE = optional_positive_int(os.environ.get("SLRV_FIT_BATCH_SIZE", 50)
 FIT_PROPOSAL_SCALE_FRACTION = float(
     os.environ.get("SLRV_FIT_PROPOSAL_SCALE_FRACTION", 0.005)
 )
+FIT_PREFIT_PROPOSAL_SCALE_FRACTION = float(
+    os.environ.get("SLRV_FIT_PREFIT_PROPOSAL_SCALE_FRACTION", 0.02)
+)
 REQUIRE_GPU = os.environ.get("SLRV_REQUIRE_GPU", "").lower() in (
     "1",
     "true",
@@ -231,11 +234,15 @@ def configure_fit_parameter_limits():
 configure_fit_parameter_limits()
 
 
-def blackjax_sampler_kwargs(return_sampler, return_walker_state=True):
+def blackjax_sampler_kwargs(
+    return_sampler,
+    return_walker_state=True,
+    proposal_scale_fraction=FIT_PROPOSAL_SCALE_FRACTION,
+):
     return {
         "return_sampler": return_sampler,
         "return_walker_state": return_walker_state,
-        "proposal_scale_fraction": FIT_PROPOSAL_SCALE_FRACTION,
+        "proposal_scale_fraction": proposal_scale_fraction,
     }
 
 
@@ -923,7 +930,10 @@ def fit_photometry_prefit(i, ts, curve):
             center_lc_model=True,
             device=FIT_DEVICE,
             prefer_gpu=FIT_DEVICE == "auto",
-            **blackjax_sampler_kwargs(return_sampler=FIT_SAVE_SAMPLERS),
+            **blackjax_sampler_kwargs(
+                return_sampler=FIT_SAVE_SAMPLERS,
+                proposal_scale_fraction=FIT_PREFIT_PROPOSAL_SCALE_FRACTION,
+            ),
         )
     )
     logger.info(
@@ -1826,13 +1836,15 @@ if __name__ == "__main__":
     logger.info(
         "MCMC settings: FIT_NSTEPS=%d FIT_NWALKERS=%d FIT_BURN=%d "
         "FIT_PROGRESS_CHUNK_SIZE=%d FIT_BATCH_SIZE=%s "
-        "FIT_PROPOSAL_SCALE_FRACTION=%g MP_START_METHOD=%s",
+        "FIT_PROPOSAL_SCALE_FRACTION=%g "
+        "FIT_PREFIT_PROPOSAL_SCALE_FRACTION=%g MP_START_METHOD=%s",
         FIT_NSTEPS,
         FIT_NWALKERS,
         FIT_BURN,
         FIT_PROGRESS_CHUNK_SIZE,
         FIT_BATCH_SIZE if FIT_BATCH_SIZE is not None else "all",
         FIT_PROPOSAL_SCALE_FRACTION,
+        FIT_PREFIT_PROPOSAL_SCALE_FRACTION,
         MP_START_METHOD,
     )
     logger.info("Fit eccentricity limits: %s", DEFAULT_LIMITS["e"])
