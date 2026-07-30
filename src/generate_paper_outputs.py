@@ -1898,11 +1898,12 @@ def main():
     strategy_summary.to_csv(strategy_summary_path, index=False)
     logger.info("Wrote %s", strategy_summary_path.relative_to(PROJECT_ROOT))
 
-    run_step(
-        "mass recovery by strategy figure",
-        plot_mass_recovery_by_strategy,
-        strategy_summary,
-    )
+    # Not currently included in main.tex.
+    # run_step(
+    #     "mass recovery by strategy figure",
+    #     plot_mass_recovery_by_strategy,
+    #     strategy_summary,
+    # )
     run_step(
         "lens mass recovery by lens mass figure",
         plot_lens_mass_recovery_by_mass,
@@ -1913,31 +1914,33 @@ def main():
         plot_lens_mass_class_recovery_by_mass,
         results,
     )
-    run_step(
-        "compact-object class confusion figure",
-        plot_compact_object_class_confusion,
-        results,
-    )
-    run_step(
-        "lens mass relative error by lens mass figure",
-        plot_lens_mass_relative_error_by_mass,
-        results,
-    )
-    run_step(
-        "lens mass relative error IQR by lens mass figure",
-        plot_lens_mass_relative_error_iqr_by_mass,
-        results,
-    )
+    # Not currently included in main.tex.
+    # run_step(
+    #     "compact-object class confusion figure",
+    #     plot_compact_object_class_confusion,
+    #     results,
+    # )
+    # run_step(
+    #     "lens mass relative error by lens mass figure",
+    #     plot_lens_mass_relative_error_by_mass,
+    #     results,
+    # )
+    # run_step(
+    #     "lens mass relative error IQR by lens mass figure",
+    #     plot_lens_mass_relative_error_iqr_by_mass,
+    #     results,
+    # )
     run_step(
         "orbital period recovery by period figure",
         plot_orbital_period_recovery_by_period,
         results,
     )
-    run_step(
-        "parameter recovery curves figure",
-        plot_parameter_recovery_curves,
-        strategy_summary,
-    )
+    # Not currently included in main.tex.
+    # run_step(
+    #     "parameter recovery curves figure",
+    #     plot_parameter_recovery_curves,
+    #     strategy_summary,
+    # )
     run_step(
         "prefit improvement by RV-count figure",
         plot_prefit_improvement_by_n_rv,

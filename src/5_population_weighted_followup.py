@@ -1574,7 +1574,8 @@ def main():
     )
     write_latex_summary(summary)
     write_latex_bh_summary(bh_summary)
-    plot_mass_period_recovery(precision_tiers)
+    # Not currently included in main.tex.
+    # plot_mass_period_recovery(precision_tiers)
     logger.info("Wrote population-weighted follow-up tables and figures")
 
 
