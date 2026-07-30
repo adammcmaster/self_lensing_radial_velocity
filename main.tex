@@ -193,7 +193,7 @@ where $\nu(t)$ is measured relative to periapsis. The true anomaly is obtained f
     \nu(t)         & = 2\arctan2\left[
         \sqrt{1+e}\sin\frac{E(t)}{2},
         \sqrt{1-e}\cos\frac{E(t)}{2}
-    \right],                                                               \\
+        \right],                                                           \\
     P_\mathrm{orb} & =
     2\pi\left(\frac{a^3}{G(M_\mathrm{lens} + M_\star)}\right)^{1/2},
 \end{align}
@@ -312,7 +312,7 @@ As well as the Gaussian instrumental noise, a fixed stellar-noise term of $\sigm
 
 \subsection{Fitting of simulated observations} \label{sec:fitting}
 
-Each simulated pair of photometric light curves and RV curves is then fitted via MCMC using the BlackJAX package (2000 steps, 128 walkers, and 200 burn-in steps). The photometry is clipped to a width of one crossing time around the lensing peak and binned to 100 bins for computational efficiency. We fit only the fundamental physical parameters of the system,
+Each simulated pair of photometric light curves and RV curves is then fitted via MCMC using the BlackJAX package (128 walkers, and 200 burn-in steps). The photometry is clipped to a width of one crossing time around the lensing peak and binned to 100 bins for computational efficiency. Before running the full joint fit (photometry and RV), a photometry-only pre-fit is run for each simulated light curve (1,000 steps) and the walker state from this is used as the initial walker state for the 45 joint fits (an additional 1,000 steps). An RV-only fit of 1,000 steps is also performed. For computational efficiency, these are run as simultaneous vectorised fits on a GPU. We fit only the fundamental physical parameters of the system,
 \begin{equation}
     \boldsymbol{\theta} = (a, i, M_\mathrm{lens}, e, \omega),
 \end{equation}
@@ -345,8 +345,6 @@ The quantity sampled by the MCMC is then the sum of these terms plus the paramet
     Q_\mathrm{RV}(\boldsymbol{\theta}) +
     Q_\mathrm{LC}(\boldsymbol{\theta}).
 \end{equation}
-
-Before running the full joint fit, a photometry-only pre-fit is run for each simulated light curve (1,000 steps) and the walker state from this is used as the initial walker state for the 45 joint fits (an additional 1,000 steps). For computational efficiency, the joint fits are run as simultaneous vectorised fits on a GPU.
 
 \subsection{Predicted detection rates} \label{sec:pop-synth}
 In order to inform expectations about how many self-lensing systems might be correctly characterised as a result of detection in modern photometric surveys, we seek to combine our estimates of the recoverability of the physical properties of self-lensing systems with the detectability estimates of \cite{wiktorowicz_predicting_2021}. One important difference between \cite{wiktorowicz_predicting_2021} and the present work is that they use population synthesis to generate a physically plausible distribution of physical properties, as the basis for simulating the total number of detectable systems observed by each photometric survey. In the present work, we do not simulate a physically representative distribution of parameters, because our primary aim is to explore the ability to recover those parameters regardless of how common a given configuration will be in the galaxy. In other words, we want to simulate very rare configurations as thoroughly as more common ones. We are also concerned only with characterisation of lenses/recovery of physical parameters via spectroscopic RV measurements after detection in photometry, while \cite{wiktorowicz_predicting_2021} investigates photometric detectability.

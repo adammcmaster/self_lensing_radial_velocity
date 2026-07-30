@@ -13,6 +13,7 @@ import time
 import threading
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -83,6 +84,10 @@ from selflensing.fitting import (
 from selflensing.models import DEFAULT_LIMITS, SelfLensingSystem
 
 from fitting import SAMPLER_STATE_PATH, TIMESERIES_TABLE_PATH
+from fit_materialization import (
+    materialize_joint_batch_result as materialize_joint_batch_result_in_process,
+    materialize_rv_only_batch_result as materialize_rv_only_batch_result_in_process,
+)
 from realistic import (
     load_realistic_timeseries,
     load_realistic_timeseries_curve,
@@ -147,8 +152,9 @@ CHECKPOINT_RESULTS = os.environ.get("SLRV_FIT_CHECKPOINT_RESULTS", "1").lower() 
     "yes",
     "on",
 )
+FIT_CHECKPOINT_INTERVAL = int(os.environ.get("SLRV_FIT_CHECKPOINT_INTERVAL", 10))
 MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "spawn")
-FIT_NSTEPS = int(os.environ.get("SLRV_FIT_NSTEPS", 2000))
+FIT_NSTEPS = int(os.environ.get("SLRV_FIT_NSTEPS", 1000))
 FIT_NWALKERS = int(os.environ.get("SLRV_FIT_NWALKERS", 128))
 FIT_BURN = int(os.environ.get("SLRV_FIT_BURN", 200))
 FIT_PROGRESS_CHUNK_SIZE = int(os.environ.get("SLRV_FIT_PROGRESS_CHUNK_SIZE", 100))
@@ -182,6 +188,15 @@ FIT_BATCHED_RV_ONLY = os.environ.get("SLRV_FIT_BATCHED_RV_ONLY", "1").lower() in
     "on",
 )
 FIT_SAVE_SAMPLERS = os.environ.get("SLRV_FIT_SAVE_SAMPLERS", "0").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+FIT_MATERIALIZE_IN_PROCESS = os.environ.get(
+    "SLRV_FIT_MATERIALIZE_IN_PROCESS",
+    "1",
+).lower() in (
     "1",
     "true",
     "yes",
@@ -1085,6 +1100,12 @@ def finish_pending_fit(pending_fit):
     return pending_fit.result()
 
 
+def finish_pending_fit_results(pending_fit):
+    if pending_fit is None:
+        return []
+    return pending_fit.result()
+
+
 def can_use_batched_joint_fit():
     return FIT_BATCHED_JOINT
 
@@ -1167,13 +1188,10 @@ def batched_joint_fit_inputs(rows, curves):
     return batched_fit_inputs(rows, curves, include_lc=FIT_USE_LC)
 
 
-def fit_joint_batch(
+def run_joint_batch(
     rows,
     curves,
     initial_walker_state,
-    sampler_writer,
-    prefit_sampler_state_path=None,
-    prefit_ts=None,
 ):
     start = time.perf_counter()
     inputs = batched_joint_fit_inputs(rows, curves)
@@ -1236,24 +1254,35 @@ def fit_joint_batch(
     )
     if FIT_SAVE_SAMPLERS and sampler is None:
         logger.warning("Sampler saving is enabled, but batched fit returned no sampler")
+    return rows, systems, sampler, walker_state
+
+
+def materialize_joint_batch_result(
+    batch_fit_result,
+    sampler_writer=None,
+    prefit_sampler_state_path=None,
+    prefit_ts=None,
+):
+    rows, systems, sampler, walker_state = batch_fit_result
     results = []
     materialize_start = time.perf_counter()
     for batch_index, ((i, ts), sls) in enumerate(zip(rows, systems)):
-        curve = curves[str(ts["realistic_id"])]
         new_ts = fitted_timeseries_row(i, ts, truth_self_lensing_system(ts), sls)
         new_ts = add_prefit_columns(new_ts, prefit_ts)
         row_sampler = sampler[batch_index] if sampler is not None else None
-        sampler_state_path = sampler_writer.submit(
-            new_ts,
-            row_sampler,
-            walker_state_for_batch_row(walker_state, batch_index),
-            prefit_sampler_state_path=prefit_sampler_state_path,
-        )
+        sampler_state_path = None
+        if sampler_writer is not None:
+            sampler_state_path = sampler_writer.submit(
+                new_ts,
+                row_sampler,
+                walker_state_for_batch_row(walker_state, batch_index),
+                prefit_sampler_state_path=prefit_sampler_state_path,
+            )
         if sampler_state_path is not None:
             new_ts["fit_sampler_state_path"] = str(sampler_state_path)
         if prefit_sampler_state_path is not None:
             new_ts["fit_prefit_sampler_state_path"] = str(prefit_sampler_state_path)
-        results.append((new_ts, None, curve))
+        results.append((new_ts, None, None))
     logger.info(
         "Materialized %d batched fit results in %.2f s",
         len(results),
@@ -1262,7 +1291,23 @@ def fit_joint_batch(
     return results
 
 
-def fit_rv_only_batch(rows, curves):
+def fit_joint_batch(
+    rows,
+    curves,
+    initial_walker_state,
+    sampler_writer,
+    prefit_sampler_state_path=None,
+    prefit_ts=None,
+):
+    return materialize_joint_batch_result(
+        run_joint_batch(rows, curves, initial_walker_state),
+        sampler_writer,
+        prefit_sampler_state_path=prefit_sampler_state_path,
+        prefit_ts=prefit_ts,
+    )
+
+
+def run_rv_only_batch(rows, curves):
     start = time.perf_counter()
     inputs = batched_fit_inputs(rows, curves, include_lc=False)
     row_table = pandas.DataFrame([ts for _, ts in rows])
@@ -1300,9 +1345,14 @@ def fit_rv_only_batch(rows, curves):
         len(systems),
         time.perf_counter() - start,
     )
+    return rows, systems, sampler, walker_state
+
+
+def materialize_rv_only_batch_result(batch_fit_result):
+    rows, systems, sampler, walker_state = batch_fit_result
     results = []
+    materialize_start = time.perf_counter()
     for (i, row), sls in zip(rows, systems):
-        curve = curves[str(row["realistic_id"])]
         rvfit_ts = fitted_timeseries_row(i, row, truth_self_lensing_system(row), sls)
         new_ts = add_rv_only_columns(row, rvfit_ts)
         logger.info(
@@ -1313,8 +1363,19 @@ def fit_rv_only_batch(rows, curves):
             new_ts["rvfit_fitted_Macc"],
             new_ts["rvfit_fitted_e"],
         )
-        results.append((new_ts, sampler, walker_state, curve))
+        results.append((new_ts, sampler, walker_state, None))
+    logger.info(
+        "Materialized %d batched RV-only fit results in %.2f s",
+        len(results),
+        time.perf_counter() - materialize_start,
+    )
     return results
+
+
+def fit_rv_only_batch(rows, curves):
+    return materialize_rv_only_batch_result(
+        run_rv_only_batch(rows, curves),
+    )
 
 
 def batched_row_chunks(rows):
@@ -1326,7 +1387,85 @@ def batched_row_chunks(rows):
         yield rows[start : start + FIT_BATCH_SIZE]
 
 
-def fit_realistic_file(rows):
+def store_materialized_results(results, rows_by_key, materialized_results):
+    if not materialized_results:
+        return
+    results.extend(materialized_results)
+    for materialized_result in materialized_results:
+        rows_by_key[result_checkpoint_key(materialized_result[0])] = (
+            materialized_result[0]
+        )
+
+
+def make_materialize_executor():
+    if use_process_materializer():
+        materialize_jax_platforms = os.environ.get(
+            "SLRV_MATERIALIZE_JAX_PLATFORMS",
+            "cpu",
+        )
+        os.environ["JAX_PLATFORMS"] = materialize_jax_platforms
+        logger.info(
+            "Using one background process for batched result materialization "
+            "with JAX_PLATFORMS=%s",
+            materialize_jax_platforms,
+        )
+        return ProcessPoolExecutor(
+            max_workers=1,
+            mp_context=multiprocessing.get_context(MP_START_METHOD),
+        )
+    logger.info("Using one background thread for batched result materialization")
+    return ThreadPoolExecutor(max_workers=1)
+
+
+def use_process_materializer():
+    return FIT_MATERIALIZE_IN_PROCESS and not FIT_SAVE_SAMPLERS and FIT_MAX_WORKERS == 1
+
+
+@dataclass
+class PendingRealisticFileResult:
+    rows: list
+    rows_by_key: dict
+    results: list
+    rv_only_results: list
+    pending_joint_materialization: object
+    pending_rv_only_materialization: object
+    path: object
+    sampler_writer: object
+    close_sampler_writer: bool
+    materialize_executor: object
+
+
+def finish_realistic_file_result(pending_result):
+    if pending_result.pending_joint_materialization is not None:
+        store_materialized_results(
+            pending_result.results,
+            pending_result.rows_by_key,
+            finish_pending_fit_results(pending_result.pending_joint_materialization),
+        )
+        pending_result.pending_joint_materialization = None
+    if pending_result.pending_rv_only_materialization is not None:
+        store_materialized_results(
+            pending_result.rv_only_results,
+            pending_result.rows_by_key,
+            finish_pending_fit_results(pending_result.pending_rv_only_materialization),
+        )
+        pending_result.pending_rv_only_materialization = None
+    if pending_result.materialize_executor is not None:
+        pending_result.materialize_executor.shutdown(wait=True)
+        pending_result.materialize_executor = None
+    logger.info("Finished all RV-only fits for %s", pending_result.path)
+    if pending_result.close_sampler_writer:
+        pending_result.sampler_writer.close()
+    logger.info("Finished grouped fit for %s", pending_result.path)
+    updated_keys = {
+        result_checkpoint_key(ts)
+        for _, ts in pending_result.rows
+        if row_needs_prefit(ts) or row_needs_joint_fit(ts) or row_needs_rv_only_fit(ts)
+    }
+    return [(pending_result.rows_by_key[key], None, None) for key in updated_keys]
+
+
+def fit_realistic_file(rows, defer_final_materialization=False):
     rows = list(rows)
     if not rows:
         return []
@@ -1378,6 +1517,13 @@ def fit_realistic_file(rows):
             if row_needs_prefit(row):
                 rows_by_key[key] = add_prefit_columns(row, prefit_ts)
     results = []
+    materialize_executor = None
+    if (
+        (rows_needing_joint and can_use_batched_joint_fit())
+        or (rows_needing_rv_only and can_use_batched_rv_only_fit())
+    ):
+        materialize_executor = make_materialize_executor()
+    pending_joint_materialization = None
     if rows_needing_joint and can_use_batched_joint_fit():
         batches = list(batched_row_chunks(rows_needing_joint))
         if len(batches) > 1:
@@ -1396,18 +1542,38 @@ def fit_realistic_file(rows):
                     len(batch_rows),
                     path,
                 )
-            results.extend(
-                fit_joint_batch(
-                    batch_rows,
-                    curves,
-                    initial_walker_state,
-                    sampler_writer,
-                    prefit_sampler_state_path=prefit_sampler_state_path,
-                    prefit_ts=prefit_ts,
-                )
+            batch_fit_result = run_joint_batch(
+                batch_rows,
+                curves,
+                initial_walker_state,
             )
-            for new_ts, _, _ in results:
-                rows_by_key[result_checkpoint_key(new_ts)] = new_ts
+            store_materialized_results(
+                results,
+                rows_by_key,
+                finish_pending_fit_results(pending_joint_materialization),
+            )
+            if use_process_materializer():
+                pending_joint_materialization = materialize_executor.submit(
+                    materialize_joint_batch_result_in_process,
+                    batch_fit_result,
+                    prefit_sampler_state_path,
+                    prefit_ts,
+                )
+            else:
+                pending_joint_materialization = materialize_executor.submit(
+                    materialize_joint_batch_result,
+                    batch_fit_result,
+                    sampler_writer,
+                    prefit_sampler_state_path,
+                    prefit_ts,
+                )
+        if not (rows_needing_rv_only and can_use_batched_rv_only_fit()):
+            store_materialized_results(
+                results,
+                rows_by_key,
+                finish_pending_fit_results(pending_joint_materialization),
+            )
+            pending_joint_materialization = None
     elif rows_needing_joint:
         file_progress_desc = (
             f"RV joint fits {short_id(rows[0][1].get('pristine_id', Path(path).stem))}"
@@ -1465,6 +1631,7 @@ def fit_realistic_file(rows):
                     len(batches),
                     FIT_BATCH_SIZE,
                 )
+            pending_rv_only_materialization = None
             for batch_number, batch_rows in enumerate(batches, start=1):
                 if len(batches) > 1:
                     logger.info(
@@ -1474,11 +1641,52 @@ def fit_realistic_file(rows):
                         len(batch_rows),
                         path,
                     )
-                batch_results = fit_rv_only_batch(batch_rows, curves)
-                rv_only_results.extend(batch_results)
-                for new_ts, _, _, _ in batch_results:
-                    rows_by_key[result_checkpoint_key(new_ts)] = new_ts
+                batch_fit_result = run_rv_only_batch(batch_rows, curves)
+                store_materialized_results(
+                    rv_only_results,
+                    rows_by_key,
+                    finish_pending_fit_results(pending_rv_only_materialization),
+                )
+                if pending_joint_materialization is not None:
+                    store_materialized_results(
+                        results,
+                        rows_by_key,
+                        finish_pending_fit_results(pending_joint_materialization),
+                    )
+                    pending_joint_materialization = None
+                materialize_rows = [
+                    (i, rows_by_key.get(result_checkpoint_key(ts), ts))
+                    for i, ts in batch_rows
+                ]
+                rv_only_materializer = (
+                    materialize_rv_only_batch_result_in_process
+                    if use_process_materializer()
+                    else materialize_rv_only_batch_result
+                )
+                pending_rv_only_materialization = materialize_executor.submit(
+                    rv_only_materializer,
+                    (
+                        materialize_rows,
+                        batch_fit_result[1],
+                        batch_fit_result[2],
+                        batch_fit_result[3],
+                    ),
+                )
+            if not defer_final_materialization:
+                store_materialized_results(
+                    rv_only_results,
+                    rows_by_key,
+                    finish_pending_fit_results(pending_rv_only_materialization),
+                )
+                pending_rv_only_materialization = None
         else:
+            if pending_joint_materialization is not None:
+                store_materialized_results(
+                    results,
+                    rows_by_key,
+                    finish_pending_fit_results(pending_joint_materialization),
+                )
+                pending_joint_materialization = None
             file_progress_desc = (
                 f"RV-only fits {short_id(rows[0][1].get('pristine_id', Path(path).stem))}"
             )
@@ -1505,16 +1713,22 @@ def fit_realistic_file(rows):
                 rv_only_result = materialize_rv_only_fit_result(rv_fit_result, row)
                 rv_only_results.append(rv_only_result)
                 rows_by_key[result_checkpoint_key(rv_only_result[0])] = rv_only_result[0]
-    logger.info("Finished all RV-only fits for %s", path)
-    if close_sampler_writer:
-        sampler_writer.close()
-    logger.info("Finished grouped fit for %s", path)
-    updated_keys = {
-        result_checkpoint_key(ts)
-        for _, ts in rows
-        if row_needs_prefit(ts) or row_needs_joint_fit(ts) or row_needs_rv_only_fit(ts)
-    }
-    return [(rows_by_key[key], None, None) for key in updated_keys]
+    pending_result = PendingRealisticFileResult(
+        rows=rows,
+        rows_by_key=rows_by_key,
+        results=results,
+        rv_only_results=rv_only_results,
+        pending_joint_materialization=pending_joint_materialization,
+        pending_rv_only_materialization=pending_rv_only_materialization,
+        path=path,
+        sampler_writer=sampler_writer,
+        close_sampler_writer=close_sampler_writer,
+        materialize_executor=materialize_executor,
+    )
+    if defer_final_materialization:
+        logger.info("Deferring final materialization for %s", path)
+        return pending_result
+    return finish_realistic_file_result(pending_result)
 
 
 def grouped_realistic_rows(table):
@@ -1562,6 +1776,37 @@ def clear_existing_results():
         shutil.rmtree(SAMPLER_STATE_PATH)
 
 
+def record_group_results(
+    group_results,
+    results,
+    checkpoint_writer,
+    new_result_count,
+    last_checkpoint_result_count,
+):
+    checkpoint_writer.check_error()
+    new_results = [result[0] for result in group_results]
+    results += new_results
+    new_result_count += len(new_results)
+    logger.info(
+        "Fit job produced %d fit results; cumulative new results=%d "
+        "cumulative results=%d",
+        len(new_results),
+        new_result_count,
+        len(results),
+    )
+    if (
+        FIT_CHECKPOINT_INTERVAL > 0
+        and new_result_count - last_checkpoint_result_count >= FIT_CHECKPOINT_INTERVAL
+    ):
+        logger.info(
+            "Checkpointing fit results after %d new rows",
+            new_result_count,
+        )
+        checkpoint_writer.submit(results)
+        last_checkpoint_result_count = new_result_count
+    return new_result_count, last_checkpoint_result_count
+
+
 if __name__ == "__main__":
     args = parse_args()
     configure_logging()
@@ -1571,10 +1816,11 @@ if __name__ == "__main__":
     fit_sample_size_label = FIT_SAMPLE_SIZE if FIT_SAMPLE_SIZE is not None else "all"
     logger.info(
         "Starting fitting script with FIT_MAX_WORKERS=%d FIT_SAMPLE_SIZE=%s "
-        "CHECKPOINT_RESULTS=%s",
+        "CHECKPOINT_RESULTS=%s FIT_CHECKPOINT_INTERVAL=%d",
         FIT_MAX_WORKERS,
         fit_sample_size_label,
         CHECKPOINT_RESULTS,
+        FIT_CHECKPOINT_INTERVAL,
     )
     logger.info("Fit batch file: %s", FIT_BATCH_FILE)
     logger.info(
@@ -1602,6 +1848,10 @@ if __name__ == "__main__":
         "Batched fit settings: FIT_BATCHED_JOINT=%s FIT_BATCHED_RV_ONLY=%s",
         FIT_BATCHED_JOINT,
         FIT_BATCHED_RV_ONLY,
+    )
+    logger.info(
+        "Async materialization: FIT_MATERIALIZE_IN_PROCESS=%s",
+        FIT_MATERIALIZE_IN_PROCESS,
     )
     logger.info(
         "Sampler state saving: FIT_SAVE_SAMPLERS=%s SAMPLER_STATE_PATH=%s",
@@ -1671,31 +1921,84 @@ if __name__ == "__main__":
 
     checkpoint_writer = AsyncCheckpointWriter(enabled=CHECKPOINT_RESULTS)
     new_result_count = 0
+    last_checkpoint_result_count = 0
+    pending_file_result = None
     try:
-        for group_results in process_map_iter(
-            fit_realistic_file,
-            jobs,
-            total=len(jobs),
-            desc="Realistic simulation fits",
-            max_workers=FIT_MAX_WORKERS,
-        ):
-            checkpoint_writer.check_error()
-            new_results = [result[0] for result in group_results]
-            results += new_results
-            new_result_count += len(new_results)
+        if FIT_MAX_WORKERS == 1:
             logger.info(
-                "Fit job produced %d fit results; cumulative new results=%d "
-                "cumulative results=%d",
-                len(new_results),
-                new_result_count,
-                len(results),
+                "Starting serial realistic fit loop with deferred file materialization"
             )
-            checkpoint_writer.submit(results)
+            for job in tqdm(jobs, total=len(jobs), desc="Realistic simulation fits"):
+                current_file_result = fit_realistic_file(
+                    job,
+                    defer_final_materialization=True,
+                )
+                if pending_file_result is not None:
+                    finishing_file_result = pending_file_result
+                    pending_file_result = None
+                    group_results = finish_realistic_file_result(finishing_file_result)
+                    (
+                        new_result_count,
+                        last_checkpoint_result_count,
+                    ) = record_group_results(
+                        group_results,
+                        results,
+                        checkpoint_writer,
+                        new_result_count,
+                        last_checkpoint_result_count,
+                    )
+                pending_file_result = current_file_result
+            if pending_file_result is not None:
+                finishing_file_result = pending_file_result
+                pending_file_result = None
+                group_results = finish_realistic_file_result(finishing_file_result)
+                (
+                    new_result_count,
+                    last_checkpoint_result_count,
+                ) = record_group_results(
+                    group_results,
+                    results,
+                    checkpoint_writer,
+                    new_result_count,
+                    last_checkpoint_result_count,
+                )
+        else:
+            for group_results in process_map_iter(
+                fit_realistic_file,
+                jobs,
+                total=len(jobs),
+                desc="Realistic simulation fits",
+                max_workers=FIT_MAX_WORKERS,
+            ):
+                (
+                    new_result_count,
+                    last_checkpoint_result_count,
+                ) = record_group_results(
+                    group_results,
+                    results,
+                    checkpoint_writer,
+                    new_result_count,
+                    last_checkpoint_result_count,
+                )
         if ACTIVE_SAMPLER_WRITER is not None:
             ACTIVE_SAMPLER_WRITER.close()
             ACTIVE_SAMPLER_WRITER = None
         checkpoint_writer.close(final_results=results)
     except BaseException:
+        if pending_file_result is not None:
+            finishing_file_result = pending_file_result
+            pending_file_result = None
+            group_results = finish_realistic_file_result(finishing_file_result)
+            (
+                new_result_count,
+                last_checkpoint_result_count,
+            ) = record_group_results(
+                group_results,
+                results,
+                checkpoint_writer,
+                new_result_count,
+                last_checkpoint_result_count,
+            )
         if ACTIVE_SAMPLER_WRITER is not None:
             ACTIVE_SAMPLER_WRITER.close()
             ACTIVE_SAMPLER_WRITER = None
