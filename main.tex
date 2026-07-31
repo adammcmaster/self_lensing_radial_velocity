@@ -98,10 +98,7 @@ $^{3}$Another Department, Different Institution, Street Address, City Postal Cod
 
 % Abstract of the paper
 \begin{abstract}
-    This is a simple template for authors to write new MNRAS papers.
-    The abstract should briefly describe the aims, methods, and main results of the paper.
-    It should be a single paragraph not more than 250 words (200 words for Letters).
-    No references should appear in the abstract.
+Compact objects in approximately edge-on binary orbits with stars are known to be able to produce a self-lensing effect, amplifying light from their companion once per orbit. To date, five white dwarf self-lensing systems are known, while none are known containing black holes or neutron stars. Discovery of such systems is a potential method of finding quiescent black holes and neutron stars. Photometric detections alone suffer from degeneracies in the lens mass and orbital parameters, while photometric searches produce too many false positives to allow detailed radial velocity investigation of every candidate. Therefore we investigate the minimal radial velocity observational requirements to characterise such systems by simulating detectable self-lensing light curves, generating RV observations over a grid of cadences, baselines, and instrumental precisions, and fitting RV jointly with photometry. We evaluate recovery of the lens mass, compact-object class, and orbital period, and map these recovery rates onto population-synthesis predictions for current and future photometric surveys. We find that adding RV measurements substantially improves parameter recovery, with compact-object class generally easier to determine than the exact lens mass. Recovery is driven mainly by observing baseline and cadence, with RV precision playing a weaker role except for the longest-period systems. These results suggest that multi-stage RV follow-up, starting with a small number of observations of many candidates, can efficiently classify self-lensing candidates and identify high-priority systems for further investigation.
 \end{abstract}
 
 % Select between one and six entries from the list of approved keywords.
@@ -348,7 +345,9 @@ The quantity sampled by the MCMC is then the sum of these terms plus the paramet
 \end{equation}
 
 \subsection{Predicted detection rates} \label{sec:pop-synth}
-In order to inform expectations about how many self-lensing systems might be correctly characterised as a result of detection in modern photometric surveys, we seek to combine our estimates of the recoverability of the physical properties of self-lensing systems with the detectability estimates of \cite{wiktorowicz_predicting_2021}. One important difference between \cite{wiktorowicz_predicting_2021} and the present work is that they use population synthesis to generate a physically plausible distribution of physical properties, as the basis for simulating the total number of detectable systems observed by each photometric survey. In the present work, we do not simulate a physically representative distribution of parameters, because our primary aim is to explore the ability to recover those parameters regardless of how common a given configuration will be in the galaxy. In other words, we want to simulate very rare configurations as thoroughly as more common ones. We are also concerned only with characterisation of lenses/recovery of physical parameters via spectroscopic RV measurements after detection in photometry, while \cite{wiktorowicz_predicting_2021} investigates photometric detectability.
+In order to inform expectations about how many self-lensing systems might be correctly characterised as a result of detection in modern photometric surveys, we seek to combine our estimates of the recoverability of the physical properties of self-lensing systems with the detectability estimates of \cite{wiktorowicz_predicting_2021}. We note that the survey-specific detection yields we use here come from Table~2, which is an optimistic upper limit including events for which only one photometric detection is made. In reality, detections would require multiple photometric measurements.
+
+One important difference between \cite{wiktorowicz_predicting_2021} and the present work is that they use population synthesis to generate a physically plausible distribution of physical properties, as the basis for simulating the total number of detectable systems observed by each photometric survey. In the present work, we do not simulate a physically representative distribution of parameters, because our primary aim is to explore the ability to recover those parameters regardless of how common a given configuration will be in the galaxy. In other words, we want to simulate very rare configurations as thoroughly as more common ones. We are also concerned only with characterisation of lenses/recovery of physical parameters via spectroscopic RV measurements after detection in photometry, while \cite{wiktorowicz_predicting_2021} investigates photometric detectability.
 
 Still, it is useful to derive from our simulations an estimate of how many systems we should expect to be properly characterised, assuming the predicted number of photometric detections is made in each survey. To this end we build a nearest-neighbour emulator ($k=25$) to map the population synthesis results onto the fitting/recovery results for our radial velocity simulations. For each population-synthesis system and each RV simulation we define a scaled feature vector
 \begin{equation}
@@ -499,7 +498,6 @@ Figure~\ref{fig:prefit-compact-object-class-by-lens-mass-range} shows the percen
 \textbf{TODO: Add something about RV-only fits. What do we learn from them?}
 
 \subsection{Predicted detection rates}
-\textbf{TODO: Write this!}
 
 We first used the emulator to estimate the recovery rates for parameters based on the population synthesis-based parameter distribution. Recovery rates are the predicted percentages of detectable systems we could recover, calculated using the emulator to transfer the results of our RV simulations onto the physically-motivated population-synthesis distribution used in \cite{wiktorowicz_predicting_2021}. These recovery rates are independent of photometric survey in this model, but still depend on the RV observing strategy.
 
@@ -519,7 +517,7 @@ Figure~\ref{fig:population-weighted-rv-followup-heatmaps-counts-class} shows the
     \label{fig:population-weighted-rv-followup-heatmaps-counts-macc}
 \end{figure*}
 
-Figure~\ref{fig:population-weighted-rv-followup-heatmaps-counts-macc} shows the recovery rates for lens mass. Lens-mass recovery to within 10\% is much harder than class recovery (18.8--53.2\%, with a mean of 39.2\%). We can determine the class more easily than the accurate mass, so a sensible strategy would be to obtain a small number of RV observations to determine the likely object class, and then prioritise further RV observations based on those results to accuratrly determine the mass for the most interesting systems. Observing baseline has a large effect on the recovery rate, with the mean rising from 27.8 per cent at 1 yr to 42.4 per cent at 3 yr and 47.5 per cent at 5 yr. The 300 d cadence rows are generally worse than 1 or 30 d cadence, so observing cadence will also be an important consideration.
+Figure~\ref{fig:population-weighted-rv-followup-heatmaps-counts-macc} shows the recovery rates for lens mass. Lens-mass recovery to within 10\% is much harder than class recovery (18.8--53.2\%, with a mean of 39.2\%). We can determine the class more easily than the accurate mass, so a sensible strategy would be to obtain a small number of RV observations to determine the likely object class, and then prioritise further RV observations based on those results to accurately determine the mass for the most interesting systems. Observing baseline has a large effect on the recovery rate, with the mean rising from 27.8 per cent at 1 yr to 42.4 per cent at 3 yr and 47.5 per cent at 5 yr. The 300 d cadence rows are generally worse than 1 or 30 d cadence, so observing cadence will also be an important consideration.
 
 \begin{figure*}
     \centering
@@ -528,27 +526,32 @@ Figure~\ref{fig:population-weighted-rv-followup-heatmaps-counts-macc} shows the 
     \label{fig:population-weighted-rv-followup-heatmaps-counts-porb}
 \end{figure*}
 
-Figure~\ref{fig:population-weighted-rv-followup-heatmaps-counts-porb} shows the recovery rates for orbital period. The recovery rate ranges from 36.2--81.5\%, with a mean of 66.8\%. As with the other parameters, the cadence and observing baseline affect recovery, with RV accurcy having a smaller effect.
+Figure~\ref{fig:population-weighted-rv-followup-heatmaps-counts-porb} shows the recovery rates for orbital period. The recovery rate ranges from 36.2--81.5\%, with a mean of 66.8\%. As with the other parameters, the cadence and observing baseline affect recovery, with RV accuracy having a smaller effect.
 
-Table~\ref{tab:population-weighted-followup-counts-summary} shows a summary of the results of applying these recovery rates to the survey-specific photometric detection yields given by \cite{wiktorowicz_predicting_2021} (i.e. it shows the number of photometrically detectable systems in each survey for which each parameter can be accurately measured after RV follow-up). Full values are given in Tables \ref{tab:population-weighted-followup-counts-class}, \ref{tab:population-weighted-followup-counts-macc}, and \ref{tab:population-weighted-followup-counts-porb}. Note that the recovery rate is the same regardless of survey, as this is based on the RV followup observations; differences in recovered population sizes reflects the different numbers of photometrically-detectable systems in each survey.
+Table~\ref{tab:population-weighted-followup-counts-summary} shows a summary of the results of applying these recovery rates to the survey-specific photometric detection yields given by \cite{wiktorowicz_predicting_2021} (i.e. it shows the number of photometrically detectable systems in each survey for which each parameter can be accurately measured after RV follow-up). Full values are given in Tables \ref{tab:population-weighted-followup-counts-class}, \ref{tab:population-weighted-followup-counts-macc}, and \ref{tab:population-weighted-followup-counts-porb}. Note that the recovery rate is the same regardless of survey, as this is based on the RV follow-up observations; differences in recovered population sizes reflects the different numbers of photometrically-detectable systems in each survey.
 
 \input{paper/tables/population_weighted_followup_counts_summary}
 
 \section{Conclusions}
-The last numbered section should briefly summarise what has been done, and describe
-the final conclusions which the authors draw from their work.
+We know self-lensing systems can be confirmed with RV, at least in the case of relatively short period white dwarf lenses. We show it is possible to characterise lenses across the full compact object mass range, including for very long orbital periods where only one self-lensing amplification is detectable.
+
+We show that while measuring the accurate lens mass can be challenging, with only a small number of RV measurements it is possible to determine the broad compact object class. This can then inform prioritisation of further observations. With this in mind, our recommendation for following up on photometrically-detected self-lensing candidates is to follow a staged follow-up strategy, where all candidates are observed a small number of times to determine which ones are truly binaries and what the lens mass is in those cases. A second stage of follow-up observations can then concentrate on the true binaries to ascertain the lens mass to a higher precision.
+
+We show that the highest mass lenses are the easiest to confirm, even with large orbital periods. We also show that length of observing baseline and observing cadence matter more than RV precision in many cases. This is helpful when it comes to planning follow-up observations, as it widens the pool of facilities which can provide useful RV measurements. It is also promising that we are able to recover the simulation parameters even for very long period systems. This means it is worthwhile following up on single-event detections as well as those which are seen to be periodic.
+
+Combining parameter recovery rates with previous population synthesis results suggests that it is possible to confirm the existence of a substantial number of self-lensing systems in surveys such as TESS, ZTF, and LSST. The estimates presented here are optimistic upper limits for confirmed detections under ideal conditions, but bode well for our ability to find additional self-lensing systems in these and other surveys.
 
 \section*{Acknowledgements}
-The Acknowledgements section is not numbered. Here you can thank helpful
-colleagues, acknowledge funding agencies, telescopes and facilities used etc.
-Try to keep it short.
+The authors acknowledge the use of the Codex coding agent as part of the process of creating and debugging the code underlying these simulations.
+
+\textbf{TODO: What else?}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section*{Data Availability}
 
-The inclusion of a Data Availability Statement is a requirement for articles published in MNRAS. Data Availability Statements provide a standardised format for readers to understand the availability of data underlying the research results described in the article. The statement may refer to original data generated in the course of the study or to third-party data analysed in the article. The statement should describe and provide means of access, where possible, by linking to the data or providing the required accession numbers for the relevant databases or DOIs.
+\textbf{TODO: Put simulated light curves on Zenodo and cite DOI.}
 
-
+\textbf{TODO: Make code public, including py-self-lensing?}
 
 
 %%%%%%%%%%%%%%%%%%%% REFERENCES %%%%%%%%%%%%%%%%%%
@@ -583,6 +586,7 @@ The inclusion of a Data Availability Statement is a requirement for articles pub
 
 \input{paper/tables/population_weighted_followup_counts_porb}
 
+\FloatBarrier
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
