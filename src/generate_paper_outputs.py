@@ -1452,7 +1452,7 @@ def write_population_weighted_survey_count_tables():
             r"    \setlength{\arrayrulewidth}{0.25pt}",
             (
                 "    "
-                + rf"\caption{{Population-weighted RV follow-up {label} recovery. "
+                + rf"\caption{{Predicted survey recovery rates for {label}. "
                 + "Recovered percentages are survey-independent emulator outputs; "
                 + "ZTF, LSST, and TESS columns give the corresponding expected "
                 + "absolute recovered counts after scaling by each survey's "
