@@ -811,7 +811,7 @@ def plot_population_weighted_survey_followup_heatmaps():
 
     survey_counts = pandas.read_csv(survey_counts_path)
     metrics = [
-        ("classified_fraction", "classified_survey_count", "class", "compact-object class"),
+        ("classified_fraction", "classified_survey_count", "class", "Compact-object class"),
         ("measured_mass_fraction", "measured_mass_survey_count", "macc", r"$M_\mathrm{acc}$"),
         ("measured_period_fraction", "measured_period_survey_count", "porb", r"$P_\mathrm{orb}$"),
     ]
