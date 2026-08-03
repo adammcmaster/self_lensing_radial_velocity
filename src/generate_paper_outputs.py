@@ -1528,7 +1528,7 @@ def write_population_weighted_survey_count_tables():
     summary_lines = [
         r"\begin{table}",
         r"    \centering",
-        r"    \caption{Summary of survey-scaled recovered-count ranges and means across the RV follow-up strategies shown in Figs.~\ref{fig:population-weighted-rv-followup-heatmaps-counts-class}--\ref{fig:population-weighted-rv-followup-heatmaps-counts-porb}. Full strategy-by-strategy counts are given in Tables~\ref{tab:population-weighted-followup-counts-class}, \ref{tab:population-weighted-followup-counts-macc}, and \ref{tab:population-weighted-followup-counts-porb}.}",
+        r"    \caption{Summary of predicted survey detection rates across the RV follow-up strategies shown in Figs.~\ref{fig:population-weighted-rv-followup-heatmaps-counts-class}--\ref{fig:population-weighted-rv-followup-heatmaps-counts-porb}. Full strategy-by-strategy counts are given in Tables~\ref{tab:population-weighted-followup-counts-class}, \ref{tab:population-weighted-followup-counts-macc}, and \ref{tab:population-weighted-followup-counts-porb}.}",
         r"    \label{tab:population-weighted-followup-counts-summary}",
         r"    \begin{tabular}{llrr}",
         r"        \hline",
