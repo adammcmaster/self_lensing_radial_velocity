@@ -132,7 +132,7 @@ The aim of this work is to quantity the observational requirements for radial ve
 
 As the basis of this work, we have generated a library of self-lensing photometric simulations. This was generated for a range of physical parameters, filtered to include only the simulated light curves which contain visible lensing peaks, where the peak amplitude is larger than the photometric noise. We also exclude systems overflowing their Roche lobe and any systems where lensing is not geometrically possible. These simulations are described in Section~\ref{sec:phot-sims}.
 
-The radial velocity measurements are simulated for the same set of simulation parameters as the photometry (Section~\ref{sec:rv-sims}). The RV simulations are then sampled according to a range of observing schedules, and Gaussian noise is added to simulate a range of spectrograph accuracies (Section~\ref{sec:rv-realistic}). An MCMC fit is then performed to find the self-lensing physical parameters (the lens mass, semi-major axis, inclination angle, eccentricity, and periapsis phase angle; we assume the stellar properties, mass, radius, effective temperature, and distance from Earth, are known) which jointly best fit the photometry and RV (Section~\ref{sec:fitting}). We then aggregate the recovery rates across observing parameters and self-lensing physical parameters to investigate the effect of each parameter on the recovery rate.
+The radial velocity measurements are simulated for the same set of simulation parameters as the photometry (Section~\ref{sec:rv-sims}). The RV simulations are then sampled according to a range of observing schedules, and Gaussian noise is added to simulate a range of spectrograph accuracies. An MCMC fit is then performed to find the self-lensing physical parameters (the lens mass, semi-major axis, inclination angle, eccentricity, and periapsis phase angle; we assume the stellar properties, mass, radius, effective temperature, and distance from Earth, are known) which jointly best fit the photometry and RV (Section~\ref{sec:fitting}). We then aggregate the recovery rates across observing parameters and self-lensing physical parameters to investigate the effect of each parameter on the recovery rate.
 
 Finally, we map the recovery rates onto previous population synthesis results to estimate the numbers of self-lensing systems which can be confirmed following detection in various photometric surveys (Section~\ref{sec:pop-synth}).
 
@@ -293,7 +293,7 @@ We sample the baseline RV curves to create more realistic RV observations, also 
 
 \begin{table}
     \centering
-    \caption{Observing parameters used when creating realistic simulated RV observations.}
+    \caption{Observing parameters used when creating simulated RV observations.}
     \label{tab:realistic_observing_grid}
     \begin{tabular}{lll}
         \hline
@@ -404,7 +404,7 @@ It is worth noting that these results represent an ideal best case scenario for 
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/lens_mass_recovery_by_lens_mass.pdf}
-    \caption{Lens mass recovery fraction as a function of the true lens mass, using the same $|\Delta M_\mathrm{acc}|/M_\mathrm{acc} \leq 0.1$ recovery criterion as Figure~\ref{fig:mass-recovery-by-strategy}. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against fixed true lens-mass ranges.}
+    \caption{Accurate lens mass recovery fraction as a function of the true lens mass, using a relative error threshold $|\Delta M_\mathrm{acc}|/M_\mathrm{acc} \leq 0.1$ for recovery. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against fixed true lens-mass ranges.}
     \label{fig:lens-mass-recovery-by-lens-mass}
 \end{figure*}
 
@@ -453,7 +453,7 @@ RV accuracy also has a measurable effect, but this varies by orbital period. Thi
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/orbital_period_recovery_by_period.pdf}
-    \caption{Orbital-period recovery fraction as a function of the true orbital period. A system is counted as recovered when $|\Delta P_\mathrm{orb}|/P_\mathrm{orb} \leq 0.1$. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against equal-population true-period bins from the currently fitted subset.}
+    \caption{Orbital period recovery fraction as a function of the true orbital period. A system is counted as recovered when $|\Delta P_\mathrm{orb}|/P_\mathrm{orb} \leq 0.1$. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against equal-population true-period bins from the currently fitted subset.}
     \label{fig:orbital-period-recovery-by-period}
 \end{figure*}
 
@@ -471,7 +471,7 @@ These simulations are generated on the assumption that we photometrically detect
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/prefit_improvement_by_n_rv.pdf}
-    \caption{Comparison between the photometry-only pre-fit accuracy, RV-only fit accuracy, and joint photometry plus RV fit accuracy for all fitted rows with saved pre-fit and RV-only values. Separate panels show the fitted parameters. Points show the median relative error in each parameter as a function of the number of RV measurements, and shaded regions show the interquartile range. The horizontal dotted line marks the 0.1 relative-error recovery threshold.}
+    \caption{Comparison between the photometry-only pre-fit accuracy, RV-only fit accuracy, and joint photometry plus RV fit accuracy. Separate panels show the fitted parameters. Points show the median relative error in each parameter as a function of the number of RV measurements, and shaded regions show the interquartile range. The horizontal dotted line marks the 10\% relative error recovery threshold.}
     \label{fig:prefit-improvement-by-n-rv}
 \end{figure*}
 
@@ -480,7 +480,7 @@ Figure~\ref{fig:prefit-improvement-by-n-rv} shows the median improvement of fitt
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/prefit_improvement_by_lens_mass_range.pdf}
-    \caption{Comparison between photometry-only pre-fit accuracy, RV-only fit accuracy, and joint photometry plus RV fit accuracy, separated by true lens-mass range. Rows show fitted parameters and columns show true lens-mass ranges. Points show the median relative error as a function of the number of RV measurements, shaded regions show the interquartile range, and the horizontal dotted line marks the 0.1 relative-error recovery threshold.}
+    \caption{Comparison between photometry-only pre-fit accuracy, RV-only fit accuracy, and joint photometry plus RV fit accuracy, separated by true lens-mass range. Rows show fitted parameters and columns show true lens-mass ranges. Points show the median relative error as a function of the number of RV measurements, shaded regions show the interquartile range, and the horizontal dotted line marks the 10\% relative error recovery threshold.}
     \label{fig:prefit-improvement-by-lens-mass-range}
 \end{figure*}
 
@@ -504,7 +504,7 @@ We first used the emulator to estimate the recovery rates for parameters based o
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps_counts_class.pdf}
-    \caption{Population-weighted RV follow-up compact-object class recovery percentage from the emulator. Columns show observing baseline, and each panel separates cadence and instrumental RV accuracy.}
+    \caption{Compact-object class recovery percentage, scaled by population synthesis results. Columns show observing baseline, and each panel separates cadence and instrumental RV accuracy.}
     \label{fig:population-weighted-rv-followup-heatmaps-counts-class}
 \end{figure*}
 
@@ -513,7 +513,7 @@ Figure~\ref{fig:population-weighted-rv-followup-heatmaps-counts-class} shows the
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps_counts_macc.pdf}
-    \caption{Population-weighted RV follow-up lens-mass recovery percentage from the emulator. Columns show observing baseline, and each panel separates cadence and instrumental RV accuracy.}
+    \caption{Lens-mass recovery percentage, scaled by population synthesis results. Columns show observing baseline, and each panel separates cadence and instrumental RV accuracy.}
     \label{fig:population-weighted-rv-followup-heatmaps-counts-macc}
 \end{figure*}
 
@@ -522,7 +522,7 @@ Figure~\ref{fig:population-weighted-rv-followup-heatmaps-counts-macc} shows the 
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps_counts_porb.pdf}
-    \caption{Population-weighted RV follow-up orbital-period recovery percentage from the emulator. Columns show observing baseline, and each panel separates cadence and instrumental RV accuracy.}
+    \caption{Orbital-period recovery percentage, scaled by population synthesis results. Columns show observing baseline, and each panel separates cadence and instrumental RV accuracy.}
     \label{fig:population-weighted-rv-followup-heatmaps-counts-porb}
 \end{figure*}
 
