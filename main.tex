@@ -299,6 +299,57 @@ such, depends on a subset of the lensing parameter set.
     \omega_\mathrm{seis} \propto \frac{g}{\sqrt{T_\text{eff}}} \propto \frac{M}{R^2 \sqrt{T_\text{eff}}}
 \end{equation}
 
+In the GP implementation, these frequency scalings are evaluated from internally
+consistent stellar relations rather than fitted independently for every light curve.
+For a simulated stellar mass $M_\star$, we estimate the stellar radius and effective
+temperature from main-sequence scaling relations,
+\begin{equation}
+    R_\star = R_\odot \mathcal{R}(M_\star/M_\odot),
+    \qquad
+    T_\mathrm{eff} =
+    \left(\frac{L(M_\star)}{4\pi \sigma_\mathrm{SB} R_\star^2}\right)^{1/4}.
+\end{equation}
+The asteroseismic frequency is then initialised using the usual $\nu_\mathrm{max}$
+scaling relation,
+\begin{equation}
+    \nu_\mathrm{seis}
+    =
+    \nu_{\mathrm{max},\odot}
+    \left(\frac{M_\star}{M_\odot}\right)
+    \left(\frac{R_\star}{R_\odot}\right)^{-2}
+    \left(\frac{T_\mathrm{eff}}{T_\odot}\right)^{-1/2},
+\end{equation}
+and the granulation characteristic frequency is taken to be a fixed fraction of
+this value,
+\begin{equation}
+    \nu_\mathrm{gran} = 0.30\,\nu_\mathrm{seis}.
+\end{equation}
+The kernel hyperparameters are stored as $\log_{10}\nu$ in Hz and converted to
+angular frequency internally when constructing the SHO kernels.
+
+The kernel amplitudes are set in count-rate units by scaling expected fractional
+stellar-variability amplitudes by the TESS count rate of the simulated source. If
+$\mu$ is the expected number of detected source counts per cadence, the standard
+deviation of component $k$ is initialised as
+\begin{equation}
+    \sigma_k = f_k \mu,
+\end{equation}
+where $f_k$ is a representative fractional variability amplitude. In the simulations
+we use broad ppm-level bands for these fractional amplitudes, with granulation
+initialised between 50--300 ppm and asteroseismic variability between 100--1000 ppm.
+
+The same apparent-magnitude calculation is also used to set the TESS white-noise
+level. The source magnitude is converted to an expected count rate $\mu$, and an
+empirical TESS noise model provides a fractional per-cadence uncertainty
+$\eta(m_\mathrm{TESS})$. This gives a diagonal white-noise contribution
+\begin{equation}
+    \sigma_\mathrm{TESS} = \eta(m_\mathrm{TESS})\mu,
+    \qquad
+    K_{ij} \rightarrow K_{ij} + \sigma_\mathrm{TESS}^2 \delta_{ij}.
+\end{equation}
+This term is fixed by the simulated source brightness rather than fitted as an
+additional free GP jitter parameter.
+
 % Commented out because this part is not actually used here; we don't use the GP for fitting in this paper
 % Such proportionality illustrates the importance of modelling the noise and signal
 % simultaneously, as the hyper-parameters of the kernel are directly related to the
