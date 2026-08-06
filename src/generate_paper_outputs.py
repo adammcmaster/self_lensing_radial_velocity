@@ -1658,6 +1658,22 @@ def plot_orbital_period_recovery_by_period(results):
     )
 
 
+def plot_orbital_period_relative_error_by_period(results):
+    plot_metric_by_truth_range(
+        results,
+        value_column="Porb",
+        metric_column="Porb_relative_error",
+        metric_name="median_relative_error",
+        unit="d",
+        filename="orbital_period_relative_error_by_period",
+        x_label=r"True orbital period range",
+        colorbar_label=r"Median $|\Delta P_\mathrm{orb}|/P_\mathrm{orb}$ [per cent]",
+        label_formatter=period_range_label,
+        percent_scale=True,
+        vmax=100,
+    )
+
+
 def plot_parameter_recovery_curves(strategy_summary):
     plot_rows = []
     for _, row in strategy_summary.iterrows():
@@ -1920,11 +1936,11 @@ def main():
     #     plot_compact_object_class_confusion,
     #     results,
     # )
-    # run_step(
-    #     "lens mass relative error by lens mass figure",
-    #     plot_lens_mass_relative_error_by_mass,
-    #     results,
-    # )
+    run_step(
+        "lens mass relative error by lens mass figure",
+        plot_lens_mass_relative_error_by_mass,
+        results,
+    )
     # run_step(
     #     "lens mass relative error IQR by lens mass figure",
     #     plot_lens_mass_relative_error_iqr_by_mass,
@@ -1933,6 +1949,11 @@ def main():
     run_step(
         "orbital period recovery by period figure",
         plot_orbital_period_recovery_by_period,
+        results,
+    )
+    run_step(
+        "orbital period relative error by period figure",
+        plot_orbital_period_relative_error_by_period,
         results,
     )
     # Not currently included in main.tex.

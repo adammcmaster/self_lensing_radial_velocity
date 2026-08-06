@@ -463,22 +463,12 @@ It is worth noting that these results represent an ideal best case scenario for 
 
 Figure~\ref{fig:lens-mass-recovery-by-lens-mass} shows that higher masses are recovered more reliably. Length of observing baseline also has a noticeable effect, with longer baselines improving recovery rates, as does observing cadence, with more frequent observations improving parameter recovery, especially for shorter baselines. In other words, observing more often is more effective than observing for longer. What seems to matter is the number of observations more than how spread out they are in time. RV accuracy seems to matter less; the least accurate spectrograph produces results which are comparable to those produced by the most accurate.
 
-% \begin{figure*}
-%     \centering
-%     \begin{minipage}{0.49\textwidth}
-%         \centering
-%         \includegraphics[width=\textwidth]{paper/figures/lens_mass_relative_error_by_lens_mass.pdf}
-%         \small (a) Median relative error.
-%     \end{minipage}
-%     \hfill
-%     \begin{minipage}{0.49\textwidth}
-%         \centering
-%         \includegraphics[width=\textwidth]{paper/figures/lens_mass_relative_error_iqr_by_lens_mass.pdf}
-%         \small (b) Interquartile range.
-%     \end{minipage}
-%     \caption{Lens mass relative-error distribution as a function of the true lens mass. Panel (a) shows the median $|\Delta M_\mathrm{acc}|/M_\mathrm{acc}$ in per cent for each fitted subset, while panel (b) shows the interquartile range of the same relative-error distribution. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against fixed true lens-mass ranges.}
-%     \label{fig:lens-mass-relative-error-by-lens-mass}
-% \end{figure*}
+\begin{figure*}
+    \centering
+    \includegraphics[width=\textwidth]{paper/figures/lens_mass_relative_error_by_lens_mass.pdf}
+    \caption{Median lens mass relative error as a function of the true lens mass. Cell values give the median $|\Delta M_\mathrm{acc}|/M_\mathrm{acc}$ in per cent for each fitted subset. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against fixed true lens-mass ranges.}
+    \label{fig:lens-mass-relative-error-by-lens-mass}
+\end{figure*}
 
 \subsection{Recovering object class}
 While the ultimate goal of our observing campaign will be to accurately measure the lens mass and other physical properties of the population of self-lensing systems, we anticipate having to grapple with many orders of magnitude more false positives than true self-lensing systems. This situation will therefore require an informed, systematic way of triaging and prioritising targets for follow-up. The volume of false positives is anticipated to be so large that we will want to obtain as few observations of each target as possible in order to characterise what type of compact object the lens is (or, indeed, whether each target is even a self-lensing system to begin with). In the present work we assume every target is \textit{some} kind of self-lensing system, but even with that assumption, some classes of object will be more astrophysically interesting than others, and some will require more or fewer observations in order to confirm.
@@ -508,6 +498,13 @@ RV accuracy also has a measurable effect, but this varies by orbital period. Thi
     \includegraphics[width=\textwidth]{paper/figures/orbital_period_recovery_by_period.pdf}
     \caption{Orbital period recovery fraction as a function of the true orbital period. A system is counted as recovered when $|\Delta P_\mathrm{orb}|/P_\mathrm{orb} \leq 0.1$. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against equal-population true-period bins from the currently fitted subset.}
     \label{fig:orbital-period-recovery-by-period}
+\end{figure*}
+
+\begin{figure*}
+    \centering
+    \includegraphics[width=\textwidth]{paper/figures/orbital_period_relative_error_by_period.pdf}
+    \caption{Median orbital-period relative error as a function of the true orbital period. Cell values give the median $|\Delta P_\mathrm{orb}|/P_\mathrm{orb}$ in per cent for each fitted subset. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against equal-population true-period bins from the currently fitted subset.}
+    \label{fig:orbital-period-relative-error-by-period}
 \end{figure*}
 
 % \begin{figure*}

@@ -1,6 +1,6 @@
 Quantity,Value
-Fitted observing configurations,66915
-Unique pristine systems,1487
+Fitted observing configurations,74070
+Unique pristine systems,1646
 Campaign baselines [yr],"1, 3, 5"
 RV cadences [d],"1, 30, 300"
 RV accuracies [m s$^{-1}$],"0.1, 1, 10, 100, 1000"
