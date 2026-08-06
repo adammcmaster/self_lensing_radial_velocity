@@ -266,7 +266,7 @@ where $\nu_\mathrm{TESS}$ is the TESS-band effective frequency and $v_r(t)$ is t
 
 % Adapted from Maddie's thesis
 
-Gaussian processes are designed to model smoothly varying correlated noise \citep{rasmussen_gaussian_2006}. In the exoplanet community, this has been highly successful in allowing exoplanet signals to be disentangled from stellar noise. In order to generate realistic, TESS-like light curves, we combine several kernels to model granulation, asteroseismic modes, and other periodic noise, based on the simulated stellar properties. 
+Gaussian processes are designed to model smoothly varying correlated noise \citep{rasmussen_gaussian_2006}. In the exoplanet community, this has been highly successful in allowing exoplanet signals to be disentangled from stellar noise. In order to generate realistic, TESS-like light curves, we combine several kernels to model granulation and asteroseismic modes, based on the simulated stellar properties. We use \texttt{tinygp}  with quasi-separable SHO kernels \textbf{TODO: Citations and more detail?}.
 
 Granulation is a form of aperiodic correlated noise due to convection cells at the stellar surface. Granulation appears as low-amplitude correlated noise; aperiodic in nature, it prefers certain timescales dictated by the size and age of the star \citep{kjeldsen_amplitudes_1995}. To the observer, granulation appears as low-amplitude correlated noise; aperiodic in
 nature, it prefers certain timescales dictated by the size and age of the star. As derived
@@ -292,24 +292,27 @@ dynamics.
 
 Asteroseismic oscillations are caused by the propagation of sound waves through the stellar surface \citep{kjeldsen_amplitudes_1995,chaplin_asteroseismology_2013}. These occur on the timescales of minutes to tens of hours, placing them directly into the observing window of light curves from instruments such as TESS. Again, we choose a damped harmonic oscillator kernel, but this time
 with a free quality factor to allow for the presence of a periodic component \citep{brewer_gaussian_2009,foreman-mackey_exoplanet_2021}. The frequency of the primary mode,
-given by the $w$ hyper-parameter, is proportional to the star’s surface gravity and, as
+given by the $\omega$ hyper-parameter, is proportional to the star’s surface gravity and, as
 such, depends on a subset of the lensing parameter set.
 
 \begin{equation}
-    \omega_\text{gran} \propto \frac{g}{\sqrt{T_\text{eff}}} \propto \frac{M}{R^2 \sqrt{T_\text{eff}}}
+    \omega_\mathrm{seis} \propto \frac{g}{\sqrt{T_\text{eff}}} \propto \frac{M}{R^2 \sqrt{T_\text{eff}}}
 \end{equation}
 
-Such proportionality illustrates the importance of modelling the noise and signal
-simultaneously, as the hyper-parameters of the kernel are directly related to the
-deterministic parameters of the mean function. Fitting the two together removes
-degeneracies while preventing unphysical solutions.
+% Commented out because this part is not actually used here; we don't use the GP for fitting in this paper
+% Such proportionality illustrates the importance of modelling the noise and signal
+% simultaneously, as the hyper-parameters of the kernel are directly related to the
+% deterministic parameters of the mean function. Fitting the two together removes
+% degeneracies while preventing unphysical solutions.
 
 The variability caused by magnetic effects has also been included in prior studies \citep{haywood_planets_2014,luger_starry_process_2021,foreman-mackey_exoplanet_2021}, as has
-of sunspots about the rotational axis of the star. However,
+the movement of star spots about the rotational axis of the star. However,
 such variations are often overpowered by more global variations, such as
-asteroseismic modes for distant stars, where surface structure cannot be resolved. The
-GP can also account for additional small uncorrelated fluctuations through its jitter
-term, specifically those unaccounted for in instrument noise. For a helpful review on
+asteroseismic modes for distant stars, where surface structure cannot be resolved.
+% Commented out because we don't actually do this here
+%The GP can also account for additional small uncorrelated fluctuations through its jitter
+%term, specifically those unaccounted for in instrument noise. 
+For a helpful review on
 modelling stellar variability through GPs, see \cite{aigrain_gaussian_2023}.
 
 \subsection{Radial velocity} \label{sec:rv-sims}
