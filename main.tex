@@ -104,7 +104,7 @@ Compact objects in approximately edge-on binary orbits with stars are known to b
 % Select between one and six entries from the list of approved keywords.
 % Don't make up new ones.
 \begin{keywords}
-    keyword1 -- keyword2 -- keyword3
+    binaries: general -- gravitational lensing: micro -- techniques: radial velocities
 \end{keywords}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -112,9 +112,11 @@ Compact objects in approximately edge-on binary orbits with stars are known to b
 %%%%%%%%%%%%%%%%% BODY OF PAPER %%%%%%%%%%%%%%%%%%
 
 \section{Introduction}
-Self-lensing systems are binary systems which are close to being edge-on, consisting of a star in orbit with a compact object. With an appropriate separation distance, the Einstein radius of the compact object can be larger than its surface radius, and if the orbital inclination is close enough to edge-on this can result in a measurable microlensing amplification of the stellar flux once per orbit.
+There are expected to exist vast numbers of compact objects in binary systems in the Milky Way \citep[e.g.][]{weller_mapping_2023}. The majority of these are not close enough to interact with their companions, making them challenging to detect. This is especially true of black holes, which would produce negligible electromagnetic emissions in such systems \citep{shao_population_2019,wiktorowicz_noninteracting_2020}.
 
-To date, five self-lensing binaries have been confirmed, each containing a white dwarf-stellar binary, all of which have relatively close, short-period orbits \citep{kruse_koi-3278_2014,kawahara_discovery_2018,masuda_self-lensing_2019}. However, it is expected that stellar-compact object binaries should span the full range of compact object masses, as well as the full range of orbital configurations.
+The detection of gravitational microlensing is a proven technique \citep{paczynski_gravitational_1986,paczynski_gravitational_1996,mao_astrophysical_2012}, in which the gravity of a foreground object (the \textit{lens}, which is often not visible) amplifies flux from a background object (the \textit{source}). This has been used to detect and study various classes of object, notably including exoplanets \citep{bond_ogle_2004,gaudi_microlensing_2012} and black holes \citep{sahu_isolated_2022,lam_isolated_2022}. Self-lensing is a special case of microlensing where the source and the lens are in a binary system together, in an orbit which is close to edge-on, producing a periodic microlensing amplification of the source once per orbit \citep{maeder_light_1973,agol_occultation_2002}. Self-lensing is only possible when the lens is a compact object; other types of object have radii which exceed their Einstein radius at the relevant source-lens separations. This means a detection of self-lensing (i.e. periodic microlensing) is by definition a detection of a compact object.
+
+A self-lensing search is therefore an intriguing way to search for compact objects in binaries which would be undetectable by other means. To date, five self-lensing binaries have been confirmed, each containing a white dwarf lens, all of which have relatively close, short-period orbits \citep{kruse_koi-3278_2014,kawahara_discovery_2018,masuda_self-lensing_2019}. However, it is expected that stellar-compact object binaries should span the full range of compact object masses, as well as the full range of orbital configurations.
 
 Photometry remains the best way to detect self-lensing binaries, and previous works have assessed the detectability of self-lensing binaries in various photometric surveys \citep{wiktorowicz_predicting_2021}. These results look promising, with modern all-sky surveys expected to imminently uncover a population of compact objects in self-lensing binaries, including the currently under-studied population of quiescent black holes.
 
@@ -136,12 +138,12 @@ The radial velocity measurements are simulated for the same set of simulation pa
 
 Finally, we map the recovery rates onto previous population synthesis results to estimate the numbers of self-lensing systems which can be confirmed following detection in various photometric surveys (Section~\ref{sec:pop-synth}).
 
-\subsection{Photometric simulations} \label{sec:phot-sims}
+\subsection{Self-lensing and photometric binary effects} \label{sec:phot-sims}
 We note that the photometric model described here is similar to the recently published COBALT-BLUE model (Dixon et al. in preparation) (\textbf{TODO: Update this citation before submission if possible}), but uses a simpler approximation to the full photometric forward model. Compared with COBALT-BLUE, our model adopts a local approximation to the eccentric self-lensing geometry and lower-order treatments of Doppler boosting and ellipsoidal variability, while adding the spectroscopic radial-velocity component needed to study the recovery of lens mass and other physical parameters. We anticipate combining the two models in a future work.
 
 These simulations comprise a sample of self-lensing system parameters which is physically complete (i.e. covering the full plausible range of physical parameters) but not physically realistic (i.e. parameters are not sampled according to the frequency they are expected to occur in nature). This is ideal as the basis for determining the ranges of parameters which produce self-lensing effects which are detectable, independent of how common or uncommon particular parameter ranges are expected to be.
 
-The photometric simulations comprise realistic simulated TESS light curves (including stellar noise generated with a Gaussian process) for each sample self-lensing system. When generating the simulations, the parameter values were sampled uniformly between the limits given in Table~\ref{tab:phot_sim_parameter_ranges}, with the exception of semi-major axis and eccentricity which are sampled on a log scale to increase the number of samples at smaller values (the light curve morphology changes roughly in proportion to the relative change in these values; e.g. a 5 AU change in semi-major axis has a much larger effect going from 1 AU to 6 AU than for 100 AU to 105 AU).
+The photometric simulations comprise realistic simulated TESS-like light curves (including stellar noise generated with a Gaussian process, see Section~\ref{sec:gp}) for each sample self-lensing system. When generating the simulations, the parameter values were sampled uniformly between the limits given in Table~\ref{tab:phot_sim_parameter_ranges}, with the exception of semi-major axis and eccentricity which are sampled on a log scale to increase the number of samples at smaller values (the light curve morphology changes roughly in proportion to the relative change in these values; e.g. a 5 AU change in semi-major axis has a much larger effect going from 1 AU to 6 AU than for 100 AU to 105 AU).
 
 \begin{table}
     \centering
@@ -260,7 +262,57 @@ where $\nu_\mathrm{TESS}$ is the TESS-band effective frequency and $v_r(t)$ is t
     F(t) = F_0 A_\mathrm{SL}(t)\left[1 + A_\mathrm{EV}(t) + A_\mathrm{DB}(t)\right].
 \end{equation}
 
-\subsection{Radial velocity simulations} \label{sec:rv-sims}
+\subsection{Stellar and photometric noise} \label{sec:gp}
+
+% Adapted from Maddie's thesis
+
+Gaussian processes are designed to model smoothly varying correlated noise \citep{rasmussen_gaussian_2006}. In the exoplanet community, this has been highly successful in allowing exoplanet signals to be disentangled from stellar noise. In order to generate realistic, TESS-like light curves, we combine several kernels to model granulation, asteroseismic modes, and other periodic noise, based on the simulated stellar properties. 
+
+Granulation is a form of aperiodic correlated noise due to convection cells at the stellar surface. Granulation appears as low-amplitude correlated noise; aperiodic in nature, it prefers certain timescales dictated by the size and age of the star \citep{kjeldsen_amplitudes_1995}. To the observer, granulation appears as low-amplitude correlated noise; aperiodic in
+nature, it prefers certain timescales dictated by the size and age of the star. As derived
+in \cite{foreman-mackey_exoplanet_2021}, we consider this preferred frequency a characteristic
+timescale of a damped stochastic process. We model such a process using a damped
+harmonic oscillator kernel with a fixed quality factor ($Q= \frac{1}{\sqrt{2}}$) parameter to create a
+damped random walk (DRW). This creates frequency-dependent broadband noise
+with a characteristic timescale but no dominant frequencies. The characteristic
+timescale in the model $\tau$ then reflects the average lifetime of a single convective cell,
+while the amplitude scales with the number of granules contributing to the observable
+flux and the surface gravity of the star \citep{kjeldsen_amplitudes_1995,pereira_gaussian_2019,foreman-mackey_exoplanet_2021}. The granulation timescale goes as
+
+\begin{equation}
+    \tau_\text{gran} \propto \frac{1}{g} \propto \left(\frac{R^2}{M}\right).
+\end{equation}
+
+This model captures the gradual loss of coherence in the light curve over time,
+appropriate for granulation, where surface features evolve on a finite timescale and
+exhibit only short-range temporal correlations. This model has also been tested and
+applied in previous GP transit studies \citep{brewer_gaussian_2009,nicholson_quasi-periodic_2022}. Overall, the DRW kernel effectively models granulation noise without
+requiring high model complexity or prior knowledge of the star’s convective
+dynamics.
+
+Asteroseismic oscillations are caused by the propagation of sound waves through the stellar surface \citep{kjeldsen_amplitudes_1995,chaplin_asteroseismology_2013}. These occur on the timescales of minutes to tens of hours, placing them directly into the observing window of light curves from instruments such as TESS. Again, we choose a damped harmonic oscillator kernel, but this time
+with a free quality factor to allow for the presence of a periodic component \citep{brewer_gaussian_2009,foreman-mackey_exoplanet_2021}. The frequency of the primary mode,
+given by the $w$ hyper-parameter, is proportional to the star’s surface gravity and, as
+such, depends on a subset of the lensing parameter set.
+
+\begin{equation}
+    \omega_\text{gran} \propto \frac{g}{\sqrt{T_\text{eff}}} \propto \frac{M}{R^2 \sqrt{T_\text{eff}}}
+\end{equation}
+
+Such proportionality illustrates the importance of modelling the noise and signal
+simultaneously, as the hyper-parameters of the kernel are directly related to the
+deterministic parameters of the mean function. Fitting the two together removes
+degeneracies while preventing unphysical solutions.
+
+The variability caused by magnetic effects has also been included in prior studies \citep{haywood_planets_2014,luger_starry_process_2021,foreman-mackey_exoplanet_2021}, as has
+of sunspots about the rotational axis of the star. However,
+such variations are often overpowered by more global variations, such as
+asteroseismic modes for distant stars, where surface structure cannot be resolved. The
+GP can also account for additional small uncorrelated fluctuations through its jitter
+term, specifically those unaccounted for in instrument noise. For a helpful review on
+modelling stellar variability through GPs, see \cite{aigrain_gaussian_2023}.
+
+\subsection{Radial velocity} \label{sec:rv-sims}
 
 The simulated RV curves start at randomised times between 1 year and 10 years from the end of the photometry. This is to simulate a realistic delay in identifying candidates in the photometry and organising follow-up of those candidates.
 
@@ -346,7 +398,7 @@ The quantity sampled by the MCMC is then the sum of these terms plus the paramet
 The reported fitted parameters are posterior summaries rather than single maximum-posterior samples: after burn-in, we retain the 256 finite samples with the highest posterior values for each fit and average over this high-posterior subset, using circular averaging for the periapsis phase angle.
 
 \subsection{Predicted detection rates} \label{sec:pop-synth}
-In order to inform expectations about how many self-lensing systems might be correctly characterised as a result of detection in modern photometric surveys, we seek to combine our estimates of the recoverability of the physical properties of self-lensing systems with the detectability estimates of \cite{wiktorowicz_predicting_2021}. We note that the survey-specific detection yields we use here come from Table~2, which is an optimistic upper limit including events for which only one photometric detection is made. In reality, detections would require multiple photometric measurements.
+In order to inform expectations about how many self-lensing systems might be correctly characterised as a result of detection in modern photometric surveys, we seek to combine our estimates of the recoverability of the physical properties of self-lensing systems with the detectability estimates of \cite{wiktorowicz_predicting_2021}. We note that the survey-specific detection yields we use here come from their Table~2, which is an optimistic upper limit including events for which only one photometric detection is made. In reality, detections would require multiple photometric measurements.
 
 One important difference between \cite{wiktorowicz_predicting_2021} and the present work is that they use population synthesis to generate a physically plausible distribution of physical properties, as the basis for simulating the total number of detectable systems observed by each photometric survey. In the present work, we do not simulate a physically representative distribution of parameters, because our primary aim is to explore the ability to recover those parameters regardless of how common a given configuration will be in the galaxy. In other words, we want to simulate very rare configurations as thoroughly as more common ones. We are also concerned only with characterisation of lenses/recovery of physical parameters via spectroscopic RV measurements after detection in photometry, while \cite{wiktorowicz_predicting_2021} investigates photometric detectability.
 
@@ -544,6 +596,8 @@ Combining parameter recovery rates with previous population synthesis results su
 
 \section*{Acknowledgements}
 The authors acknowledge the use of the Codex coding agent as part of the process of creating and debugging the code underlying these simulations.
+
+Parts of Section~\ref{sec:gp} are adapted from the PhD thesis of Maddieline-Mai Ward \citep{ward_navigating_2026}.
 
 \textbf{TODO: What else?}
 
