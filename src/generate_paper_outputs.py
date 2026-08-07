@@ -436,7 +436,6 @@ def plot_prefit_improvement_by_n_rv(results):
         axis.set_title(label)
         axis.set_xscale("log")
         axis.set_yscale("log")
-        axis.axhline(RECOVERY_THRESHOLD, color="0.35", linestyle=":", linewidth=0.9)
         axis.grid(True, which="both", axis="both", alpha=0.25)
         axis.set_ylabel("Relative error")
 
@@ -458,20 +457,10 @@ def plot_prefit_improvement_by_n_rv(results):
         )
         for stage, style in PREFIT_COMPARISON_STAGE_STYLES.items()
     ]
-    legend_handles.append(
-        Line2D(
-            [0],
-            [0],
-            color="0.35",
-            linestyle=":",
-            linewidth=0.9,
-            label=rf"{RECOVERY_THRESHOLD:g} recovery threshold",
-        )
-    )
     fig.legend(
         handles=legend_handles,
         loc="upper center",
-        ncol=4,
+        ncol=3,
         bbox_to_anchor=(0.5, 1.04),
         frameon=False,
     )
@@ -568,7 +557,6 @@ def plot_prefit_improvement_by_lens_mass_range(results):
                 axis.set_xlabel("")
             axis.set_xscale("log")
             axis.set_yscale("log")
-            axis.axhline(RECOVERY_THRESHOLD, color="0.35", linestyle=":", linewidth=0.8)
             axis.grid(True, which="both", axis="both", alpha=0.22)
 
     legend_handles = [
@@ -584,20 +572,10 @@ def plot_prefit_improvement_by_lens_mass_range(results):
         )
         for stage, style in PREFIT_COMPARISON_STAGE_STYLES.items()
     ]
-    legend_handles.append(
-        Line2D(
-            [0],
-            [0],
-            color="0.35",
-            linestyle=":",
-            linewidth=0.9,
-            label=rf"{RECOVERY_THRESHOLD:g} recovery threshold",
-        )
-    )
     fig.legend(
         handles=legend_handles,
         loc="upper center",
-        ncol=4,
+        ncol=3,
         bbox_to_anchor=(0.5, 1.04),
         frameon=False,
     )
@@ -883,6 +861,116 @@ def plot_population_weighted_survey_followup_heatmaps():
             fig.savefig(
                 FIGURE_DIR
                 / f"population_weighted_rv_followup_heatmaps_counts_{slug}.{suffix}",
+                bbox_inches="tight",
+            )
+        pyplot.close(fig)
+
+
+def plot_population_weighted_relative_error_heatmaps():
+    survey_counts_path = TABLE_DIR / "population_weighted_followup_survey_counts.csv"
+    if not survey_counts_path.exists():
+        logger.warning(
+            "Skipping population-weighted relative-error heatmaps because %s "
+            "does not exist. Run src/5_population_weighted_followup.py first.",
+            survey_counts_path.relative_to(PROJECT_ROOT),
+        )
+        return
+
+    survey_counts = pandas.read_csv(survey_counts_path)
+    metrics = [
+        (
+            "mass_relative_error_median",
+            "macc",
+            r"$M_\mathrm{acc}$",
+            r"Median $|\Delta M_\mathrm{acc}|/M_\mathrm{acc}$ [per cent]",
+        ),
+        (
+            "period_relative_error_median",
+            "porb",
+            r"$P_\mathrm{orb}$",
+            r"Median $|\Delta P_\mathrm{orb}|/P_\mathrm{orb}$ [per cent]",
+        ),
+    ]
+    missing = [
+        value_column
+        for value_column, _, _, _ in metrics
+        if value_column not in survey_counts.columns
+    ]
+    if missing:
+        logger.warning(
+            "Skipping population-weighted relative-error heatmaps because %s "
+            "does not contain columns: %s",
+            survey_counts_path.relative_to(PROJECT_ROOT),
+            ", ".join(missing),
+        )
+        return
+
+    reference_survey = next(iter(SURVEY_DETECTED_COUNTS))
+    reference_data = survey_counts[survey_counts["survey"] == reference_survey].copy()
+    baselines = numpy.sort(reference_data["baseline"].unique())
+    cadences = numpy.sort(reference_data["cadence"].unique())
+    rv_values = numpy.sort(reference_data["RV accuracy"].unique())
+    n_baselines = len(baselines)
+
+    for value_column, slug, label, colorbar_label in metrics:
+        fig = pyplot.figure(figsize=(8.8, 2.8))
+        grid = fig.add_gridspec(
+            1,
+            n_baselines + 1,
+            width_ratios=[1.0] * n_baselines + [0.045],
+            left=0.10,
+            right=0.90,
+            top=0.88,
+            bottom=0.24,
+            wspace=0.08,
+        )
+        axes = numpy.empty(n_baselines, dtype=object)
+        colorbar_axis = fig.add_subplot(grid[0, -1])
+        for col_index in range(n_baselines):
+            sharey = axes[0] if col_index > 0 else None
+            axes[col_index] = fig.add_subplot(grid[0, col_index], sharey=sharey)
+
+        for col_index, baseline in enumerate(baselines):
+            axis = axes[col_index]
+            subset = reference_data[reference_data["baseline"] == baseline]
+            matrix = subset.pivot(
+                index="cadence",
+                columns="RV accuracy",
+                values=value_column,
+            ).reindex(index=cadences, columns=rv_values)
+            heatmap = seaborn.heatmap(
+                100.0 * matrix,
+                ax=axis,
+                vmin=0,
+                vmax=100,
+                cmap="viridis_r",
+                annot=True,
+                annot_kws={"fontsize": 6.3},
+                fmt=".1f",
+                linewidths=0.35,
+                linecolor="white",
+                square=True,
+                cbar=col_index == n_baselines - 1,
+                cbar_ax=colorbar_axis if col_index == n_baselines - 1 else None,
+                cbar_kws={"label": colorbar_label},
+            )
+            if col_index == 0:
+                axis.set_ylabel("Cadence [d]", labelpad=10)
+            else:
+                axis.set_ylabel("")
+                axis.tick_params(axis="y", left=False, labelleft=False)
+            axis.set_title(f"{baseline / 365:g} yr")
+            axis.set_xlabel(r"RV accuracy [m s$^{-1}$]")
+            axis.set_xticklabels(
+                rv_accuracy_tick_labels(rv_values),
+                rotation=40,
+                ha="right",
+            )
+        colorbar_axis.tick_params(labelsize=8)
+        for suffix in ("pdf", "png"):
+            fig.savefig(
+                FIGURE_DIR
+                / f"population_weighted_rv_followup_heatmaps_relative_error_{slug}.{suffix}",
                 bbox_inches="tight",
             )
         pyplot.close(fig)
@@ -1980,6 +2068,10 @@ def main():
     run_step(
         "population-weighted survey follow-up heatmaps",
         plot_population_weighted_survey_followup_heatmaps,
+    )
+    run_step(
+        "population-weighted relative-error heatmaps",
+        plot_population_weighted_relative_error_heatmaps,
     )
     run_step(
         "population-weighted survey follow-up count tables",

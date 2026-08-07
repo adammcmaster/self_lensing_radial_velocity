@@ -1,8 +1,8 @@
-"""Population-weighted RV follow-up summaries for the paper.
+"""Detected-population RV follow-up summaries for the paper.
 
 This script assumes the photometric self-lensing candidate population already
-exists. It transfers the recovery response measured from the fitted RV follow-up
-grid onto the population-synthesis table using nearest neighbours in physical
+exists. It emulates the recovery response measured from the fitted RV follow-up
+grid across the population-synthesis table using nearest neighbours in physical
 parameter space, then writes paper-ready tables and figures.
 """
 
@@ -57,6 +57,16 @@ DEFAULT_DETECTED_SAMPLE_SIZE = int(
 )
 R_SUN_PER_AU = 215.032
 EPSILON = 1.0e-12
+PROBABILITY_METRICS = [
+    "classified",
+    "measured_mass",
+    "measured_period",
+    "measured_mass_and_period",
+]
+RELATIVE_ERROR_METRICS = [
+    "mass_relative_error",
+    "period_relative_error",
+]
 LENS_MASS_BINS = [0.0, 3.0, 5.0, 20.0, 50.0, numpy.inf]
 LENS_MASS_LABELS = [
     r"$<3\,M_\odot$",
@@ -133,7 +143,7 @@ COLUMN_ALIASES = {
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Generate population-weighted RV follow-up paper outputs."
+        description="Generate detected-population RV follow-up paper outputs."
     )
     parser.add_argument(
         "--sample-size",
@@ -155,7 +165,7 @@ def parse_args():
         "--k",
         type=int,
         default=DEFAULT_K,
-        help="Number of nearest pristine simulations used for response transfer.",
+        help="Number of nearest pristine simulations used by the emulator.",
     )
     parser.add_argument(
         "--rebuild-cache",
@@ -450,11 +460,13 @@ def load_fitted_results():
         & compact_object_class(results["fitted_Macc"]).notna()
         & (compact_object_class(results["Macc"]) == compact_object_class(results["fitted_Macc"]))
     )
+    results["mass_relative_error"] = relative_error(results["Macc"], results["fitted_Macc"])
+    results["period_relative_error"] = relative_error(results["Porb"], results["fitted_porb"])
     results["measured_mass"] = (
-        relative_error(results["Macc"], results["fitted_Macc"]) <= RECOVERY_THRESHOLD
+        results["mass_relative_error"] <= RECOVERY_THRESHOLD
     )
     results["measured_period"] = (
-        relative_error(results["Porb"], results["fitted_porb"]) <= RECOVERY_THRESHOLD
+        results["period_relative_error"] <= RECOVERY_THRESHOLD
     )
     results["measured_mass_and_period"] = (
         results["measured_mass"] & results["measured_period"]
@@ -562,6 +574,8 @@ def response_by_strategy(results):
             measured_mass=("measured_mass", "mean"),
             measured_period=("measured_period", "mean"),
             measured_mass_and_period=("measured_mass_and_period", "mean"),
+            mass_relative_error=("mass_relative_error", "median"),
+            period_relative_error=("period_relative_error", "median"),
         )
         .reset_index()
     )
@@ -634,13 +648,13 @@ def transferred_rows(population, pristine, response, neighbour_indices, neighbou
         (numpy.nanmin(probabilities) < -1.0e-9)
         or (numpy.nanmax(probabilities) > 1.0 + 1.0e-9)
     ):
-        raise ValueError("Transferred recovery probabilities are outside [0, 1]")
+        raise ValueError("Emulated recovery probabilities are outside [0, 1]")
     if transferred["response_coverage"].lt(-1.0e-9).any() or transferred[
         "response_coverage"
     ].gt(1.0 + 1.0e-9).any():
-        raise ValueError("Transferred response coverage is outside [0, 1]")
+        raise ValueError("Emulated response coverage is outside [0, 1]")
     if not numpy.isfinite(probabilities).any():
-        raise ValueError("Transferred recovery probabilities contain non-finite values")
+        raise ValueError("Emulated recovery probabilities contain non-finite values")
     transferred[probability_columns] = transferred[probability_columns].clip(0.0, 1.0)
     return transferred
 
@@ -664,6 +678,21 @@ def weighted_average_finite(values, weights):
         return numpy.nan, 0.0, numpy.nan
     coverage = total / denominator if denominator > 0 else numpy.nan
     return numpy.sum(values[finite] * weights[finite]) / total, total, coverage
+
+
+def weighted_median_finite(values, weights):
+    values = numpy.asarray(values, dtype=float)
+    weights = numpy.asarray(weights, dtype=float)
+    finite = numpy.isfinite(values) & numpy.isfinite(weights) & (weights > 0)
+    if not finite.any():
+        return numpy.nan, 0.0
+    finite_values = values[finite]
+    finite_weights = weights[finite]
+    order = numpy.argsort(finite_values)
+    sorted_values = finite_values[order]
+    sorted_weights = finite_weights[order]
+    midpoint = 0.5 * sorted_weights.sum()
+    return sorted_values[numpy.searchsorted(numpy.cumsum(sorted_weights), midpoint)], sorted_weights.sum()
 
 
 def rv_accuracy_tick_labels(values):
@@ -736,15 +765,9 @@ def summarise_precision_tiers(transferred):
 
 
 def aggregate_transferred(population, pristine, response, neighbour_indices, neighbour_weights):
-    """Aggregate transferred recovery probabilities without materialising rows."""
+    """Aggregate emulated recovery and relative-error responses."""
     pristine_ids = pristine["simulation_id"].astype(str).to_numpy()
     strategies = response[["baseline", "cadence", "RV accuracy"]].drop_duplicates()
-    metric_columns = [
-        "classified",
-        "measured_mass",
-        "measured_period",
-        "measured_mass_and_period",
-    ]
     weights = population["weight"].to_numpy(dtype=float)
     population_weight = float(weights.sum())
     if population_weight <= 0:
@@ -764,8 +787,9 @@ def aggregate_transferred(population, pristine, response, neighbour_indices, nei
         ].set_index("pristine_id")
 
         metric_probabilities = {}
+        metric_errors = {}
         response_coverage = None
-        for metric in metric_columns:
+        for metric in PROBABILITY_METRICS:
             metric_by_id = strategy_response[metric].reindex(pristine_ids).to_numpy(dtype=float)
             neighbour_values = metric_by_id[neighbour_indices]
             valid = numpy.isfinite(neighbour_values)
@@ -781,12 +805,22 @@ def aggregate_transferred(population, pristine, response, neighbour_indices, nei
                 (numpy.nanmin(values) < -1.0e-9)
                 or (numpy.nanmax(values) > 1.0 + 1.0e-9)
             ):
-                raise ValueError(f"Transferred {metric} probabilities are outside [0, 1]")
+                raise ValueError(f"Emulated {metric} probabilities are outside [0, 1]")
             metric_probabilities[metric] = numpy.clip(values, 0.0, 1.0)
+        for metric in RELATIVE_ERROR_METRICS:
+            metric_by_id = strategy_response[metric].reindex(pristine_ids).to_numpy(dtype=float)
+            neighbour_values = metric_by_id[neighbour_indices]
+            valid = numpy.isfinite(neighbour_values)
+            valid_weight = numpy.sum(neighbour_weights * valid, axis=1)
+            with numpy.errstate(invalid="ignore", divide="ignore"):
+                metric_errors[metric] = numpy.sum(
+                    numpy.where(valid, neighbour_values, 0.0) * neighbour_weights,
+                    axis=1,
+                ) / valid_weight
         if response_coverage is None or not numpy.isfinite(response_coverage).all():
-            raise ValueError("Transferred response coverage contains non-finite values")
+            raise ValueError("Emulated response coverage contains non-finite values")
         if ((response_coverage < -1.0e-9) | (response_coverage > 1.0 + 1.0e-9)).any():
-            raise ValueError("Transferred response coverage is outside [0, 1]")
+            raise ValueError("Emulated response coverage is outside [0, 1]")
 
         baseline = float(strategy["baseline"])
         cadence = float(strategy["cadence"])
@@ -811,6 +845,10 @@ def aggregate_transferred(population, pristine, response, neighbour_indices, nei
             summary_row[f"{metric}_denominator_weight"] = denominator_weight
             summary_row[f"{metric}_fraction"] = fraction
             summary_row[f"{metric}_weighted_count"] = fraction * denominator_weight
+        for metric, values in metric_errors.items():
+            median, denominator_weight = weighted_median_finite(values, weights)
+            summary_row[f"{metric}_denominator_weight"] = denominator_weight
+            summary_row[f"{metric}_median"] = median
         summary_rows.append(summary_row)
 
         for keys, group in population_groups.groupby(group_columns, dropna=False):
@@ -837,6 +875,13 @@ def aggregate_transferred(population, pristine, response, neighbour_indices, nei
                 tier_row[f"{metric}_weighted_count"] = (
                     fraction * denominator_weight
                 )
+            for metric, values in metric_errors.items():
+                median, denominator_weight = weighted_median_finite(
+                    values[row_indices],
+                    group_weights,
+                )
+                tier_row[f"{metric}_denominator_weight"] = denominator_weight
+                tier_row[f"{metric}_median"] = median
             tier_rows.append(tier_row)
 
     summary = pandas.DataFrame(summary_rows).sort_values(
@@ -850,12 +895,7 @@ def aggregate_transferred(population, pristine, response, neighbour_indices, nei
 
 def response_arrays_by_strategy(response, pristine_ids):
     strategies = response[["baseline", "cadence", "RV accuracy"]].drop_duplicates()
-    metric_columns = [
-        "classified",
-        "measured_mass",
-        "measured_period",
-        "measured_mass_and_period",
-    ]
+    metric_columns = PROBABILITY_METRICS + RELATIVE_ERROR_METRICS
     strategy_rows = []
     for _, strategy in strategies.sort_values(["baseline", "cadence", "RV accuracy"]).iterrows():
         strategy_response = response[
@@ -901,10 +941,12 @@ def empty_accumulator_row(strategy):
         "response_coverage_weighted_sum": 0.0,
         "metric_weighted_sums": {},
         "metric_denominator_weights": {},
+        "metric_value_arrays": {},
+        "metric_weight_arrays": {},
     }
 
 
-def finalise_accumulators(summary_accumulators, tier_accumulators, metric_columns):
+def finalise_accumulators(summary_accumulators, tier_accumulators, probability_metrics, relative_error_metrics):
     summary_rows = []
     for row in summary_accumulators.values():
         output = {
@@ -914,6 +956,8 @@ def finalise_accumulators(summary_accumulators, tier_accumulators, metric_column
             not in {
                 "metric_weighted_sums",
                 "metric_denominator_weights",
+                "metric_value_arrays",
+                "metric_weight_arrays",
                 "response_coverage_weighted_sum",
             }
         }
@@ -922,7 +966,7 @@ def finalise_accumulators(summary_accumulators, tier_accumulators, metric_column
             if row["population_weight"] > 0
             else numpy.nan
         )
-        for metric in metric_columns:
+        for metric in probability_metrics:
             weighted_sum = row["metric_weighted_sums"].get(metric, 0.0)
             denominator_weight = row["metric_denominator_weights"].get(metric, 0.0)
             fraction = (
@@ -933,6 +977,18 @@ def finalise_accumulators(summary_accumulators, tier_accumulators, metric_column
             output[f"{metric}_denominator_weight"] = denominator_weight
             output[f"{metric}_fraction"] = fraction
             output[f"{metric}_weighted_count"] = weighted_sum
+        for metric in relative_error_metrics:
+            values = row["metric_value_arrays"].get(metric, [])
+            weights = row["metric_weight_arrays"].get(metric, [])
+            if values:
+                median, denominator_weight = weighted_median_finite(
+                    numpy.concatenate(values),
+                    numpy.concatenate(weights),
+                )
+            else:
+                median, denominator_weight = numpy.nan, 0.0
+            output[f"{metric}_denominator_weight"] = denominator_weight
+            output[f"{metric}_median"] = median
         summary_rows.append(output)
 
     tier_rows = []
@@ -944,6 +1000,8 @@ def finalise_accumulators(summary_accumulators, tier_accumulators, metric_column
             not in {
                 "metric_weighted_sums",
                 "metric_denominator_weights",
+                "metric_value_arrays",
+                "metric_weight_arrays",
                 "response_coverage_weighted_sum",
             }
         }
@@ -952,7 +1010,7 @@ def finalise_accumulators(summary_accumulators, tier_accumulators, metric_column
             if row["population_weight"] > 0
             else numpy.nan
         )
-        for metric in metric_columns:
+        for metric in probability_metrics:
             weighted_sum = row["metric_weighted_sums"].get(metric, 0.0)
             denominator_weight = row["metric_denominator_weights"].get(metric, 0.0)
             fraction = (
@@ -963,6 +1021,18 @@ def finalise_accumulators(summary_accumulators, tier_accumulators, metric_column
             output[f"{metric}_denominator_weight"] = denominator_weight
             output[f"{metric}_fraction"] = fraction
             output[f"{metric}_weighted_count"] = weighted_sum
+        for metric in relative_error_metrics:
+            values = row["metric_value_arrays"].get(metric, [])
+            weights = row["metric_weight_arrays"].get(metric, [])
+            if values:
+                median, denominator_weight = weighted_median_finite(
+                    numpy.concatenate(values),
+                    numpy.concatenate(weights),
+                )
+            else:
+                median, denominator_weight = numpy.nan, 0.0
+            output[f"{metric}_denominator_weight"] = denominator_weight
+            output[f"{metric}_median"] = median
         tier_rows.append(output)
 
     summary = pandas.DataFrame(summary_rows).sort_values(
@@ -1060,20 +1130,33 @@ def aggregate_population_cache(pristine, response, k):
             valid_response = numpy.isfinite(neighbour_response)
             coverage = numpy.sum(neighbour_weights[:, :, None] * valid_response, axis=1)
             with numpy.errstate(invalid="ignore", divide="ignore"):
-                probabilities = numpy.sum(
+                transferred_values = numpy.sum(
                     numpy.where(valid_response, neighbour_response, 0.0)
                     * neighbour_weights[:, :, None],
                     axis=1,
                 ) / coverage
-            if numpy.isfinite(probabilities).any() and (
-                (numpy.nanmin(probabilities) < -1.0e-9)
-                or (numpy.nanmax(probabilities) > 1.0 + 1.0e-9)
+            probability_indices = [
+                index
+                for index, (_, _, metric) in enumerate(output_specs)
+                if metric in PROBABILITY_METRICS
+            ]
+            probability_values = transferred_values[:, probability_indices]
+            if numpy.isfinite(probability_values).any() and (
+                (numpy.nanmin(probability_values) < -1.0e-9)
+                or (numpy.nanmax(probability_values) > 1.0 + 1.0e-9)
             ):
-                raise ValueError("Transferred probabilities are outside [0, 1]")
-            probabilities = numpy.clip(probabilities, 0.0, 1.0)
-            finite_probability = numpy.isfinite(probabilities)
-            weighted_sums = numpy.nansum(probabilities * weight_chunk[:, None], axis=0)
-            denominator_sums = finite_probability.T @ weight_chunk
+                raise ValueError("Emulated probabilities are outside [0, 1]")
+            transferred_values[:, probability_indices] = numpy.clip(
+                probability_values,
+                0.0,
+                1.0,
+            )
+            finite_values = numpy.isfinite(transferred_values)
+            weighted_sums = numpy.nansum(
+                transferred_values * weight_chunk[:, None],
+                axis=0,
+            )
+            denominator_sums = finite_values.T @ weight_chunk
             coverage_sums = coverage.T @ weight_chunk
             chunk_weight = float(weight_chunk.sum())
 
@@ -1088,14 +1171,23 @@ def aggregate_population_cache(pristine, response, k):
                     summary_row["response_coverage_weighted_sum"] += float(
                         coverage_sums[output_index]
                     )
-                summary_row["metric_weighted_sums"][metric] = (
-                    summary_row["metric_weighted_sums"].get(metric, 0.0)
-                    + float(weighted_sums[output_index])
-                )
-                summary_row["metric_denominator_weights"][metric] = (
-                    summary_row["metric_denominator_weights"].get(metric, 0.0)
-                    + float(denominator_sums[output_index])
-                )
+                if metric in PROBABILITY_METRICS:
+                    summary_row["metric_weighted_sums"][metric] = (
+                        summary_row["metric_weighted_sums"].get(metric, 0.0)
+                        + float(weighted_sums[output_index])
+                    )
+                    summary_row["metric_denominator_weights"][metric] = (
+                        summary_row["metric_denominator_weights"].get(metric, 0.0)
+                        + float(denominator_sums[output_index])
+                    )
+                else:
+                    finite = finite_values[:, output_index]
+                    summary_row["metric_value_arrays"].setdefault(metric, []).append(
+                        transferred_values[finite, output_index]
+                    )
+                    summary_row["metric_weight_arrays"].setdefault(metric, []).append(
+                        weight_chunk[finite]
+                    )
 
             for (lens_mass_range, period_range), group in grouped_rows:
                 row_indices = group["_row"].to_numpy(dtype=int)
@@ -1105,10 +1197,10 @@ def aggregate_population_cache(pristine, response, k):
                 local_indices = row_indices[mask] - start
                 group_weights = weight_chunk[local_indices]
                 group_weight = float(group_weights.sum())
-                group_probabilities = probabilities[local_indices]
-                group_finite = numpy.isfinite(group_probabilities)
+                group_values = transferred_values[local_indices]
+                group_finite = numpy.isfinite(group_values)
                 group_weighted_sums = numpy.nansum(
-                    group_probabilities * group_weights[:, None],
+                    group_values * group_weights[:, None],
                     axis=0,
                 )
                 group_denominator_sums = group_finite.T @ group_weights
@@ -1135,19 +1227,29 @@ def aggregate_population_cache(pristine, response, k):
                         tier_row["response_coverage_weighted_sum"] += float(
                             group_coverage_sums[output_index]
                         )
-                    tier_row["metric_weighted_sums"][metric] = (
-                        tier_row["metric_weighted_sums"].get(metric, 0.0)
-                        + float(group_weighted_sums[output_index])
-                    )
-                    tier_row["metric_denominator_weights"][metric] = (
-                        tier_row["metric_denominator_weights"].get(metric, 0.0)
-                        + float(group_denominator_sums[output_index])
-                    )
+                    if metric in PROBABILITY_METRICS:
+                        tier_row["metric_weighted_sums"][metric] = (
+                            tier_row["metric_weighted_sums"].get(metric, 0.0)
+                            + float(group_weighted_sums[output_index])
+                        )
+                        tier_row["metric_denominator_weights"][metric] = (
+                            tier_row["metric_denominator_weights"].get(metric, 0.0)
+                            + float(group_denominator_sums[output_index])
+                        )
+                    else:
+                        finite = group_finite[:, output_index]
+                        tier_row["metric_value_arrays"].setdefault(metric, []).append(
+                            group_values[finite, output_index]
+                        )
+                        tier_row["metric_weight_arrays"].setdefault(metric, []).append(
+                            group_weights[finite]
+                        )
 
     return finalise_accumulators(
         summary_accumulators,
         tier_accumulators,
-        metric_columns,
+        PROBABILITY_METRICS,
+        RELATIVE_ERROR_METRICS,
     )
 
 
@@ -1194,7 +1296,7 @@ def write_latex_summary(summary):
         r"\scriptsize",
         r"\setlength{\tabcolsep}{3pt}",
         (
-            r"\caption{Population-weighted RV follow-up recovery fractions for "
+            r"\caption{Detected-population RV follow-up recovery fractions for "
             r"an already photometrically detected self-lensing candidate sample.}"
         ),
         r"\label{tab:population-weighted-followup-summary}",
@@ -1312,7 +1414,7 @@ def write_latex_bh_summary(summary):
         r"\scriptsize",
         r"\setlength{\tabcolsep}{2pt}",
         (
-            r"\caption{Population-weighted RV follow-up recovery fractions for "
+            r"\caption{Detected-population RV follow-up recovery fractions for "
             r"the BH-like subset of already photometrically detected "
             r"self-lensing candidates.}"
         ),
@@ -1515,7 +1617,7 @@ def validate_weight_conservation(transferred):
         ["baseline", "cadence", "RV accuracy"], dropna=False
     )["weight"].sum()
     if not numpy.allclose(actual.to_numpy(), actual.iloc[0]):
-        raise ValueError("Population weights were not conserved through transfer")
+        raise ValueError("Population weights were not conserved through emulation")
 
 
 def main():
@@ -1576,7 +1678,7 @@ def main():
     write_latex_bh_summary(bh_summary)
     # Not currently included in main.tex.
     # plot_mass_period_recovery(precision_tiers)
-    logger.info("Wrote population-weighted follow-up tables and figures")
+    logger.info("Wrote detected-population follow-up tables and figures")
 
 
 if __name__ == "__main__":

@@ -1,10 +1,10 @@
 parameter,label,survey,minimum,maximum,mean
-class,compact-object class,ZTF,2028.9,3230.5,2836.5222222222224
-class,compact-object class,LSST,5180.5,8248.6,7242.70222222222
-class,compact-object class,TESS,62.1,98.9,86.81555555555555
-macc,$M_\mathrm{acc}$,ZTF,755.3,2143.0,1580.244444444444
-macc,$M_\mathrm{acc}$,LSST,1928.5,5471.9,4034.9555555555557
-macc,$M_\mathrm{acc}$,TESS,23.1,65.6,48.362222222222215
-porb,$P_\mathrm{orb}$,ZTF,1458.5,3282.5,2691.591111111111
-porb,$P_\mathrm{orb}$,LSST,3724.0,8381.4,6872.648888888889
-porb,$P_\mathrm{orb}$,TESS,44.6,100.5,82.37555555555556
+class,compact-object class,ZTF,946.4,1676.3,1381.9999999999998
+class,compact-object class,LSST,2416.4,4280.3,3528.771111111111
+class,compact-object class,TESS,29.0,51.3,42.29555555555555
+macc,$M_\mathrm{acc}$,ZTF,100.7,1063.9,531.3377777777779
+macc,$M_\mathrm{acc}$,LSST,257.0,2716.5,1356.6999999999998
+macc,$M_\mathrm{acc}$,TESS,3.1,32.6,16.26
+porb,$P_\mathrm{orb}$,ZTF,326.3,2713.6,1564.6955555555553
+porb,$P_\mathrm{orb}$,LSST,833.1,6928.9,3995.257777777778
+porb,$P_\mathrm{orb}$,TESS,10.0,83.1,47.888888888888886
