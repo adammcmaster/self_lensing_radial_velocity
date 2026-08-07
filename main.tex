@@ -154,7 +154,7 @@ The photometric simulations comprise realistic simulated TESS-like light curves 
         Parameter         & Description           & Range                            \\
         \hline
         $a$               & Semi-major axis       & 0.1--200 AU                      \\
-        $i$               & Orbital inclination   & $0.5\pi - 10^{-4}$--$0.5\pi$ rad \\
+        $i$               & Orbital inclination   & $0.49997\pi$--$0.5\pi$ rad \\
         $M_\mathrm{lens}$ & Lens mass             & 0.5--50 M$_\odot$                \\
         $M_\star$         & Stellar mass          & 0.5--50 M$_\odot$                \\
         $e$               & Eccentricity          & 0--0.999999                      \\
@@ -495,7 +495,7 @@ where $d_{ij} = \lVert\mathbf{x}_i - \mathbf{x}_j\rVert$ and $\epsilon = 10^{-12
     \qquad
     C_j = \sum_{i \in \mathcal{N}_k(j)} v_i w_{ij},
 \end{equation}
-where $q_i$ is the measured RV outcome and $v_i$ indicates whether that neighbouring simulation has a valid fit for the relevant strategy. The associated coverage $C_j$ is therefore the fraction of the neighbour weight supported by valid fitted simulations. We emulate three outcomes in this way: correct compact-object class, lens-mass recovery to 10 per cent, and orbital-period recovery to 10 per cent. The final population-weighted fractions are obtained by averaging these emulated probabilities over the detected population-synthesis systems using their population weights $W_j$,
+where $q_i$ is the measured RV outcome and $v_i$ indicates whether that neighbouring simulation has a valid fit for the relevant strategy. The associated coverage $C_j$ is therefore the fraction of the neighbour weight supported by valid fitted simulations. We emulate three outcomes in this way: correct compact-object class, lens-mass recovery to 10 per cent, and orbital-period recovery to 10 per cent. The final fractions are obtained by averaging these emulated probabilities over the detected population-synthesis systems using their population weights $W_j$,
 \begin{equation}
     \bar{p} = \frac{\sum_j W_j \hat{p}_j}{\sum_j W_j}.
 \end{equation}
@@ -697,7 +697,7 @@ Parts of Section~\ref{sec:gp} are adapted from the PhD thesis of Maddieline-Mai 
 
 \appendix
 
-\section{Population-weighted follow-up count tables}
+\section{Survey recovery rates}
 \label{app:population-weighted-followup-counts}
 
 \input{paper/tables/population_weighted_followup_counts_class}
