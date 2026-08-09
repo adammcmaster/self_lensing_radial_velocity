@@ -1635,6 +1635,7 @@ def fit_realistic_file(rows, defer_final_materialization=False):
                 rows_by_key[result_checkpoint_key(finished_fit[0])] = finished_fit[0]
     logger.info("Finished all joint fits for %s", path)
     rv_only_results = []
+    pending_rv_only_materialization = None
     if rows_needing_rv_only:
         if can_use_batched_rv_only_fit():
             current_rv_only_rows = [
@@ -1649,7 +1650,6 @@ def fit_realistic_file(rows, defer_final_materialization=False):
                     len(batches),
                     FIT_BATCH_SIZE,
                 )
-            pending_rv_only_materialization = None
             for batch_number, batch_rows in enumerate(batches, start=1):
                 if len(batches) > 1:
                     logger.info(
