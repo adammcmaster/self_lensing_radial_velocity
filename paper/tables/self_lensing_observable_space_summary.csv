@@ -1,0 +1,2 @@
+sample_size,valid_rows,random_seed,fixed_Mcomp_Msun,fixed_Rcomp_Rsun,fixed_Teff_K,median_peak_amplification_ppm,median_crossing_time_hr
+10000,8557,20260813,1.0,1.0,5800.0,31751.15265544304,11.768341607151198

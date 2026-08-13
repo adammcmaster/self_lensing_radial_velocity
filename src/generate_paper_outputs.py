@@ -18,6 +18,7 @@ import numpy
 import pandas
 import seaborn
 from matplotlib import pyplot
+from matplotlib.colors import LogNorm
 from matplotlib.lines import Line2D
 
 from utils import configure_logging
@@ -38,7 +39,7 @@ pyplot.rcParams.update(
     }
 )
 
-PROJECT_ROOT = Path.cwd()
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FIGURE_DIR = PROJECT_ROOT / "paper" / "figures"
 TABLE_DIR = PROJECT_ROOT / "paper" / "tables"
 
@@ -57,8 +58,8 @@ COMPACT_OBJECT_CLASS_LABELS = LENS_MASS_RANGE_LABELS
 PARAMETERS = {
     "Macc": {
         "fitted": "fitted_Macc",
-        "label": r"$M_\mathrm{acc}$",
-        "table_label": r"$M_\mathrm{acc}$",
+        "label": r"$M_\mathrm{lens}$",
+        "table_label": r"$M_\mathrm{lens}$",
         "unit": r"$M_\odot$",
     },
     "a": {
@@ -93,6 +94,9 @@ SURVEY_DETECTED_COUNTS = {
     "LSST": 10284.91,
     "TESS": 123.28,
 }
+
+OBSERVABLE_SPACE_SAMPLE_SIZE = 10_000
+OBSERVABLE_SPACE_RANDOM_SEED = 20260813
 
 
 def candidate_result_paths():
@@ -674,6 +678,199 @@ def summarise_prefit_compact_object_class_rows(class_rows):
     )
 
 
+def plot_self_lensing_observable_space():
+    import jax
+    import jax.numpy as jnp
+    from selflensing.batch import make_batched_light_curve_generator
+    from selflensing.lightcurves import PARAMETER_ORDER
+    from selflensing.orbits import (
+        AU_M,
+        DAY_S,
+        M_SUN_KG,
+        R_SUN_M,
+        einstein_radius_m,
+        orbital_period_days,
+    )
+
+    jax.config.update("jax_enable_x64", True)
+
+    n_samples = OBSERVABLE_SPACE_SAMPLE_SIZE
+    key = jax.random.key(OBSERVABLE_SPACE_RANDOM_SEED)
+    keys = jax.random.split(key, 5)
+
+    def uniform(draw_key, low, high):
+        return jax.random.uniform(draw_key, (n_samples,), minval=low, maxval=high)
+
+    def log_uniform(draw_key, low, high):
+        return 10 ** uniform(draw_key, numpy.log10(low), numpy.log10(high))
+
+    companion_mass_msun = 1.0
+    companion_radius_rsun = 1.0
+    companion_teff_k = 5800.0
+
+    semi_major_axis_au = log_uniform(keys[0], 0.3, 100.0)
+    lens_mass_msun = log_uniform(keys[1], 3.0, 50.0)
+    companion_mass = jnp.full(n_samples, companion_mass_msun)
+    companion_radius = jnp.full(n_samples, companion_radius_rsun)
+    companion_teff = jnp.full(n_samples, companion_teff_k)
+    eccentricity = uniform(keys[2], 0.0, 0.6)
+    periapsis_phase = uniform(keys[3], 0.0, 2.0 * numpy.pi)
+    impact_fraction = uniform(keys[4], 0.0, 0.95)
+
+    semi_major_axis_m = semi_major_axis_au * AU_M
+    lens_mass_kg = lens_mass_msun * M_SUN_KG
+    companion_mass_kg = companion_mass * M_SUN_KG
+    companion_radius_m = companion_radius * R_SUN_M
+
+    edge_on_einstein_radius_m = einstein_radius_m(
+        semi_major_axis_m,
+        jnp.ones(n_samples),
+        lens_mass_kg,
+        eccentricity,
+        periapsis_phase,
+    )
+    maximum_impact = 1.0 + companion_radius_m / edge_on_einstein_radius_m
+    impact_einstein_radii = impact_fraction * maximum_impact
+    cos_inclination = jnp.clip(
+        impact_einstein_radii * edge_on_einstein_radius_m / semi_major_axis_m,
+        0.0,
+        0.2,
+    )
+    inclination = jnp.arccos(cos_inclination)
+
+    param_matrix = jnp.stack(
+        [
+            {
+                "a": semi_major_axis_au,
+                "i": inclination,
+                "Macc": lens_mass_msun,
+                "Mcomp": companion_mass,
+                "Rcomp": companion_radius,
+                "Teff": companion_teff,
+                "e": eccentricity,
+                "periapsis_phase": periapsis_phase,
+            }[name]
+            for name in PARAMETER_ORDER
+        ],
+        axis=-1,
+    )
+
+    sin_inclination = jnp.sin(inclination)
+    orbital_period_days_value = orbital_period_days(
+        semi_major_axis_m,
+        lens_mass_kg + companion_mass_kg,
+    )
+    orbital_period_seconds = orbital_period_days_value * DAY_S
+    einstein_radius_m_value = einstein_radius_m(
+        semi_major_axis_m,
+        sin_inclination,
+        lens_mass_kg,
+        eccentricity,
+        periapsis_phase,
+    )
+    impact_parameter = jnp.abs(
+        semi_major_axis_m * jnp.cos(inclination) / einstein_radius_m_value
+    )
+    maximum_impact = 1.0 + companion_radius_m / einstein_radius_m_value
+    crossing_time_days = (
+        (orbital_period_seconds * (einstein_radius_m_value + companion_radius_m))
+        / (jnp.pi * semi_major_axis_m * sin_inclination)
+        * jnp.sqrt(
+            jnp.clip(1.0 - (impact_parameter / maximum_impact) ** 2, 0.0, 1.0)
+        )
+    ) / DAY_S
+
+    generate = make_batched_light_curve_generator(
+        jnp.array([0.0]),
+        peak_times=0.0,
+        sl=True,
+        ev=False,
+        db=False,
+        device=jax.devices()[0],
+    )
+    peak_flux = numpy.asarray(generate(param_matrix).block_until_ready())[:, 0]
+    peak_amplification_ppm = 1e6 * (peak_flux - 1.0)
+    crossing_time_hr = numpy.asarray(crossing_time_days) * 24.0
+    orbital_period_yr = numpy.asarray(orbital_period_days_value) / 365.25
+    lens_mass = numpy.asarray(lens_mass_msun)
+    inclination = numpy.asarray(inclination)
+
+    valid = (
+        numpy.isfinite(peak_amplification_ppm)
+        & numpy.isfinite(crossing_time_hr)
+        & numpy.isfinite(orbital_period_yr)
+        & (peak_amplification_ppm > 1.0)
+        & (crossing_time_hr > 0.0)
+        & (orbital_period_yr > 0.0)
+    )
+    if not valid.any():
+        raise ValueError("No valid self-lensing observable-space samples were generated")
+
+    summary = pandas.DataFrame(
+        [
+            {
+                "sample_size": n_samples,
+                "valid_rows": int(valid.sum()),
+                "random_seed": OBSERVABLE_SPACE_RANDOM_SEED,
+                "fixed_Mcomp_Msun": companion_mass_msun,
+                "fixed_Rcomp_Rsun": companion_radius_rsun,
+                "fixed_Teff_K": companion_teff_k,
+                "median_peak_amplification_ppm": numpy.nanmedian(
+                    peak_amplification_ppm[valid]
+                ),
+                "median_crossing_time_hr": numpy.nanmedian(crossing_time_hr[valid]),
+            }
+        ]
+    )
+    summary.to_csv(TABLE_DIR / "self_lensing_observable_space_summary.csv", index=False)
+
+    color_by = [
+        (r"$M_\mathrm{lens}$ [$M_\odot$]", lens_mass[valid], None),
+        (
+            r"$P_\mathrm{orb}$ [yr]",
+            orbital_period_yr[valid],
+            LogNorm(
+                vmin=numpy.nanmin(orbital_period_yr[valid]),
+                vmax=numpy.nanmax(orbital_period_yr[valid]),
+            ),
+        ),
+        (r"$i$ [rad]", inclination[valid], None),
+    ]
+
+    fig, axes = pyplot.subplots(
+        1,
+        3,
+        figsize=(7.2, 2.45),
+        sharex=True,
+        sharey=True,
+        constrained_layout=True,
+    )
+    for axis, (label, values, norm) in zip(axes, color_by):
+        scatter = axis.scatter(
+            crossing_time_hr[valid],
+            peak_amplification_ppm[valid],
+            c=values,
+            s=4,
+            cmap="viridis",
+            norm=norm,
+            alpha=0.72,
+            linewidths=0,
+        )
+        axis.set_xscale("log")
+        axis.set_yscale("log")
+        axis.set_xlabel("Crossing time [hr]")
+        axis.grid(True, which="both", axis="both", alpha=0.22)
+        fig.colorbar(scatter, ax=axis, label=label)
+    axes[0].set_ylabel("Peak amplification [ppm]")
+
+    for suffix in ("pdf", "png"):
+        fig.savefig(
+            FIGURE_DIR / f"self_lensing_observable_space.{suffix}",
+            bbox_inches="tight",
+        )
+    pyplot.close(fig)
+
+
 def plot_prefit_compact_object_class_by_lens_mass_range(results):
     class_rows = prefit_compact_object_class_rows(results)
     summary = summarise_prefit_compact_object_class_rows(class_rows)
@@ -790,7 +987,7 @@ def plot_population_weighted_survey_followup_heatmaps():
     survey_counts = pandas.read_csv(survey_counts_path)
     metrics = [
         ("classified_fraction", "classified_survey_count", "class", "Compact-object class"),
-        ("measured_mass_fraction", "measured_mass_survey_count", "macc", r"$M_\mathrm{acc}$"),
+        ("measured_mass_fraction", "measured_mass_survey_count", "macc", r"$M_\mathrm{lens}$"),
         ("measured_period_fraction", "measured_period_survey_count", "porb", r"$P_\mathrm{orb}$"),
     ]
     baselines = numpy.sort(survey_counts["baseline"].unique())
@@ -881,8 +1078,8 @@ def plot_population_weighted_relative_error_heatmaps():
         (
             "mass_relative_error_median",
             "macc",
-            r"$M_\mathrm{acc}$",
-            r"Median $|\Delta M_\mathrm{acc}|/M_\mathrm{acc}$ [per cent]",
+            r"$M_\mathrm{lens}$",
+            r"Median $|\Delta M_\mathrm{lens}|/M_\mathrm{lens}$ [per cent]",
         ),
         (
             "period_relative_error_median",
@@ -1476,7 +1673,7 @@ def write_population_weighted_survey_count_tables():
     survey_counts = pandas.read_csv(survey_counts_path)
     metrics = [
         ("classified_fraction", "classified_survey_count", "class", "compact-object class"),
-        ("measured_mass_fraction", "measured_mass_survey_count", "macc", r"$M_\mathrm{acc}$"),
+        ("measured_mass_fraction", "measured_mass_survey_count", "macc", r"$M_\mathrm{lens}$"),
         ("measured_period_fraction", "measured_period_survey_count", "porb", r"$P_\mathrm{orb}$"),
     ]
     strategy_columns = ["baseline_years", "cadence", "RV accuracy"]
@@ -1696,7 +1893,7 @@ def plot_lens_mass_relative_error_by_mass(results):
         unit=r"$M_\odot$",
         filename="lens_mass_relative_error_by_lens_mass",
         x_label=r"True lens mass range",
-        colorbar_label=r"Median $|\Delta M_\mathrm{acc}|/M_\mathrm{acc}$ [per cent]",
+        colorbar_label=r"Median $|\Delta M_\mathrm{lens}|/M_\mathrm{lens}$ [per cent]",
         bins=[0.0, 3.0, 5.0, 20.0, 50.0],
         labels=[
             r"$<3\,M_\odot$",
@@ -1719,7 +1916,7 @@ def plot_lens_mass_relative_error_iqr_by_mass(results):
         filename="lens_mass_relative_error_iqr_by_lens_mass",
         x_label=r"True lens mass range",
         colorbar_label=(
-            r"IQR of $|\Delta M_\mathrm{acc}|/M_\mathrm{acc}$ [per cent]"
+            r"IQR of $|\Delta M_\mathrm{lens}|/M_\mathrm{lens}$ [per cent]"
         ),
         bins=[0.0, 3.0, 5.0, 20.0, 50.0],
         labels=[
@@ -1935,7 +2132,7 @@ def write_mass_recovery_table(strategy_summary):
         "mass_recovery_by_strategy",
         "Lens mass recovery fraction by observing strategy for the "
         "currently fitted subset. Values are percentages of fitted systems with "
-        rf"$|\Delta M_\mathrm{{acc}}|/M_\mathrm{{acc}} \leq {RECOVERY_THRESHOLD:g}$.",
+        rf"$|\Delta M_\mathrm{{lens}}|/M_\mathrm{{lens}} \leq {RECOVERY_THRESHOLD:g}$.",
         "tab:mass-recovery-by-strategy",
         column_format="rrr" + "r" * len(rv_columns),
         environment="table*",
@@ -1989,6 +2186,11 @@ def main():
     TABLE_DIR.mkdir(parents=True, exist_ok=True)
     logger.info("Writing paper figures to %s", FIGURE_DIR)
     logger.info("Writing paper tables to %s", TABLE_DIR)
+
+    run_step(
+        "self-lensing observable-space figure",
+        plot_self_lensing_observable_space,
+    )
 
     results_path = result_path()
     logger.info("Using fitted results table %s", results_path)

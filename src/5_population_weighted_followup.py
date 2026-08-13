@@ -1271,7 +1271,7 @@ def write_latex_summary(summary):
             "precision_tier": "RV precision",
             "response_coverage_fraction": "Coverage [per cent]",
             "classified_fraction": "Classified [per cent]",
-            "measured_mass_fraction": r"$M_\mathrm{acc}$ [per cent]",
+            "measured_mass_fraction": r"$M_\mathrm{lens}$ [per cent]",
             "measured_period_fraction": r"$P_\mathrm{orb}$ [per cent]",
             "measured_mass_and_period_fraction": "Both [per cent]",
         }
@@ -1284,7 +1284,7 @@ def write_latex_summary(summary):
             "RV precision",
             "Coverage [per cent]",
             "Classified [per cent]",
-            r"$M_\mathrm{acc}$ [per cent]",
+            r"$M_\mathrm{lens}$ [per cent]",
             r"$P_\mathrm{orb}$ [per cent]",
             "Both [per cent]",
         ]
@@ -1388,7 +1388,7 @@ def write_latex_bh_summary(summary):
             "population_weight": r"$N_\mathrm{BH-like}$",
             "response_coverage_fraction": "Coverage [per cent]",
             "classified_fraction": "Classified [per cent]",
-            "measured_mass_fraction": r"$M_\mathrm{acc}$ [per cent]",
+            "measured_mass_fraction": r"$M_\mathrm{lens}$ [per cent]",
             "measured_period_fraction": r"$P_\mathrm{orb}$ [per cent]",
             "measured_mass_and_period_fraction": "Both [per cent]",
         }
@@ -1402,7 +1402,7 @@ def write_latex_bh_summary(summary):
             r"$N_\mathrm{BH-like}$",
             "Coverage [per cent]",
             "Classified [per cent]",
-            r"$M_\mathrm{acc}$ [per cent]",
+            r"$M_\mathrm{lens}$ [per cent]",
             r"$P_\mathrm{orb}$ [per cent]",
             "Both [per cent]",
         ]
@@ -1444,7 +1444,7 @@ def write_latex_bh_summary(summary):
 def plot_followup_heatmaps(summary):
     metrics = [
         ("classified_fraction", "Correct class"),
-        ("measured_mass_fraction", r"$M_\mathrm{acc}$"),
+        ("measured_mass_fraction", r"$M_\mathrm{lens}$"),
         ("measured_period_fraction", r"$P_\mathrm{orb}$"),
         ("measured_mass_and_period_fraction", "Mass + period"),
     ]
@@ -1537,7 +1537,7 @@ def plot_mass_period_recovery(precision_tiers):
         raise ValueError("No data available for mass/period recovery plot")
 
     metrics = [
-        ("measured_mass_fraction", r"$M_\mathrm{acc}$"),
+        ("measured_mass_fraction", r"$M_\mathrm{lens}$"),
         ("measured_period_fraction", r"$P_\mathrm{orb}$"),
     ]
     fig, axes = pyplot.subplots(
