@@ -1,0 +1,1 @@
+$bibtex = 'bibtexu %O %B';

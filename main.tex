@@ -139,7 +139,7 @@ We investigate the relationship between observing cadence, observing campaign du
 
 As the basis of this work, we have generated a library of self-lensing photometric simulations covering a range of physical parameters, filtered to include only the simulated light curves which contain visible lensing, where the peak amplitude is larger than the photometric noise. We also exclude systems overflowing their Roche lobe and any systems where lensing is not geometrically possible. These simulations are described in Section~\ref{sec:phot-sims}.
 
-The radial velocity measurements are simulated for the same set of simulation parameters as the photometry (Section~\ref{sec:rv-sims}). The RV simulations are then sampled according to a range of observing schedules, and Gaussian noise is added to simulate a range of spectrograph accuracies. 
+The radial velocity measurements are simulated for the same set of simulation parameters as the photometry (Section~\ref{sec:rv-sims}). The RV simulations are then sampled according to a range of observing schedules, and Gaussian noise is added to simulate a range of spectrograph accuracies.
 
 An MCMC fit is then performed to sample the posterior distribution of the self-lensing physical parameters, constrained by the photometry and RV (Section~\ref{sec:fitting}. We assume the stellar properties, mass, radius, effective temperature, and distance from Earth, are known. We then aggregate the median relative errors across observing parameters and self-lensing physical parameters to investigate how each observing strategy affects parameter retrieval.
 
@@ -191,18 +191,26 @@ where $r(t_0)$ is the lens-source separation and $\omega$ is the phase angle of 
 \begin{equation}
     \phi(t) = \omega + \nu(t),
 \end{equation}
-where $\nu(t)$ is measured relative to periapsis. The true anomaly is obtained from Kepler's equation using the mean anomaly $\mathcal{M}$,
+where $\nu(t)$ is measured relative to periapsis. The true anomaly is obtained from Kepler's equation using the mean anomaly $\mathcal{M}$ and eccentric anomaly $E$,
 \begin{align}
     \mathcal{M}(t) & = \mathcal{M}_0 + 2\pi\frac{t - t_0}{P_\mathrm{orb}}, \\
     \mathcal{M}(t) & = E(t) - e\sin E(t),                                  \\
     \nu(t)         & = 2\arctan2\left[
         \sqrt{1+e}\sin\frac{E(t)}{2},
         \sqrt{1-e}\cos\frac{E(t)}{2}
-        \right],                                                           \\
+    \right],                                                               \\
     P_\mathrm{orb} & =
     2\pi\left(\frac{a^3}{G(M_\mathrm{lens} + M_\star)}\right)^{1/2},
 \end{align}
-with $\mathcal{M}_0$ chosen such that $\phi(t_0)=0$. For this orbital phase, the true orbital lens-source separation is
+with $\mathcal{M}_0$ chosen such that $\phi(t_0)=0$. $\arctan2$ is the standard quadrant-aware inverse tangent. The true anomaly at the lensing peak is $\nu_0=-\omega$, so the corresponding eccentric anomaly and mean anomaly are
+\begin{align}
+    E_0           & = 2\arctan2\left[
+        \sqrt{1-e}\sin\frac{\nu_0}{2},
+        \sqrt{1+e}\cos\frac{\nu_0}{2}
+    \right],                            \\
+    \mathcal{M}_0 & = E_0 - e\sin E_0 .
+\end{align}
+For this orbital phase, the true orbital lens-source separation is
 \begin{equation}
     r[\phi(t)] =
     \frac{a(1 - e^2)}
@@ -271,7 +279,7 @@ where $\nu_\mathrm{TESS}$ is the TESS-band effective frequency and $v_r(t)$ is t
 
 % Adapted from Maddie's thesis
 
-Gaussian processes are designed to model smoothly varying correlated noise \citep{rasmussen_gaussian_2006}. In the exoplanet community, this has been highly successful in allowing exoplanet signals to be disentangled from stellar noise. In order to generate realistic, TESS-like light curves, we combine several kernels to model granulation and asteroseismic modes, based on the simulated stellar properties. We use \texttt{tinygp} with quasi-separable simple harmonic oscillator (SHO) kernels \textbf{TODO: Citations and more detail?}.
+Gaussian processes are designed to model smoothly varying correlated noise \citep{rasmussen_gaussian_2005}. In the exoplanet community, this has been highly successful in allowing exoplanet signals to be disentangled from stellar noise. In order to generate realistic, TESS-like light curves, we combine several kernels to model granulation and asteroseismic modes, based on the simulated stellar properties. We use \texttt{tinygp} with quasi-separable simple harmonic oscillator (SHO) kernels \textbf{TODO: Citations and more detail?}.
 
 Granulation is a form of aperiodic correlated noise due to convection cells at the stellar surface. Granulation appears as low-amplitude correlated noise; aperiodic in nature, it prefers certain timescales dictated by the size and age of the star \citep{kjeldsen_amplitudes_1995}. As derived
 in \cite{foreman-mackey_exoplanet_2021}, we consider this a characteristic timescale of a damped stochastic process. We model such a process using a damped harmonic oscillator kernel with a fixed quality factor ($Q= \frac{1}{\sqrt{2}}$) parameter to create a damped random walk (DRW). This creates frequency-dependent broadband noise with a characteristic timescale but no dominant frequencies. The characteristic
