@@ -112,11 +112,11 @@ $^{3}$Another Department, Different Institution, Street Address, City Postal Cod
 %%%%%%%%%%%%%%%%% BODY OF PAPER %%%%%%%%%%%%%%%%%%
 
 \section{Introduction}
-There are expected to exist vast numbers of compact objects in binary systems in the Milky Way \citep[e.g.][]{weller_mapping_2023}. The majority of these are not close enough to interact with their companions, making them challenging to detect. This is especially true of black holes, which would produce negligible electromagnetic emissions in such systems \citep{shao_population_2019,wiktorowicz_noninteracting_2020}.
+There are expected to exist vast numbers of compact objects in binary systems in the Milky Way \citep[e.g.][]{shao_population_2019,wiktorowicz_noninteracting_2020,weller_mapping_2023}. The majority of these are not close enough to interact with their companions, making them challenging to detect. This is especially true of black holes, which would produce negligible electromagnetic emissions in such systems.
 
-The detection of gravitational microlensing is a proven technique \citep{paczynski_gravitational_1986,paczynski_gravitational_1996,mao_astrophysical_2012}, in which the gravity of a foreground object (the \textit{lens}, which is often not visible) amplifies flux from a background object (the \textit{source}). This has been used to detect and study various classes of object, notably including exoplanets \citep{bond_ogle_2004,gaudi_microlensing_2012} and black holes \citep{sahu_isolated_2022,lam_isolated_2022}. Self-lensing is a special case of microlensing where the source and the lens are in a binary system together, in an orbit which is close to edge-on, producing a periodic microlensing amplification of the source once per orbit \citep{maeder_light_1973,agol_occultation_2002}. Self-lensing is only possible when the lens is a compact object; other types of object have radii which exceed their Einstein radius at the relevant source-lens separations. This means a detection of self-lensing (i.e. periodic microlensing) is by definition a detection of a compact object.
+The detection of gravitational microlensing is a proven technique \citep{paczynski_gravitational_1986,paczynski_gravitational_1996,mao_astrophysical_2012}, in which the gravity of a foreground object (the \textit{lens}, which is often not visible) amplifies flux from a background object (the \textit{source}). This has been used to detect and study various classes of object, including exoplanets \citep{bond_ogle_2004,gaudi_microlensing_2012} and black holes \citep{sahu_isolated_2022,lam_isolated_2022}. Self-lensing is a special case of microlensing where the source and the lens are in a binary system together, in an orbit which is close to edge-on, producing a periodic microlensing amplification of the source once per orbit \citep{maeder_light_1973,agol_occultation_2002}. Self-lensing is only possible when the lens is a compact object. This means a detection of self-lensing (i.e. periodic microlensing) is by definition a detection of a compact object.
 
-A self-lensing search is therefore an intriguing way to search for compact objects in binaries which would be undetectable by other means. To date, five self-lensing binaries have been confirmed, each containing a white dwarf lens, all of which have relatively close, short-period orbits \citep{kruse_koi-3278_2014,kawahara_discovery_2018,masuda_self-lensing_2019}. However, it is expected that stellar-compact object binaries should span the full range of compact object masses, as well as the full range of orbital configurations.
+A self-lensing search is an intriguing way to search for compact objects in binaries which would be undetectable by other means. To date, five self-lensing binaries have been confirmed, each containing a white dwarf lens, all of which have relatively close, short-period orbits \citep{kruse_koi-3278_2014,kawahara_discovery_2018,masuda_self-lensing_2019}. However, it is expected that stellar-compact object binaries should span the full range of compact object masses, as well as the full range of orbital configurations.
 
 Photometry remains the best way to detect self-lensing binaries, and previous works have assessed the detectability of self-lensing binaries in various photometric surveys \citep{wiktorowicz_predicting_2021}. These results look promising, with modern all-sky surveys expected to imminently uncover a population of compact objects in self-lensing binaries, including the currently under-studied population of quiescent black holes.
 
@@ -127,30 +127,30 @@ Photometry remains the best way to detect self-lensing binaries, and previous wo
     \label{fig:self-lensing-observable-space}
 \end{figure*}
 
-While detection of self-lensing systems with photometry alone has been demonstrated, modelling of such systems and characterisation of the compact component can be subject to several degeneracies between the physical parameters which can make it challenging to accurately determine the mass of the lens in cases where the amplification due to self-lensing, the crossing time, or the stellar companion properties are not well known (see Figure~\ref{fig:self-lensing-observable-space} for these relationships). For short-period binaries it should be possible to derive a photometric RV by modelling Doppler boosting \citep{loeb_periodic_2003,zucker_beaming_2007,van_kerkwijk_observations_2010,faigler_photometric_2011}, but for systems with no detectable Doppler boosting effect, spectroscopic observations are the best way to solve the binary's physical parameters \citep{kawahara_discovery_2018,yahalomi_mass_2019}. This is especially true for systems with the longest orbital periods, for which we may only be able to observe a single lensing event.
+While detection of self-lensing systems with photometry alone has been demonstrated, modelling of such systems and characterisation of the compact component can be subject to several degeneracies between the physical parameters which can make it challenging to accurately determine the mass of the lens in cases where the amplification due to self-lensing, the crossing time, or the stellar companion properties are not well known (see Figure~\ref{fig:self-lensing-observable-space} for these relationships). For short-period binaries it should be possible to derive a photometric radial velocity (RV) by modelling Doppler boosting \citep{loeb_periodic_2003,zucker_beaming_2007,van_kerkwijk_observations_2010,faigler_photometric_2011}, but for systems with no detectable Doppler boosting effect, spectroscopic observations are the best way to solve for the binary's physical parameters \citep{kawahara_discovery_2018,yahalomi_mass_2019}. This is especially true for systems with the longest orbital periods, for which we may only be able to observe a single lensing event in a human lifetime (i.e. those with periods lasting decades, centuries, or more).
 
-In this work, we therefore consider the question of how many spectroscopic RV measurements are required, and at what level of precision, in order to accurately model the self-lensing system parameters, as a function of those parameters, including systems with orbital periods on the order of centuries for which the orbital period can not be determined photometrically. This will inform observing strategies for follow-up of the large number of candidates expected to come from new surveys, allowing the most efficient use of resources by not obtaining more observations than necessary. We also consider the usefulness of photometric-only fitting to guide RV observing strategy.
+In this work, we consider the question of how many spectroscopic RV measurements are required, and to what level of precision, in order to accurately retrieve the self-lensing system parameters as a function of those parameters. This includes systems with orbital periods on the order of centuries for which the orbital period can not be determined photometrically. This will inform observing strategies for follow-up of the large number of candidates expected to come from new surveys, allowing the most efficient use of resources. We also consider the usefulness of photometric-only fitting to guide RV observing strategy.
 
-We will show that it is possible to accurately model very long period self-lensing binaries with a handful of RV measurements. In many cases, photometric-only fits can come close to determining the properties, so that we don't need many RV measurements to fit the parameters accurately.
-
-The main distinguishing feature of self-lensing vs microlensing is the periodicity of the lensing flares. To claim photometric discovery of a self-lensing system, ideally we would aim to detect this periodicity. We show that self-lensing can be confirmed even when periodicity can not be observed.
+We will show that it is possible to accurately model very long period self-lensing binaries with a handful of RV measurements, even when periodicity can not be observed. In many cases, photometric-only fits can come close to determining the properties, removing the need for many RV measurements to retrieve the parameters accurately.
 
 \section{Methods}
 
-The aim of this work is to quantify the observational requirements for radial velocity (RV) measurements that will allow us to determine or confirm the lens mass and orbital configuration of self-lensing binary candidates discovered via our ongoing photometric search. We investigate the relationship between observing cadence, observing campaign duration (baseline), and accuracy of RV measurements, and the relative error in recovered physical parameters as a function of lens mass. We evaluate parameter accuracy using the median relative error, and separately consider recovery of broad compact-object class (i.e. distinguishing black holes from other compact objects even if the fitted mass remains imprecise).
+We investigate the relationship between observing cadence, observing campaign duration (baseline), and accuracy of RV measurements, and the relative error in recovered physical parameters as a function of lens mass, compact object type, and orbital period. We evaluate parameter accuracy using the median relative error, and separately consider recovery of broad compact-object class (i.e. distinguishing black holes from other compact objects even if the fitted mass remains imprecise).
 
-As the basis of this work, we have generated a library of self-lensing photometric simulations. This was generated for a range of physical parameters, filtered to include only the simulated light curves which contain visible lensing peaks, where the peak amplitude is larger than the photometric noise. We also exclude systems overflowing their Roche lobe and any systems where lensing is not geometrically possible. These simulations are described in Section~\ref{sec:phot-sims}.
+As the basis of this work, we have generated a library of self-lensing photometric simulations covering a range of physical parameters, filtered to include only the simulated light curves which contain visible lensing, where the peak amplitude is larger than the photometric noise. We also exclude systems overflowing their Roche lobe and any systems where lensing is not geometrically possible. These simulations are described in Section~\ref{sec:phot-sims}.
 
-The radial velocity measurements are simulated for the same set of simulation parameters as the photometry (Section~\ref{sec:rv-sims}). The RV simulations are then sampled according to a range of observing schedules, and Gaussian noise is added to simulate a range of spectrograph accuracies. An MCMC fit is then performed to sample the posterior distribution of the self-lensing physical parameters (the lens mass, semi-major axis, inclination angle, eccentricity, and periapsis phase angle; we assume the stellar properties, mass, radius, effective temperature, and distance from Earth, are known) constrained by the photometry and RV (Section~\ref{sec:fitting}). We then aggregate the median relative errors across observing parameters and self-lensing physical parameters to investigate how each observing strategy affects parameter accuracy.
+The radial velocity measurements are simulated for the same set of simulation parameters as the photometry (Section~\ref{sec:rv-sims}). The RV simulations are then sampled according to a range of observing schedules, and Gaussian noise is added to simulate a range of spectrograph accuracies. 
+
+An MCMC fit is then performed to sample the posterior distribution of the self-lensing physical parameters, constrained by the photometry and RV (Section~\ref{sec:fitting}. We assume the stellar properties, mass, radius, effective temperature, and distance from Earth, are known. We then aggregate the median relative errors across observing parameters and self-lensing physical parameters to investigate how each observing strategy affects parameter retrieval.
 
 Finally, we map the fitted outcomes onto previous population synthesis results to estimate the numbers of self-lensing systems which can be confirmed following detection in various photometric surveys (Section~\ref{sec:pop-synth}).
 
 \subsection{Self-lensing and photometric binary effects} \label{sec:phot-sims}
-We note that the photometric model described here is similar to the recently published COBALT-BLUE model (Dixon et al. in preparation) (\textbf{TODO: Update this citation before submission if possible}), but uses a simpler approximation to the full photometric forward model. Compared with COBALT-BLUE, our model adopts a local approximation to the eccentric self-lensing geometry and lower-order treatments of Doppler boosting and ellipsoidal variability, while adding the spectroscopic radial-velocity component needed to study the recovery of lens mass and other physical parameters. We anticipate combining the two models in a future work.
+We note that the photometric model described here is similar to the recently published COBALT-BLUE model (Dixon et al. in preparation) (\textbf{TODO: Update this citation before submission if possible}), but uses a simpler approximation to the full photometric forward model. Compared with COBALT-BLUE, our model adopts a local approximation to the eccentric self-lensing geometry and lower-order treatments of Doppler boosting and ellipsoidal variability, while adding the spectroscopic radial-velocity component to improve the recovery of lens mass and other physical parameters. We anticipate combining the two models in a future work.
 
-These simulations comprise a sample of self-lensing system parameters which is physically complete (i.e. covering the full plausible range of physical parameters) but not physically realistic (i.e. parameters are not sampled according to the frequency they are expected to occur in nature). This is ideal as the basis for determining the ranges of parameters which produce self-lensing effects which are detectable, independent of how common or uncommon particular parameter ranges are expected to be.
+Simulations comprise a sample of self-lensing system parameters which is physically complete but not physically realistic (i.e. parameters are not sampled according to the frequency they are expected to occur in nature). This allows us to determine the ranges of parameters which produce self-lensing effects, independent of how common or uncommon particular parameter ranges are expected to be.
 
-The photometric simulations comprise realistic simulated TESS-like light curves (including stellar noise generated with a Gaussian process, see Section~\ref{sec:gp}) for each sample self-lensing system. When generating the simulations, the parameter values were sampled uniformly between the limits given in Table~\ref{tab:phot_sim_parameter_ranges}, with the exception of semi-major axis and eccentricity which are sampled on a log scale to increase the number of samples at smaller values (the light curve morphology changes roughly in proportion to the relative change in these values; e.g. a 5 AU change in semi-major axis has a much larger effect going from 1 AU to 6 AU than for 100 AU to 105 AU).
+The photometric simulations comprise realistic simulated TESS-like light curves (including stellar noise generated with a Gaussian process, see Section~\ref{sec:gp}) for each self-lensing system. When generating the simulations, the parameter values were sampled uniformly between the limits given in Table~\ref{tab:phot_sim_parameter_ranges}, with the exception of semi-major axis ($a$) and eccentricity ($e$) which are sampled on a log scale to increase the number of samples at smaller values (the light curve morphology changes roughly in proportion to the relative change in these values; e.g. a 5 AU change in semi-major axis has a much larger effect going from 1 AU to 6 AU than for 100 AU to 105 AU).
 
 \begin{table}
     \centering
@@ -173,15 +173,13 @@ The photometric simulations comprise realistic simulated TESS-like light curves 
 
 Three photometric effects are included when generating the light curves: self-lensing, ellipsoidal variations, and Doppler boosting. At small values of $a$ the light curve is dominated by ellipsoidal variations and Doppler boosting (though lensing is often visible too); at large $a$ lensing is dominant, with ellipsoidal variation and Doppler boosting tending to zero as $a$ increases \citep{sorabella_modeling_2022}.
 
-These effects all depend on the orbital phase at a given time during the simulation. The zero point for this is defined as the moment of maximum lensing magnification (i.e. the time of minimum projected separation between source and lens, $t_0$). The periapsis phase angle is defined in terms of this zero point; i.e. the phase angle at which periastron passage occurs, relative to the position at $t_0$. Note that this is different from the usual convention of measuring orbital phase relative to periastron passage; this was chosen to simplify the computation of the lensing effect, as the time of the lensing peak is used as the basis of detections when we conduct searches of real photometric data.
+These effects all depend on the orbital phase at a given time during the simulation. The zero point for this is defined as the moment of maximum lensing magnification (i.e. the time of minimum projected separation between source and lens, $t_0$). The periapsis phase angle is defined in terms of this zero point; i.e. the phase angle at which periastron passage occurs, relative to the position at $t_0$. Note that this is different from the usual convention of measuring orbital phase relative to periastron passage and was chosen to simplify the computation of the lensing effect.
 
-The source-lens distance is calculated for each time according to the phase angle at that time, meaning the source-lens distance changes during the microlensing event according to the eccentricity. Strictly speaking, the Einstein ring radius should also change as a function of orbital phase, but this effect is expected to be small and so is not accounted for in the present work. Instead, the radius at $t_0$ is used for all calculations.
+The source-lens distance is calculated according to the phase angle a given time, meaning the source-lens distance changes during the microlensing event according to the eccentricity. Strictly speaking, the Einstein ring radius should also change as a function of orbital phase, but this effect is expected to be small and so is not accounted for in the present work. Instead, the radius at $t_0$ is used for all calculations.
 
-For a sufficiently close binary, a self-lensing system would be indistinguishable from a binary undergoing ellipsoidal variations with no self-lensing effect, since the lensing magnification would be so small as to be undetectable.
+All simulated light curves are 27 days long (the duration of a TESS sector). The peak time, $t_0$, is randomly selected to fall somewhere in the 27 day time window.
 
-All simulated light curves are 27 days long (the duration of a TESS sector), and simulated timestamps start at 1 January 2025 and end at 27 January 2025. The absolute timestamp values are of no consequence to the calculation of the simulated photometry, but real timestamps are assigned to simplify the calculation of the time delay in the radial velocity simulations.  The peak time, $t_0$, is randomly selected for each light curve to fall somewhere in the 27 day time window.
-
-Calculation of self-lensing magnifications is performed using the finite-source point-lens formalism of \cite{witt_can_1994}. We use the Einstein radius and impact-parameter convention of \cite{wiktorowicz_predicting_2021}, generalised from the circular-orbit case by replacing the orbital separation with the instantaneous Keplerian lens-source separation,
+We use the Einstein radius and impact-parameter convention of \cite{wiktorowicz_predicting_2021}, generalised from the circular-orbit case by replacing the orbital separation with the instantaneous Keplerian lens-source separation,
 \begin{equation}
     R_\mathrm{E} = \left(\frac{4 G M_\mathrm{lens} r(t_0) \sin i}{c^2}\right)^{1/2},
     \quad
@@ -189,7 +187,7 @@ Calculation of self-lensing magnifications is performed using the finite-source 
     \quad
     b_\mathrm{max} = 1 + \frac{R_\star}{R_\mathrm{E}},
 \end{equation}
-where $t_0$ is the time of maximum lensing magnification, $r(t_0)$ is the lens-source separation at that time, $a$ is the semi-major axis, and $\omega$ is the phase angle of periapsis relative to $t_0$. For a circular orbit, $r(t_0)=a$ and this reduces to the expression used by \cite{wiktorowicz_predicting_2021}. We define the orbital phase relative to $t_0$ as the true orbital longitude, using the true anomaly $\nu(t)$,
+where $r(t_0)$ is the lens-source separation and $\omega$ is the phase angle of periapsis relative to $t_0$. For a circular orbit, $r(t_0)=a$ and this reduces to the expression used by \cite{wiktorowicz_predicting_2021}. We define the orbital phase relative to $t_0$ as the true orbital longitude, using the true anomaly $\nu(t)$,
 \begin{equation}
     \phi(t) = \omega + \nu(t),
 \end{equation}
@@ -204,7 +202,7 @@ where $\nu(t)$ is measured relative to periapsis. The true anomaly is obtained f
     P_\mathrm{orb} & =
     2\pi\left(\frac{a^3}{G(M_\mathrm{lens} + M_\star)}\right)^{1/2},
 \end{align}
-where $e$ is the eccentricity and with $\mathcal{M}_0$ chosen such that $\phi(t_0)=0$. For this orbital phase, the true orbital lens-source separation is
+with $\mathcal{M}_0$ chosen such that $\phi(t_0)=0$. For this orbital phase, the true orbital lens-source separation is
 \begin{equation}
     r[\phi(t)] =
     \frac{a(1 - e^2)}
@@ -260,7 +258,7 @@ The Doppler-boosting term is
     (3 - \alpha)\frac{v_r(t)}{c},
     \quad
     \alpha =
-    \frac{e^x(3 - x) - 3}{e^x - 1},
+    \frac{\exp(x)(3 - x) - 3}{\exp(x) - 1},
     \quad
     x = \frac{h\nu_\mathrm{TESS}}{k_\mathrm{B}T_\mathrm{eff}},
 \end{equation}
@@ -275,16 +273,9 @@ where $\nu_\mathrm{TESS}$ is the TESS-band effective frequency and $v_r(t)$ is t
 
 Gaussian processes are designed to model smoothly varying correlated noise \citep{rasmussen_gaussian_2006}. In the exoplanet community, this has been highly successful in allowing exoplanet signals to be disentangled from stellar noise. In order to generate realistic, TESS-like light curves, we combine several kernels to model granulation and asteroseismic modes, based on the simulated stellar properties. We use \texttt{tinygp} with quasi-separable simple harmonic oscillator (SHO) kernels \textbf{TODO: Citations and more detail?}.
 
-Granulation is a form of aperiodic correlated noise due to convection cells at the stellar surface. Granulation appears as low-amplitude correlated noise; aperiodic in nature, it prefers certain timescales dictated by the size and age of the star \citep{kjeldsen_amplitudes_1995}. To the observer, granulation appears as low-amplitude correlated noise; aperiodic in
-nature, it prefers certain timescales dictated by the size and age of the star. As derived
-in \cite{foreman-mackey_exoplanet_2021}, we consider this preferred frequency a characteristic
-timescale of a damped stochastic process. We model such a process using a damped
-harmonic oscillator kernel with a fixed quality factor ($Q= \frac{1}{\sqrt{2}}$) parameter to create a
-damped random walk (DRW). This creates frequency-dependent broadband noise
-with a characteristic timescale but no dominant frequencies. The characteristic
-timescale in the model $\tau$ then reflects the average lifetime of a single convective cell,
-while the amplitude scales with the number of granules contributing to the observable
-flux and the source-star surface gravity, $g_\star$ \citep{kjeldsen_amplitudes_1995,pereira_gaussian_2019,foreman-mackey_exoplanet_2021}. The granulation timescale,
+Granulation is a form of aperiodic correlated noise due to convection cells at the stellar surface. Granulation appears as low-amplitude correlated noise; aperiodic in nature, it prefers certain timescales dictated by the size and age of the star \citep{kjeldsen_amplitudes_1995}. As derived
+in \cite{foreman-mackey_exoplanet_2021}, we consider this a characteristic timescale of a damped stochastic process. We model such a process using a damped harmonic oscillator kernel with a fixed quality factor ($Q= \frac{1}{\sqrt{2}}$) parameter to create a damped random walk (DRW). This creates frequency-dependent broadband noise with a characteristic timescale but no dominant frequencies. The characteristic
+timescale in the model $\tau$ then reflects the average lifetime of a single convective cell, while the amplitude scales with the number of granules contributing to the observable flux and the source-star surface gravity, $g_\star$ \citep{kjeldsen_amplitudes_1995,pereira_gaussian_2019,foreman-mackey_exoplanet_2021}. The granulation timescale,
 $\tau_\mathrm{gran}$, for a source star of mass $M_\star$ and radius $R_\star$, goes as
 
 \begin{equation}
@@ -292,17 +283,9 @@ $\tau_\mathrm{gran}$, for a source star of mass $M_\star$ and radius $R_\star$, 
     \propto \left(\frac{R_\star^2}{M_\star}\right).
 \end{equation}
 
-This model captures the gradual loss of coherence in the light curve over time,
-appropriate for granulation, where surface features evolve on a finite timescale and
-exhibit only short-range temporal correlations. This model has also been tested and
-applied in previous GP transit studies \citep{brewer_gaussian_2009,nicholson_quasi-periodic_2022}. Overall, the DRW kernel effectively models granulation noise without
-requiring high model complexity or prior knowledge of the star’s convective
-dynamics.
+This model captures the temporal decorrelation the granulation component light curve over time, appropriate for granulation, where surface features evolve on a finite timescale and exhibit only short-range temporal correlations \citep{aigrain_gaussian_2023}. This model has also been tested and applied in previous GP transit studies \citep{brewer_gaussian_2009,nicholson_quasi-periodic_2022}. Overall, the DRW kernel effectively models granulation noise without requiring high model complexity or prior knowledge of the star’s convective dynamics.
 
-Asteroseismic oscillations are caused by the propagation of sound waves through the stellar surface \citep{kjeldsen_amplitudes_1995,chaplin_asteroseismology_2013}. These occur on the timescales of minutes to tens of hours, placing them directly into the observing window of light curves from instruments such as TESS. Again, we choose a damped harmonic oscillator kernel, but this time
-with a free quality factor to allow for the presence of a periodic component \citep{brewer_gaussian_2009,foreman-mackey_exoplanet_2021}. The frequency of the primary mode,
-given by the $\nu_\mathrm{seis}$ hyper-parameter, is proportional to the source-star surface
-gravity, $g_\star$, and the effective temperature, $T_\mathrm{eff}$, and therefore depends
+Asteroseismic oscillations are caused by the propagation of sound waves through the star's outer convective zone. \citep{kjeldsen_amplitudes_1995,chaplin_asteroseismology_2013}. These occur on the timescales of minutes to tens of hours, placing them directly into the observing window of light curves from instruments such as TESS. Again, we choose a damped harmonic oscillator kernel, but this time with a free quality factor to allow for the presence of a periodic component \citep{brewer_gaussian_2009,foreman-mackey_exoplanet_2021}. The frequency of the primary mode, given by the $\nu_\mathrm{seis}$ hyper-parameter, is proportional to the source-star surface gravity, $g_\star$, and the effective temperature, $T_\mathrm{eff}$, and therefore depends
 on the stellar properties of the simulated system.
 
 \begin{equation}
@@ -337,39 +320,27 @@ temperature. Then
     \left(\frac{R_\star}{R_\odot}\right)^{-2}
     \left(\frac{T_\mathrm{eff}}{T_\odot}\right)^{-1/2},
 \end{equation}
-The granulation characteristic frequency is taken to be a fixed fraction of this
-value,
+The granulation characteristic frequency is taken to be proportional to this value, adopting values around an empirical proportionality constant calibrated by \citep{kallinger_connection_2014},
 \begin{equation}
-    \nu_\mathrm{gran} = 0.30\,\nu_\mathrm{seis}.
+    \nu_\mathrm{gran} = ~0.30\,\nu_\mathrm{seis}.
 \end{equation}
-The kernel hyperparameters are stored as $\log_{10}\nu$ in Hz and converted to
-angular frequency internally when constructing the SHO kernels.
+The kernel hyperparameters are stored as $\log_{10}\nu$ in Hz and converted to angular frequency internally when constructing the SHO kernels.
 
-The kernel amplitudes are set in count-rate units by scaling expected fractional
-stellar-variability amplitudes by the TESS count rate of the simulated source. If
+Kernel amplitudes are set in count-rate units by scaling the fractional stellar-variability amplitudes with the source's expected TESS count rate. If
 $N_\mathrm{TESS}$ is the expected number of detected source counts per cadence, the standard
 deviation of GP component $q$ is initialised as
 \begin{equation}
     \sigma_q = f_q N_\mathrm{TESS},
 \end{equation}
-where $f_q$ is a representative fractional variability amplitude. In the simulations
-we use broad ppm-level bands for these fractional amplitudes, with granulation
-initialised between 50--300 ppm and asteroseismic variability between 100--1000 ppm.
+where $f_q$ is a representative fractional variability amplitude. In the simulations we use broad ppm-level bands for these fractional amplitudes, with granulation initialised between 50--300 ppm and asteroseismic variability between 100--1000 ppm.
 
-The same apparent-magnitude calculation is also used to set the TESS white-noise
-level. The TESS-band source magnitude, $m_\mathrm{TESS}$, is converted to
-$N_\mathrm{TESS}$, and an
-empirical TESS noise model provides a fractional per-cadence uncertainty
-$\eta(m_\mathrm{TESS})$. For the GP covariance matrix $\Sigma_{ij}$ and the
-Kronecker delta $\delta_{ij}$, this gives a TESS white-noise standard deviation
-$\sigma_\mathrm{TESS}$ and diagonal covariance contribution
+The same apparent-magnitude calculation is also used to set the TESS white-noise level. The TESS-band source magnitude, $m_\mathrm{TESS}$, is converted to $N_\mathrm{TESS}$, and an empirical TESS noise model provides a fractional per-cadence uncertainty $\eta(m_\mathrm{TESS})$. For the GP covariance matrix $\Sigma_{ij}$ and the Kronecker delta $\delta_{ij}$, this gives a TESS white-noise standard deviation $\sigma_\mathrm{TESS}$ and diagonal covariance contribution
 \begin{equation}
     \sigma_\mathrm{TESS} = \eta(m_\mathrm{TESS})N_\mathrm{TESS},
     \qquad
     \Sigma_{ij} \rightarrow \Sigma_{ij} + \sigma_\mathrm{TESS}^2 \delta_{ij}.
 \end{equation}
-This term is fixed by the simulated source brightness rather than fitted as an
-additional free GP jitter parameter.
+This term is fixed by the simulated source brightness rather than fitted as anadditional free GP jitter parameter.
 
 % Commented out because this part is not actually used here; we don't use the GP for fitting in this paper
 % Such proportionality illustrates the importance of modelling the noise and signal
@@ -377,10 +348,7 @@ additional free GP jitter parameter.
 % deterministic parameters of the mean function. Fitting the two together removes
 % degeneracies while preventing unphysical solutions.
 
-The variability caused by magnetic effects has also been included in prior studies \citep{haywood_planets_2014,luger_starry_process_2021,foreman-mackey_exoplanet_2021}, as has
-the movement of star spots about the rotational axis of the star. However,
-such variations are often overpowered by more global variations, such as
-asteroseismic modes for distant stars, where surface structure cannot be resolved.
+The variability caused by magnetic effects has also been included in prior studies \citep{haywood_planets_2014,luger_starry_process_2021,foreman-mackey_exoplanet_2021}, as has the movement of star spots about the rotational axis of the star. However, such variations are often overpowered by more global variations, such as asteroseismic modes for distant stars, where surface structure cannot be resolved. We therefore assume that the jitter tern is sufficient to account for magnetic contributions to the underlying stellar noise.
 % Commented out because we don't actually do this here
 %The GP can also account for additional small uncorrelated fluctuations through its jitter
 %term, specifically those unaccounted for in instrument noise. 
