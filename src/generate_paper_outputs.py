@@ -86,6 +86,7 @@ PREFIT_COMPARISON_STAGE_STYLES = {
     "Photometry only": {"color": "#CC79A7", "marker": None, "linestyle": "--"},
     "Photometry + RV": {"color": "#0072B2", "marker": "o", "linestyle": "-"},
     "RV only": {"color": "#009E73", "marker": "s", "linestyle": "-."},
+    "RV only, no peak time": {"color": "#D55E00", "marker": "^", "linestyle": ":"},
 }
 
 SURVEY_DETECTED_COUNTS = {
@@ -248,10 +249,13 @@ def prefit_comparison_parameters(results):
     for param, spec in PARAMETERS.items():
         prefit_column = f"prefit_{spec['fitted']}"
         rvfit_column = f"rvfit_{spec['fitted']}"
+        rv_no_prior_column = f"rvnoprior_{spec['fitted']}"
         if prefit_column in results.columns:
             parameters[param] = {**spec, "prefit": prefit_column}
             if rvfit_column in results.columns:
                 parameters[param]["rvfit"] = rvfit_column
+            if rv_no_prior_column in results.columns:
+                parameters[param]["rvnoprior"] = rv_no_prior_column
     if not parameters:
         raise KeyError(
             "Fitted results table has no photometry-only prefit columns. "
@@ -270,6 +274,7 @@ def prefit_joint_error_rows(results):
             ("Photometry only", spec["prefit"]),
             ("Photometry + RV", spec["fitted"]),
             ("RV only", spec.get("rvfit")),
+            ("RV only, no peak time", spec.get("rvnoprior")),
         ):
             if value_column is None:
                 continue
@@ -314,26 +319,30 @@ def prefit_joint_error_rows(results):
 
 def warn_on_matching_joint_and_rv_only_columns(results, parameters):
     for param, spec in parameters.items():
-        rvfit_column = spec.get("rvfit")
-        if rvfit_column is None:
-            continue
-        needed = [spec["fitted"], rvfit_column]
-        finite = results.dropna(subset=needed).copy()
-        if finite.empty:
-            continue
-        joint = numeric_scalar_series(finite[spec["fitted"]])
-        rv_only = numeric_scalar_series(finite[rvfit_column])
-        valid = numpy.isfinite(joint) & numpy.isfinite(rv_only)
-        if valid.any() and numpy.allclose(joint[valid], rv_only[valid], equal_nan=True):
-            logger.warning(
-                "RV-only column %s matches joint-fit column %s for all %d finite %s "
-                "row(s); the plotted RV-only series will overlap the photometry+RV "
-                "series.",
-                rvfit_column,
-                spec["fitted"],
-                int(valid.sum()),
-                param,
-            )
+        for label, rv_column in (
+            ("RV-only", spec.get("rvfit")),
+            ("RV-only no-peak-time", spec.get("rvnoprior")),
+        ):
+            if rv_column is None:
+                continue
+            needed = [spec["fitted"], rv_column]
+            finite = results.dropna(subset=needed).copy()
+            if finite.empty:
+                continue
+            joint = numeric_scalar_series(finite[spec["fitted"]])
+            rv_only = numeric_scalar_series(finite[rv_column])
+            valid = numpy.isfinite(joint) & numpy.isfinite(rv_only)
+            if valid.any() and numpy.allclose(joint[valid], rv_only[valid], equal_nan=True):
+                logger.warning(
+                    "%s column %s matches joint-fit column %s for all %d finite %s "
+                    "row(s); the plotted series will overlap the photometry+RV "
+                    "series.",
+                    label,
+                    rv_column,
+                    spec["fitted"],
+                    int(valid.sum()),
+                    param,
+                )
 
 
 def summarise_prefit_joint_errors(error_rows):
@@ -620,6 +629,7 @@ def prefit_compact_object_class_rows(results):
         ("Photometry only", mass_spec["prefit"]),
         ("Photometry + RV", mass_spec["fitted"]),
         ("RV only", mass_spec.get("rvfit")),
+        ("RV only, no peak time", mass_spec.get("rvnoprior")),
     )
     rows = []
     for fit_stage, value_column in fit_stages:

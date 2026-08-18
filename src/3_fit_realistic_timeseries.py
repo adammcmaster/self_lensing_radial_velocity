@@ -52,6 +52,12 @@ os.environ.setdefault(
 )
 Path(os.environ["JAX_COMPILATION_CACHE_DIR"]).mkdir(parents=True, exist_ok=True)
 
+FIT_RESULTS_LOCK = None
+if __name__ == "__main__":
+    from fitting import acquire_fit_results_lock
+
+    FIT_RESULTS_LOCK = acquire_fit_results_lock("realistic timeseries fitting script")
+
 import jax
 
 jax.config.update(
