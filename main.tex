@@ -224,7 +224,7 @@ The projected lens-source separation in Einstein-radius units is
         + \left(b R_\mathrm{E}\right)^2
         \right]^{1/2},
 \end{equation}
-where $u(t)$ is dimensionless. The self-lensing magnification is calculated with the integrated Witt--Mao finite-source formalism \citep{witt_can_1994}. The implementation evaluates the closed-form uniform-disc Witt--Mao magnification,
+where $u(t)$ is dimensionless. The self-lensing magnification is calculated with the integrated Witt--Mao finite-source formalism \citep{witt_can_1994}. The implementation evaluates the closed-form uniform-disc magnification,
 \begin{equation}
     A_\mathrm{WM}(u, \rho_\star) =
     \frac{
@@ -246,7 +246,7 @@ where $K$, $E$, and $\Pi$ are complete elliptic integrals of the first, second, 
     \quad
     I(\mu) = 1 - \gamma(1-\mu),
 \end{align}
-where $\gamma=0.6$ \citep{claret_limb_2017} is the linear limb-darkening coefficient, which is suitable for Sun-like stars observed by TESS.
+where $\gamma=0.6$ \citep{claret_limb_2017} is the linear limb-darkening coefficient, which is suitable for Sun-like stars observed by TESS \textbf{TODO: Defend this choice or choose a more representative value}.
 
 Calculation of ellipsoidal variations and Doppler boosting are adapted from \cite{sorabella_modeling_2022}, with the orbital separation and radial velocity generalised to the eccentric case. The ellipsoidal-variation term is
 \begin{align}
@@ -348,7 +348,7 @@ The same apparent-magnitude calculation is also used to set the TESS white-noise
     \qquad
     \Sigma_{ij} \rightarrow \Sigma_{ij} + \sigma_\mathrm{TESS}^2 \delta_{ij}.
 \end{equation}
-This term is fixed by the simulated source brightness rather than fitted as anadditional free GP jitter parameter.
+This term is fixed by the simulated source brightness rather than fitted as an additional free GP jitter parameter.
 
 % Commented out because this part is not actually used here; we don't use the GP for fitting in this paper
 % Such proportionality illustrates the importance of modelling the noise and signal
@@ -356,7 +356,7 @@ This term is fixed by the simulated source brightness rather than fitted as anad
 % deterministic parameters of the mean function. Fitting the two together removes
 % degeneracies while preventing unphysical solutions.
 
-The variability caused by magnetic effects has also been included in prior studies \citep{haywood_planets_2014,luger_starry_process_2021,foreman-mackey_exoplanet_2021}, as has the movement of star spots about the rotational axis of the star. However, such variations are often overpowered by more global variations, such as asteroseismic modes for distant stars, where surface structure cannot be resolved. We therefore assume that the jitter tern is sufficient to account for magnetic contributions to the underlying stellar noise.
+The variability caused by magnetic effects has also been included in prior studies \citep{haywood_planets_2014,luger_starry_process_2021,foreman-mackey_exoplanet_2021}, as has the movement of star spots about the rotational axis of the star. However, such variations are often overpowered by more global variations, such as asteroseismic modes for distant stars, where surface structure cannot be resolved. We therefore assume that the jitter term is sufficient to account for magnetic contributions to the underlying stellar noise.
 % Commented out because we don't actually do this here
 %The GP can also account for additional small uncorrelated fluctuations through its jitter
 %term, specifically those unaccounted for in instrument noise. 
@@ -367,7 +367,7 @@ modelling stellar variability through GPs, see \cite{aigrain_gaussian_2023}.
 
 The simulated RV curves start at randomised times between 1 year and 10 years from the end of the photometry. This is to simulate a realistic delay in identifying candidates in the photometry and organising follow-up of those candidates.
 
-The RV simulations use the same physical parameters and phase convention as the photometric simulations. Let $\mu_g=G(M_\mathrm{lens}+M_\star)$ be the standard gravitational parameter, and $h=[\mu_g a(1-e^2)]^{1/2}$ be the specific orbital angular momentum. The source-star barycentric radial and tangential orbital-velocity components are
+The RV simulations use the same physical parameters and phase convention as the photometric simulations. Let $\mu_g=G(M_\mathrm{lens}+M_\star)$ be the standard gravitational parameter, and $h=[\mu_g a(1-e^2)]^{1/2}$ be the specific angular momentum of the relative orbit. The source-star barycentric radial and tangential orbital-velocity components are
 \begin{align}
     v_{\mathrm{rad},\star}(t) & =
     \frac{M_\mathrm{lens}}{M_\mathrm{lens}+M_\star}
@@ -390,9 +390,7 @@ The simulated line-of-sight radial velocity is then
 \end{equation}
 This reduces to the circular-orbit convention $v_r(t)\propto\sin\phi(t)$ when $e=0$, but for eccentric orbits the radial component means the RV at $t_0$ is not generally zero.
 
-We generate baseline RV curves which contain one RV measurement per day for five years from the start time.
-
-We sample the baseline RV curves to create more realistic RV observations, also adding Gaussian noise to simulate varying instrument accuracies. Each RV curve is resampled using every combination of the parameters in Table~\ref{tab:realistic_observing_grid}, giving $3 \times 3 \times 5 = 45$ realistic observing configurations per baseline simulation. We do not attempt to simulate fully realistic observing (with observing seasons, seeing, varying weather conditions, etc.) as we are mainly interested in measuring the effects of instrument selection, total length of observations, and number of observations.
+We generate baseline RV curves which contain one RV measurement per day for five years from the start time. We sample the baseline RV curves to create more realistic RV observations, also adding Gaussian noise to simulate varying instrument accuracies and precisions. Each RV curve is resampled using every combination of the parameters in Table~\ref{tab:realistic_observing_grid}, giving $3 \times 3 \times 5 = 45$ realistic observing configurations per baseline simulation. We do not attempt to simulate fully realistic observing (with observing seasons, seeing, varying weather conditions, etc.) as we are mainly interested in measuring the effects of instrument selection, total length, and number of observations.
 
 \begin{table}
     \centering
@@ -409,7 +407,7 @@ We sample the baseline RV curves to create more realistic RV observations, also 
     \end{tabular}
 \end{table}
 
-As well as the Gaussian instrumental noise, a fixed stellar-noise term of $\sigma = 10$ m/s is added in every configuration. For simplicity, we do not include proper motion or heliocentric motion, as these would be corrected before fitting real observations.
+As well as the varying instrumental noise, fixed Gaussian noise ($\sigma = 10$ m/s) is added in every configuration to represent stellar noise. For simplicity, we do not include proper motion or heliocentric motion, as these would be corrected before fitting real observations.
 
 \subsection{Fitting of simulated observations} \label{sec:fitting}
 
