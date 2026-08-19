@@ -26,6 +26,15 @@ lens_mass_range,fit_stage,n_rv,correct_class_fraction,n_rows,n_systems
 "$20$--$50\,M_\odot$",RV only,365,0.8296767874632713,30630,6126
 "$20$--$50\,M_\odot$",RV only,1095,0.8340515834149527,30630,6126
 "$20$--$50\,M_\odot$",RV only,1825,0.8364675155076722,30630,6126
+"$20$--$50\,M_\odot$","RV only, no peak time",2,0.745945945945946,370,74
+"$20$--$50\,M_\odot$","RV only, no peak time",4,0.8297297297297297,370,74
+"$20$--$50\,M_\odot$","RV only, no peak time",7,0.7513513513513513,370,74
+"$20$--$50\,M_\odot$","RV only, no peak time",13,0.7324324324324324,370,74
+"$20$--$50\,M_\odot$","RV only, no peak time",37,0.8108108108108109,370,74
+"$20$--$50\,M_\odot$","RV only, no peak time",61,0.8297297297297297,370,74
+"$20$--$50\,M_\odot$","RV only, no peak time",365,0.7621621621621621,370,74
+"$20$--$50\,M_\odot$","RV only, no peak time",1095,0.7621621621621621,370,74
+"$20$--$50\,M_\odot$","RV only, no peak time",1825,0.7621621621621621,370,74
 "$3$--$5\,M_\odot$",Photometry + RV,2,0.24028776978417266,695,139
 "$3$--$5\,M_\odot$",Photometry + RV,4,0.2503597122302158,695,139
 "$3$--$5\,M_\odot$",Photometry + RV,7,0.20863309352517986,695,139
@@ -80,6 +89,15 @@ lens_mass_range,fit_stage,n_rv,correct_class_fraction,n_rows,n_systems
 "$5$--$20\,M_\odot$",RV only,365,0.28327402135231317,9835,1967
 "$5$--$20\,M_\odot$",RV only,1095,0.2860193187595323,9835,1967
 "$5$--$20\,M_\odot$",RV only,1825,0.28235892221657344,9835,1967
+"$5$--$20\,M_\odot$","RV only, no peak time",2,0.25625,160,32
+"$5$--$20\,M_\odot$","RV only, no peak time",4,0.18125,160,32
+"$5$--$20\,M_\odot$","RV only, no peak time",7,0.26875,160,32
+"$5$--$20\,M_\odot$","RV only, no peak time",13,0.35625,160,32
+"$5$--$20\,M_\odot$","RV only, no peak time",37,0.3,160,32
+"$5$--$20\,M_\odot$","RV only, no peak time",61,0.30625,160,32
+"$5$--$20\,M_\odot$","RV only, no peak time",365,0.24375,160,32
+"$5$--$20\,M_\odot$","RV only, no peak time",1095,0.25,160,32
+"$5$--$20\,M_\odot$","RV only, no peak time",1825,0.2,160,32
 "$<3\,M_\odot$",Photometry + RV,2,0.34352941176470586,425,85
 "$<3\,M_\odot$",Photometry + RV,4,0.30823529411764705,425,85
 "$<3\,M_\odot$",Photometry + RV,7,0.25882352941176473,425,85
