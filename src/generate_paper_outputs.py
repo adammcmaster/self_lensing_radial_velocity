@@ -984,6 +984,15 @@ def percent_matrix(table, value_column, baseline):
     return 100.0 * matrix
 
 
+def colorbar_vmax(values, minimum=100.0):
+    """Return a colour-bar maximum that does not clip finite plotted values."""
+    finite_values = numpy.asarray(values, dtype=float)
+    finite_values = finite_values[numpy.isfinite(finite_values)]
+    if finite_values.size == 0:
+        return minimum
+    return max(minimum, float(finite_values.max()))
+
+
 def plot_population_weighted_survey_followup_heatmaps():
     survey_counts_path = TABLE_DIR / "population_weighted_followup_survey_counts.csv"
     if not survey_counts_path.exists():
@@ -1120,6 +1129,7 @@ def plot_population_weighted_relative_error_heatmaps():
     n_baselines = len(baselines)
 
     for value_column, slug, label, colorbar_label in metrics:
+        vmax = colorbar_vmax(100.0 * reference_data[value_column])
         fig = pyplot.figure(figsize=(8.8, 2.8))
         grid = fig.add_gridspec(
             1,
@@ -1149,7 +1159,7 @@ def plot_population_weighted_relative_error_heatmaps():
                 100.0 * matrix,
                 ax=axis,
                 vmin=0,
-                vmax=100,
+                vmax=vmax,
                 cmap="viridis_r",
                 annot=True,
                 annot_kws={"fontsize": 6.3},
@@ -1495,6 +1505,9 @@ def plot_metric_by_truth_range(
         aggfunc=aggfunc,
     )
     table.to_csv(TABLE_DIR / f"{filename}.csv", index=False)
+
+    if percent_scale and vmax is not None:
+        vmax = colorbar_vmax(100.0 * table[metric_name], minimum=vmax)
 
     baselines = numpy.sort(table["baseline"].dropna().unique())
     cadences = numpy.sort(table["cadence"].dropna().unique())
