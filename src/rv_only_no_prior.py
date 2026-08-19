@@ -557,7 +557,11 @@ def self_lensing_system_from_rv_fit_no_peak_prior_blackjax(
     completed_steps = 0
     progress_iter = tqdm(total=nsteps, desc=progress_desc) if progress else None
     try:
-        chunk_size = nsteps if not progress else max(1, int(progress_chunk_size))
+        # Keep the JITted scan bounded even when the progress bar is disabled.
+        # Compiling a single scan over all MCMC steps creates very large GPU
+        # fusion modules (and can take tens of minutes for batched fits).
+        # Reusing a short compiled scan does not change the chain or samples.
+        chunk_size = min(nsteps, max(1, int(progress_chunk_size)))
         while remaining_steps > 0:
             current_chunk_size = min(chunk_size, remaining_steps)
             rng_key, sample_key = jax.random.split(rng_key)
@@ -780,7 +784,9 @@ def self_lensing_systems_from_batched_rv_fit_no_peak_prior_blackjax(
     completed_steps = 0
     progress_iter = tqdm(total=nsteps, desc=progress_desc) if progress else None
     try:
-        chunk_size = nsteps if not progress else max(1, int(progress_chunk_size))
+        # See the equivalent single-fit loop above.  A bounded scan keeps the
+        # batched GPU compilation tractable when progress output is disabled.
+        chunk_size = min(nsteps, max(1, int(progress_chunk_size)))
         while remaining_steps > 0:
             current_chunk_size = min(chunk_size, remaining_steps)
             rng_key, sample_key = jax.random.split(rng_key)

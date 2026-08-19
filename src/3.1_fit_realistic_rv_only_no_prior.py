@@ -44,7 +44,17 @@ os.environ.setdefault(
 )
 os.environ.setdefault(
     "JAX_COMPILATION_CACHE_MAX_SIZE",
-    os.environ.get("SLRV_JAX_COMPILATION_CACHE_MAX_SIZE", str(1024**3)),
+    # Disable JAX's LRU eviction for the shared cache.  Its companion atime
+    # files can otherwise be removed during concurrent cache access.
+    os.environ.get("SLRV_JAX_COMPILATION_CACHE_MAX_SIZE", "-1"),
+)
+os.environ.setdefault(
+    "JAX_PERSISTENT_CACHE_ENABLE_XLA_CACHES",
+    os.environ.get("SLRV_JAX_PERSISTENT_CACHE_ENABLE_XLA_CACHES", "all"),
+)
+os.environ.setdefault(
+    "JAX_EXPLAIN_CACHE_MISSES",
+    os.environ.get("SLRV_JAX_EXPLAIN_CACHE_MISSES", "false"),
 )
 Path(os.environ["JAX_COMPILATION_CACHE_DIR"]).mkdir(parents=True, exist_ok=True)
 
@@ -71,6 +81,14 @@ jax.config.update(
 jax.config.update(
     "jax_compilation_cache_max_size",
     int(os.environ["JAX_COMPILATION_CACHE_MAX_SIZE"]),
+)
+jax.config.update(
+    "jax_persistent_cache_enable_xla_caches",
+    os.environ["JAX_PERSISTENT_CACHE_ENABLE_XLA_CACHES"],
+)
+jax.config.update(
+    "jax_explain_cache_misses",
+    os.environ["JAX_EXPLAIN_CACHE_MISSES"].lower() in ("1", "true", "yes", "on"),
 )
 import numpy
 import pandas
@@ -169,7 +187,9 @@ MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "spawn")
 FIT_NSTEPS = int(os.environ.get("SLRV_FIT_NSTEPS", 1000))
 FIT_NWALKERS = int(os.environ.get("SLRV_FIT_NWALKERS", 128))
 FIT_BURN = int(os.environ.get("SLRV_FIT_BURN", 200))
-FIT_PROGRESS_CHUNK_SIZE = int(os.environ.get("SLRV_FIT_PROGRESS_CHUNK_SIZE", 100))
+# This bounds the compiled MCMC scan even when progress output is disabled.
+# Smaller chunks substantially reduce first-use GPU compilation time.
+FIT_PROGRESS_CHUNK_SIZE = int(os.environ.get("SLRV_FIT_PROGRESS_CHUNK_SIZE", 25))
 FIT_E_MIN = os.environ.get("SLRV_FIT_E_MIN")
 FIT_E_MAX = os.environ.get("SLRV_FIT_E_MAX")
 FIT_DEVICE = os.environ.get("SLRV_FIT_DEVICE", default_fit_device())
@@ -869,9 +889,10 @@ if __name__ == "__main__":
     logger.info("Fit device setting: FIT_DEVICE=%s", FIT_DEVICE)
     logger.info("JAX backend: default=%s devices=[%s]", jax.default_backend(), jax_device_summary())
     logger.info(
-        "JAX compilation cache: %s max_size=%s bytes",
+        "JAX compilation cache: %s max_size=%s bytes xla_caches=%s",
         os.environ["JAX_COMPILATION_CACHE_DIR"],
         os.environ["JAX_COMPILATION_CACHE_MAX_SIZE"],
+        os.environ["JAX_PERSISTENT_CACHE_ENABLE_XLA_CACHES"],
     )
     if REQUIRE_GPU and not any(device.platform == "gpu" for device in jax.devices()):
         raise RuntimeError(

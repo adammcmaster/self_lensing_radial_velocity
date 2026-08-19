@@ -48,7 +48,9 @@ os.environ.setdefault(
 )
 os.environ.setdefault(
     "JAX_COMPILATION_CACHE_MAX_SIZE",
-    os.environ.get("SLRV_JAX_COMPILATION_CACHE_MAX_SIZE", str(1024**3)),
+    # Keep the shared cache stable across concurrent fitting processes.  A
+    # user-set limit remains supported through SLRV_JAX_COMPILATION_CACHE_MAX_SIZE.
+    os.environ.get("SLRV_JAX_COMPILATION_CACHE_MAX_SIZE", "-1"),
 )
 Path(os.environ["JAX_COMPILATION_CACHE_DIR"]).mkdir(parents=True, exist_ok=True)
 
