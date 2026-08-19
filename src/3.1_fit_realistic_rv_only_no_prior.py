@@ -6,6 +6,8 @@ import multiprocessing
 import os
 import re
 import threading
+import time
+from collections import deque
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +34,18 @@ os.environ.setdefault(
         str(DEFAULT_JAX_COMPILATION_CACHE_DIR),
     ),
 )
+os.environ.setdefault(
+    "JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS",
+    os.environ.get("SLRV_JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS", "1"),
+)
+os.environ.setdefault(
+    "JAX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES",
+    os.environ.get("SLRV_JAX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES", "0"),
+)
+os.environ.setdefault(
+    "JAX_COMPILATION_CACHE_MAX_SIZE",
+    os.environ.get("SLRV_JAX_COMPILATION_CACHE_MAX_SIZE", str(1024**3)),
+)
 Path(os.environ["JAX_COMPILATION_CACHE_DIR"]).mkdir(parents=True, exist_ok=True)
 
 FIT_RESULTS_LOCK = None
@@ -41,6 +55,23 @@ if __name__ == "__main__":
     FIT_RESULTS_LOCK = acquire_fit_results_lock("RV-only no-prior fitting script")
 
 import jax
+
+jax.config.update(
+    "jax_compilation_cache_dir",
+    os.environ["JAX_COMPILATION_CACHE_DIR"],
+)
+jax.config.update(
+    "jax_persistent_cache_min_compile_time_secs",
+    float(os.environ["JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS"]),
+)
+jax.config.update(
+    "jax_persistent_cache_min_entry_size_bytes",
+    int(os.environ["JAX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES"]),
+)
+jax.config.update(
+    "jax_compilation_cache_max_size",
+    int(os.environ["JAX_COMPILATION_CACHE_MAX_SIZE"]),
+)
 import numpy
 import pandas
 from astropy import units
@@ -115,7 +146,9 @@ def optional_positive_int(value):
 
 
 def default_fit_max_workers():
-    return 2 if any(device.platform == "gpu" for device in jax.devices()) else 4
+    # Every worker defaults to gpu:0.  More than one worker would therefore
+    # contend for the same accelerator rather than add useful parallelism.
+    return 1 if any(device.platform == "gpu" for device in jax.devices()) else 4
 
 
 def default_fit_device():
@@ -165,6 +198,13 @@ FIT_SAVE_SAMPLERS = os.environ.get("SLRV_FIT_SAVE_SAMPLERS", "0").lower() in (
 )
 FIT_SAMPLER_WRITE_MAX_WORKERS = int(
     os.environ.get("SLRV_FIT_SAMPLER_WRITE_MAX_WORKERS", 16)
+)
+FIT_PRELOAD_FILE_POOL_SIZE = int(os.environ.get("SLRV_FIT_PRELOAD_FILE_POOL_SIZE", 16))
+FIT_PRELOAD_MAX_WORKERS = int(
+    os.environ.get(
+        "SLRV_FIT_PRELOAD_MAX_WORKERS",
+        max(1, min(FIT_PRELOAD_FILE_POOL_SIZE, 4)),
+    )
 )
 REQUIRE_GPU = os.environ.get("SLRV_REQUIRE_GPU", "").lower() in (
     "1",
@@ -521,8 +561,14 @@ def run_rv_no_prior_fit(args):
 
 
 def run_rv_no_prior_batch(rows, curves):
+    start = time.perf_counter()
     inputs = batched_fit_inputs(rows, curves)
     row_table = pandas.DataFrame([ts for _, ts in rows])
+    logger.info(
+        "Running batched RV-only no-prior MCMC for %d rows: max_rv=%d",
+        len(rows),
+        inputs["rv_times"].shape[1],
+    )
     fit_results, sampler, walker_state = (
         self_lensing_systems_from_batched_rv_fit_no_peak_prior_blackjax(
             rv_times=Time(inputs["rv_times"], format="jd"),
@@ -547,6 +593,11 @@ def run_rv_no_prior_batch(rows, curves):
         )
     )
     del sampler, walker_state
+    logger.info(
+        "Batched RV-only no-prior MCMC returned %d systems in %.2f s",
+        len(fit_results),
+        time.perf_counter() - start,
+    )
     return [
         add_rv_no_prior_columns(row, fit_result)
         for (_, row), fit_result in zip(rows, fit_results)
@@ -583,6 +634,78 @@ def fit_realistic_file(rows):
     ):
         results.append(run_rv_no_prior_fit((i, ts, curves[str(ts["realistic_id"])])))
     return results
+
+
+def warm_realistic_file(rows):
+    """Read a FITS file into the shared filesystem cache without serializing curves."""
+    path = Path(rows[0][1]["realistic_path"])
+    logger.debug("Preloading realistic FITS file into the filesystem cache: %s", path)
+    with path.open("rb", buffering=0) as handle:
+        while handle.read(1024 * 1024):
+            pass
+    return rows
+
+
+def preloaded_realistic_file_jobs(jobs):
+    """Yield groups after a bounded, ordered look-ahead of file-cache warming."""
+    jobs = iter(jobs)
+    pool_size = max(0, FIT_PRELOAD_FILE_POOL_SIZE)
+    if pool_size == 0:
+        for rows in jobs:
+            yield rows
+        return
+
+    def fill_pending(pending, executor):
+        while len(pending) < pool_size:
+            try:
+                rows = next(jobs)
+            except StopIteration:
+                return
+            pending.append((rows, executor.submit(warm_realistic_file, rows)))
+
+    with ThreadPoolExecutor(max_workers=max(1, FIT_PRELOAD_MAX_WORKERS)) as executor:
+        pending = deque()
+        fill_pending(pending, executor)
+        while pending:
+            rows, future = pending.popleft()
+            future.result()
+            fill_pending(pending, executor)
+            yield rows
+
+
+def preloaded_process_map_iter(jobs, total=None, desc=None, max_workers=None):
+    """Fit groups while keeping a small pool of following groups preloaded."""
+    if total is None:
+        total = len(jobs)
+    if not total:
+        return
+    if FIT_PRELOAD_FILE_POOL_SIZE <= 0:
+        yield from process_map_iter(
+            fit_realistic_file,
+            jobs,
+            total=total,
+            desc=desc,
+            max_workers=max_workers,
+        )
+        return
+    preloaded_jobs = preloaded_realistic_file_jobs(jobs)
+    if max_workers == 1:
+        for rows in tqdm(preloaded_jobs, total=total, desc=desc):
+            yield fit_realistic_file(rows)
+        return
+
+    context = multiprocessing.get_context(MP_START_METHOD)
+    with ProcessPoolExecutor(max_workers=max_workers, mp_context=context) as executor:
+        futures = deque()
+        with tqdm(total=total, desc=desc) as progress:
+            for rows in preloaded_jobs:
+                futures.append(executor.submit(fit_realistic_file, rows))
+                if len(futures) >= max_workers:
+                    yield futures.popleft().result()
+                    progress.update()
+            while futures:
+                yield futures.popleft().result()
+                progress.update()
 
 
 def process_map_iter(fn, iterable, total=None, desc=None, max_workers=None, chunksize=1):
@@ -730,7 +853,8 @@ if __name__ == "__main__":
     logger.info("Starting RV-only no-prior fitting script")
     logger.info(
         "Settings: FIT_MAX_WORKERS=%d FIT_SAMPLE_SIZE=%s FIT_NSTEPS=%d "
-        "FIT_NWALKERS=%d FIT_BURN=%d FIT_BATCH_SIZE=%s FIT_BATCHED=%s",
+        "FIT_NWALKERS=%d FIT_BURN=%d FIT_BATCH_SIZE=%s FIT_BATCHED=%s "
+        "FIT_PRELOAD_FILE_POOL_SIZE=%d FIT_PRELOAD_MAX_WORKERS=%d",
         FIT_MAX_WORKERS,
         FIT_SAMPLE_SIZE if FIT_SAMPLE_SIZE is not None else "all",
         FIT_NSTEPS,
@@ -738,10 +862,17 @@ if __name__ == "__main__":
         FIT_BURN,
         FIT_BATCH_SIZE if FIT_BATCH_SIZE is not None else "all",
         FIT_BATCHED,
+        FIT_PRELOAD_FILE_POOL_SIZE,
+        FIT_PRELOAD_MAX_WORKERS,
     )
     logger.info("Fit eccentricity limits: %s", DEFAULT_LIMITS["e"])
     logger.info("Fit device setting: FIT_DEVICE=%s", FIT_DEVICE)
     logger.info("JAX backend: default=%s devices=[%s]", jax.default_backend(), jax_device_summary())
+    logger.info(
+        "JAX compilation cache: %s max_size=%s bytes",
+        os.environ["JAX_COMPILATION_CACHE_DIR"],
+        os.environ["JAX_COMPILATION_CACHE_MAX_SIZE"],
+    )
     if REQUIRE_GPU and not any(device.platform == "gpu" for device in jax.devices()):
         raise RuntimeError(
             "SLRV_REQUIRE_GPU is set, but JAX does not see a GPU. "
@@ -776,8 +907,7 @@ if __name__ == "__main__":
         enabled=CHECKPOINT_RESULTS,
     )
     try:
-        for group_results in process_map_iter(
-            fit_realistic_file,
+        for group_results in preloaded_process_map_iter(
             jobs,
             total=len(jobs),
             desc="RV-only no-prior fits",

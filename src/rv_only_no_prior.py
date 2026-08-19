@@ -361,60 +361,41 @@ def make_rv_no_prior_logprob_vec(
 
 
 def make_batched_rv_no_prior_logprob_vec(
-    Mcomp,
-    Rcomp,
-    d,
-    rv_times,
-    observed_rv,
-    observed_rv_err,
-    rv_reference_time,
     lensing_method,
-    rv_mask=None,
     device=None,
 ):
-    rv_times = _device_array(_extract_value(rv_times), device)
-    observed_rv = _device_array(_extract_value(observed_rv), device)
-    observed_rv_err = _device_array(_extract_value(observed_rv_err), device)
-    Mcomp = _device_array(_extract_value(Mcomp), device)
-    Rcomp = _device_array(_extract_value(Rcomp), device)
-    d = _device_array(_extract_value(d), device)
-    rv_reference_time = _device_array(rv_reference_time, device)
-    rv_mask = _device_array(_extract_value(rv_mask), device)
-
     @quaxify
-    def _row_logprob_vec(
+    def _batched_logprob_vec(
         params,
-        row_Mcomp,
-        row_Rcomp,
-        row_d,
-        row_rv_times,
-        row_observed_rv,
-        row_observed_rv_err,
-        row_rv_reference_time,
-        row_rv_mask,
+        Mcomp,
+        Rcomp,
+        d,
+        rv_times,
+        observed_rv,
+        observed_rv_err,
+        rv_reference_time,
+        rv_mask,
     ):
-        return jnp.asarray(
-            jax.vmap(
-                lambda p: rv_no_prior_logprob(
-                    p,
-                    row_Mcomp,
-                    row_Rcomp,
-                    row_d,
-                    row_rv_times,
-                    row_observed_rv,
-                    row_observed_rv_err,
-                    row_rv_reference_time,
-                    lensing_method,
-                    row_rv_mask,
-                )
-            )(params)
-        )
-
-    @quaxify
-    def _batched_logprob_vec(params):
         params = jax.device_put(jax_numpy.asarray(params), device)
         return jnp.asarray(
-            jax.vmap(_row_logprob_vec)(
+            jax.vmap(
+                lambda row_params, row_Mcomp, row_Rcomp, row_d, row_rv_times,
+                row_observed_rv, row_observed_rv_err, row_rv_reference_time,
+                row_rv_mask: jax.vmap(
+                    lambda p: rv_no_prior_logprob(
+                        p,
+                        row_Mcomp,
+                        row_Rcomp,
+                        row_d,
+                        row_rv_times,
+                        row_observed_rv,
+                        row_observed_rv_err,
+                        row_rv_reference_time,
+                        lensing_method,
+                        row_rv_mask,
+                    )
+                )(row_params)
+            )(
                 params,
                 Mcomp,
                 Rcomp,
@@ -427,12 +408,7 @@ def make_batched_rv_no_prior_logprob_vec(
             )
         )
 
-    logprob_vec = jax.jit(_batched_logprob_vec)
-
-    def logprob(params):
-        return logprob_vec(jax.device_put(params, device))
-
-    return logprob
+    return jax.jit(_batched_logprob_vec)
 
 
 def _fit_result_from_position(position, Rcomp, Mcomp, Teff, d, rv_reference_time):
@@ -735,19 +711,29 @@ def self_lensing_systems_from_batched_rv_fit_no_peak_prior_blackjax(
     )
     nwalkers = p0.shape[1]
     position = jax.device_put(jax_numpy.asarray(p0), fit_device)
+    Mcomp_value = _device_array(Mcomp.value, fit_device)
+    Rcomp_value = _device_array(Rcomp.value, fit_device)
+    d_value = _device_array(d.value, fit_device)
+    rv_times_value = _device_array(rv_times_value, fit_device)
+    observed_rv_value = _device_array(observed_rv.value, fit_device)
+    observed_rv_err_value = _device_array(observed_rv_err.value, fit_device)
+    rv_reference_time = _device_array(rv_reference_time, fit_device)
+    rv_mask_value = _device_array(rv_mask_value, fit_device)
     logprob_vec = make_batched_rv_no_prior_logprob_vec(
-        Mcomp.value,
-        Rcomp.value,
-        d.value,
-        rv_times_value,
-        observed_rv.value,
-        observed_rv_err.value,
-        rv_reference_time,
         lensing_method,
-        rv_mask_value,
         fit_device,
     )
-    log_prob = logprob_vec(position)
+    logprob_inputs = (
+        Mcomp_value,
+        Rcomp_value,
+        d_value,
+        rv_times_value,
+        observed_rv_value,
+        observed_rv_err_value,
+        rv_reference_time,
+        rv_mask_value,
+    )
+    log_prob = logprob_vec(position, *logprob_inputs)
 
     if proposal_scale is None:
         proposal_scale = _default_proposal_scale(proposal_scale_fraction)
@@ -759,22 +745,29 @@ def self_lensing_systems_from_batched_rv_fit_no_peak_prior_blackjax(
     )
     proposal_scale = jax.device_put(jax_numpy.asarray(proposal_scale), fit_device)
 
-    def one_step(carry, rng_key):
-        position, log_prob = carry
-        proposal_key, accept_key = jax.random.split(rng_key)
-        proposal = position + jax.random.normal(
-            proposal_key,
-            shape=position.shape,
-        ) * proposal_scale
-        proposal_log_prob = logprob_vec(proposal)
-        log_accept_ratio = proposal_log_prob - log_prob
-        accepted = jnp.log(jax.random.uniform(accept_key, shape=log_prob.shape)) < log_accept_ratio
-        new_position = jnp.where(accepted[..., None], proposal, position)
-        new_log_prob = jnp.where(accepted, proposal_log_prob, log_prob)
-        return (new_position, new_log_prob), (new_position, new_log_prob, accepted)
-
     @jax.jit
-    def run_steps(position, log_prob, rng_keys):
+    def run_steps(position, log_prob, rng_keys, proposal_scale, *logprob_inputs):
+        def one_step(carry, rng_key):
+            position, log_prob = carry
+            proposal_key, accept_key = jax.random.split(rng_key)
+            proposal = position + jax.random.normal(
+                proposal_key,
+                shape=position.shape,
+            ) * proposal_scale
+            proposal_log_prob = logprob_vec(proposal, *logprob_inputs)
+            log_accept_ratio = proposal_log_prob - log_prob
+            accepted = (
+                jnp.log(jax.random.uniform(accept_key, shape=log_prob.shape))
+                < log_accept_ratio
+            )
+            new_position = jnp.where(accepted[..., None], proposal, position)
+            new_log_prob = jnp.where(accepted, proposal_log_prob, log_prob)
+            return (new_position, new_log_prob), (
+                new_position,
+                new_log_prob,
+                accepted,
+            )
+
         return jax.lax.scan(one_step, (position, log_prob), rng_keys)
 
     rng_key = jax.random.PRNGKey(random_seed)
@@ -793,9 +786,7 @@ def self_lensing_systems_from_batched_rv_fit_no_peak_prior_blackjax(
             rng_key, sample_key = jax.random.split(rng_key)
             step_keys = jax.random.split(sample_key, current_chunk_size)
             (position, log_prob), (positions, chunk_log_prob, _accepted) = run_steps(
-                position,
-                log_prob,
-                step_keys,
+                position, log_prob, step_keys, proposal_scale, *logprob_inputs
             )
             keep_steps = (
                 jnp.arange(completed_steps, completed_steps + current_chunk_size) >= burn
