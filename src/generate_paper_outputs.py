@@ -18,7 +18,7 @@ import numpy
 import pandas
 import seaborn
 from matplotlib import pyplot
-from matplotlib.colors import LogNorm
+from matplotlib.colors import ListedColormap, LogNorm, Normalize
 from matplotlib.lines import Line2D
 
 from utils import configure_logging
@@ -295,12 +295,21 @@ def prefit_joint_error_rows(results):
                 continue
             mass_range = lens_mass_range(finite["Macc"])
             errors = relative_error(finite[param], finite[value_column])
+            observing_columns = {
+                column: (
+                    numeric_scalar_series(finite[column]).to_numpy()
+                    if column in finite
+                    else numpy.full(len(finite), numpy.nan)
+                )
+                for column in ("baseline", "cadence", "RV accuracy")
+            }
             stage_rows = pandas.DataFrame(
                 {
                     "parameter": param,
                     "parameter_label": spec["label"],
                     "fit_stage": fit_stage,
                     "lens_mass_range": mass_range.astype(str).to_numpy(),
+                    **observing_columns,
                     "n_rv": finite["n_rv"].astype(int).to_numpy(),
                     "pristine_id": finite["pristine_id"].astype(str).to_numpy(),
                     "relative_error": errors,
@@ -399,6 +408,377 @@ def summarise_prefit_joint_errors_by_lens_mass_range(error_rows):
         .reset_index()
         .sort_values(["parameter", "lens_mass_range", "fit_stage", "n_rv"])
     )
+
+
+def summarise_prefit_joint_errors_by_observing_strategy(error_rows):
+    """Summarise prefit comparisons within each cadence/baseline panel."""
+    strategy_columns = [
+        "parameter",
+        "parameter_label",
+        "baseline",
+        "cadence",
+        "RV accuracy",
+        "fit_stage",
+    ]
+    return (
+        error_rows.groupby(strategy_columns, dropna=False)
+        .agg(
+            median_relative_error=pandas.NamedAgg(
+                column="relative_error", aggfunc="median"
+            ),
+            q25_relative_error=pandas.NamedAgg(
+                column="relative_error",
+                aggfunc=lambda values: numpy.nanpercentile(values, 25),
+            ),
+            q75_relative_error=pandas.NamedAgg(
+                column="relative_error",
+                aggfunc=lambda values: numpy.nanpercentile(values, 75),
+            ),
+            recovery_fraction=pandas.NamedAgg(column="recovered", aggfunc="mean"),
+            n_rows=pandas.NamedAgg(column="relative_error", aggfunc="size"),
+            n_systems=pandas.NamedAgg(column="pristine_id", aggfunc="nunique"),
+        )
+        .reset_index()
+        .sort_values(strategy_columns)
+    )
+
+
+def attach_photometric_observables(results):
+    """Attach source peak amplification and crossing time to fitted rows."""
+    enriched = results.copy()
+    if "source_amp_sl" not in enriched:
+        metadata_paths = [
+            PROJECT_ROOT / "data" / "pristine_rv" / "metadata.csv",
+            Path("/scratch/anm1u24/self_lensing_radial_velocity/data/pristine_rv/metadata.csv"),
+        ]
+        metadata_path = next((path for path in metadata_paths if path.exists()), None)
+        if metadata_path is None:
+            raise FileNotFoundError(
+                "Could not find pristine photometry metadata needed for peak amplification"
+            )
+        metadata = pandas.read_csv(
+            metadata_path,
+            usecols=["simulation_id", "source_amp_sl"],
+        ).rename(columns={"simulation_id": "pristine_id"})
+        metadata["pristine_id"] = metadata["pristine_id"].astype(str)
+        enriched["pristine_id"] = enriched["pristine_id"].astype(str)
+        enriched = enriched.merge(metadata, on="pristine_id", how="left")
+    enriched["peak_amplification"] = numeric_scalar_series(enriched["source_amp_sl"])
+    crossing_column = (
+        "prefit_fitted_tau_eff"
+        if "prefit_fitted_tau_eff" in enriched
+        else "tau_eff"
+    )
+    enriched["crossing_time_days"] = numeric_scalar_series(enriched[crossing_column])
+    return enriched
+
+
+def prefit_relative_error_improvement_rows(results):
+    """Return the change in relative error from photometry-only to joint fits."""
+    results = attach_photometric_observables(results)
+    parameters = prefit_comparison_parameters(results)
+    rows = []
+    for param, spec in parameters.items():
+        needed = [
+            param,
+            spec["prefit"],
+            spec["fitted"],
+            "baseline",
+            "cadence",
+            "RV accuracy",
+            "pristine_id",
+        ]
+        finite = results.dropna(subset=needed).copy()
+        if finite.empty:
+            continue
+        for column in (
+            param,
+            spec["prefit"],
+            spec["fitted"],
+            "baseline",
+            "cadence",
+            "RV accuracy",
+        ):
+            finite[column] = numeric_scalar_series(finite[column])
+        finite = finite[
+            numpy.isfinite(finite[param])
+            & numpy.isfinite(finite[spec["prefit"]])
+            & numpy.isfinite(finite[spec["fitted"]])
+            & numpy.isfinite(finite["baseline"])
+            & numpy.isfinite(finite["cadence"])
+            & numpy.isfinite(finite["RV accuracy"])
+        ]
+        if finite.empty:
+            continue
+        prefit_error = relative_error(finite[param], finite[spec["prefit"]])
+        joint_error = relative_error(finite[param], finite[spec["fitted"]])
+        rows.append(
+            pandas.DataFrame(
+                {
+                    "parameter": param,
+                    "parameter_label": spec["label"],
+                    "photometry_only_fitted_value": finite[spec["prefit"]].to_numpy(),
+                    "baseline": finite["baseline"].to_numpy(),
+                    "cadence": finite["cadence"].to_numpy(),
+                    "RV accuracy": finite["RV accuracy"].to_numpy(),
+                    "peak_amplification": finite["peak_amplification"].to_numpy(),
+                    "crossing_time_days": finite["crossing_time_days"].to_numpy(),
+                    "pristine_id": finite["pristine_id"].astype(str).to_numpy(),
+                    "prefit_relative_error": prefit_error,
+                    "joint_relative_error": joint_error,
+                    "relative_error_improvement": prefit_error - joint_error,
+                }
+            )
+        )
+    if not rows:
+        raise ValueError("No finite prefit and joint-fit values are available")
+    return pandas.concat(rows, ignore_index=True)
+
+
+def plot_prefit_relative_error_improvement_scatter_grids(
+    results,
+    color_column="RV accuracy",
+    color_label=r"RV accuracy [m s$^{-1}$]",
+    filename_suffix="",
+):
+    """Plot prefit-to-joint improvement against photometry-only fit values."""
+    plot_data = prefit_relative_error_improvement_rows(results)
+    plot_params = [
+        param for param in ("Macc", "Porb", "a") if param in set(plot_data["parameter"])
+    ]
+    if not plot_params:
+        raise ValueError("No configured parameters are available for improvement plots")
+
+    for param in plot_params:
+        param_data = plot_data[plot_data["parameter"] == param].copy()
+        filename = (
+            f"prefit_relative_error_improvement_by_cadence_baseline_{param}"
+            f"{filename_suffix}"
+        )
+        colored_data = param_data[
+            numpy.isfinite(param_data[color_column]) & (param_data[color_column] > 0)
+        ].copy()
+        if colored_data.empty:
+            logger.warning(
+                "Skipping %s because %s has no positive values",
+                filename,
+                color_column,
+            )
+            continue
+        colored_data.to_csv(TABLE_DIR / f"{filename}.csv", index=False)
+        baselines = numpy.sort(param_data["baseline"].unique())
+        cadences = numpy.sort(param_data["cadence"].unique())
+        color_values = colored_data[color_column].to_numpy(dtype=float)
+        norm = (
+            LogNorm(vmin=color_values.min(), vmax=color_values.max())
+            if color_values.min() < color_values.max()
+            else Normalize(vmin=color_values.min(), vmax=color_values.max() + 1.0)
+        )
+
+        fig, axes = pyplot.subplots(
+            len(baselines),
+            len(cadences),
+            figsize=(8.2, 6.8),
+            sharex=True,
+            sharey=True,
+            constrained_layout=True,
+        )
+        axes = numpy.asarray(axes, dtype=object).reshape(len(baselines), len(cadences))
+        scatter = None
+        for row_index, baseline in enumerate(baselines):
+            for col_index, cadence in enumerate(cadences):
+                axis = axes[row_index, col_index]
+                panel_data = colored_data[
+                    (colored_data["baseline"] == baseline)
+                    & (colored_data["cadence"] == cadence)
+                    & (colored_data["photometry_only_fitted_value"] > 0)
+                ]
+                scatter = axis.scatter(
+                    panel_data["photometry_only_fitted_value"],
+                    panel_data["relative_error_improvement"],
+                    c=panel_data[color_column],
+                    cmap="viridis",
+                    norm=norm,
+                    s=9,
+                    alpha=0.55,
+                    linewidths=0,
+                    rasterized=True,
+                )
+                axis.axhline(0, color="0.25", linewidth=0.7, linestyle="--")
+                if len(panel_data) >= 10:
+                    seaborn.kdeplot(
+                        data=panel_data,
+                        x="photometry_only_fitted_value",
+                        y="relative_error_improvement",
+                        log_scale=(True, False),
+                        levels=5,
+                        thresh=0.06,
+                        color="black",
+                        linewidths=0.6,
+                        alpha=0.6,
+                        warn_singular=False,
+                        ax=axis,
+                        zorder=3,
+                    )
+                if row_index == 0:
+                    axis.set_title(f"Cadence {cadence:g} d")
+                if col_index == 0:
+                    axis.set_ylabel(
+                        f"Baseline {baseline / 365:g} yr\nRelative-error improvement"
+                    )
+                else:
+                    axis.set_ylabel("")
+                if row_index == len(baselines) - 1:
+                    label = param_data["parameter_label"].iloc[0]
+                    unit = PARAMETERS[param]["unit"]
+                    axis.set_xlabel(
+                        f"Photometry-only fitted {label}"
+                        + (f" [{unit}]" if unit else "")
+                    )
+                else:
+                    axis.set_xlabel("")
+                axis.set_xscale("log")
+                axis.set_yscale("symlog", linthresh=0.01)
+                axis.grid(True, which="both", alpha=0.22)
+
+        if scatter is not None:
+            fig.colorbar(
+                scatter,
+                ax=axes,
+                location="right",
+                shrink=0.78,
+                label=color_label,
+            )
+        for suffix in ("pdf", "png"):
+            fig.savefig(FIGURE_DIR / f"{filename}.{suffix}", bbox_inches="tight")
+        pyplot.close(fig)
+
+
+def plot_prefit_relative_error_improvement_scatter_grids_by_photometric_observable(
+    results,
+):
+    """Write scatter-grid variants coloured by pre-RV photometric observables."""
+    for color_column, color_label, filename_suffix in (
+        (
+            "peak_amplification",
+            "Peak amplification",
+            "_peak_amplification",
+        ),
+        (
+            "crossing_time_days",
+            "Crossing time [d]",
+            "_crossing_time",
+        ),
+    ):
+        plot_prefit_relative_error_improvement_scatter_grids(
+            results,
+            color_column=color_column,
+            color_label=color_label,
+            filename_suffix=filename_suffix,
+        )
+
+
+def plot_photometry_followup_recommendation_maps(results):
+    """Map the least demanding RV strategy reaching 90% of attainable gain."""
+    results = attach_photometric_observables(results)
+    parameters = prefit_comparison_parameters(results)
+    feature_columns = ["peak_amplification", "crossing_time_days"]
+    plot_params = [param for param in ("Macc", "Porb", "a") if param in parameters]
+
+    for param in plot_params:
+        spec = parameters[param]
+        needed = [
+            param,
+            spec["prefit"],
+            spec["fitted"],
+            *feature_columns,
+            "baseline",
+            "cadence",
+            "RV accuracy",
+            "n_rv",
+        ]
+        data = results.dropna(subset=needed).copy()
+        for column in needed:
+            if column in data and column != param:
+                data[column] = numeric_scalar_series(data[column])
+        data = data[
+            numpy.isfinite(data[param])
+            & numpy.isfinite(data[spec["prefit"]])
+            & numpy.isfinite(data[spec["fitted"]])
+            & (data["peak_amplification"] > 0)
+            & (data["crossing_time_days"] > 0)
+        ].copy()
+        if data.empty:
+            continue
+        data["prefit_relative_error"] = relative_error(data[param], data[spec["prefit"]])
+        data["joint_relative_error"] = relative_error(data[param], data[spec["fitted"]])
+        data["peak_bin"] = pandas.qcut(data["peak_amplification"], q=4, duplicates="drop")
+        data["crossing_bin"] = pandas.qcut(data["crossing_time_days"], q=4, duplicates="drop")
+        data = data.dropna(subset=["peak_bin", "crossing_bin"])
+        data["peak_bin"] = data["peak_bin"].astype(str)
+        data["crossing_bin"] = data["crossing_bin"].astype(str)
+        group_columns = ["peak_bin", "crossing_bin", "baseline", "cadence", "RV accuracy", "n_rv"]
+        strategy = data.groupby(group_columns, observed=True).agg(
+            prefit_error=("prefit_relative_error", "median"),
+            joint_error=("joint_relative_error", "median"),
+            n_systems=("pristine_id", "nunique"),
+        ).reset_index()
+        bin_columns = ["peak_bin", "crossing_bin"]
+        strategy["best_joint_error"] = strategy.groupby(bin_columns)["joint_error"].transform("min")
+        strategy["photometry_error"] = strategy.groupby(bin_columns)["prefit_error"].transform("median")
+        gain = strategy["photometry_error"] - strategy["best_joint_error"]
+        strategy["attainable_improvement_fraction"] = numpy.where(
+            gain > 0,
+            (strategy["photometry_error"] - strategy["joint_error"]) / gain,
+            numpy.nan,
+        )
+        sufficient = strategy[strategy["attainable_improvement_fraction"] >= 0.9].copy()
+        sufficient = sufficient.sort_values(
+            ["peak_bin", "crossing_bin", "n_rv", "baseline", "RV accuracy"],
+            ascending=[True, True, True, True, False],
+        )
+        recommendation = sufficient.groupby(bin_columns, observed=True).first().reset_index()
+        if recommendation.empty:
+            logger.warning("No 90%%-plateau recommendation is available for %s", param)
+            continue
+        filename = f"photometry_followup_recommendation_{param}"
+        recommendation.to_csv(TABLE_DIR / f"{filename}.csv", index=False)
+        peak_labels = list(data["peak_bin"].drop_duplicates())
+        crossing_labels = list(data["crossing_bin"].drop_duplicates())
+        panels = [
+            ("cadence", "Cadence [d]"),
+            ("baseline", "Baseline [yr]"),
+            ("RV accuracy", r"RV accuracy [m s$^{-1}$]"),
+        ]
+        fig, axes = pyplot.subplots(1, 3, figsize=(10.2, 3.7), sharey=True, constrained_layout=True)
+        for axis, (column, title) in zip(axes, panels):
+            values = recommendation.pivot(index="crossing_bin", columns="peak_bin", values=column)
+            values = values.reindex(index=crossing_labels, columns=peak_labels)
+            display = values / 365.0 if column == "baseline" else values
+            annotation = display.map(lambda value: "" if pandas.isna(value) else f"{value:g}")
+            seaborn.heatmap(
+                display,
+                ax=axis,
+                cmap=ListedColormap(seaborn.color_palette("viridis", as_cmap=False)),
+                annot=annotation,
+                fmt="",
+                cbar=False,
+                linewidths=0.5,
+                linecolor="white",
+            )
+            axis.set_title(title)
+            axis.set_xlabel("Photometric peak-amplification quartile")
+            axis.tick_params(axis="x", rotation=35)
+        axes[0].set_ylabel("Photometry-only crossing-time quartile")
+        for axis in axes[1:]:
+            axis.set_ylabel("")
+        fig.suptitle(
+            f"Least demanding strategy reaching 90% of attainable {PARAMETERS[param]['label']} improvement",
+            fontsize=10,
+        )
+        for suffix in ("pdf", "png"):
+            fig.savefig(FIGURE_DIR / f"{filename}.{suffix}", bbox_inches="tight")
+        pyplot.close(fig)
 
 
 def plot_prefit_improvement_by_n_rv(results):
@@ -598,6 +978,122 @@ def plot_prefit_improvement_by_lens_mass_range(results):
             bbox_inches="tight",
         )
     pyplot.close(fig)
+
+
+def plot_prefit_improvement_by_cadence_and_baseline(results):
+    """Write one prefit-comparison grid per physical parameter.
+
+    Each panel fixes the observing cadence and baseline, so RV accuracy is the
+    varying quantity on the horizontal axis.  This avoids using ``n_rv`` as an
+    axis within a panel, where it is necessarily constant.
+    """
+    error_rows = prefit_joint_error_rows(results)
+    summary = summarise_prefit_joint_errors_by_observing_strategy(error_rows)
+    available_parameters = set(summary["parameter"])
+    plot_params = [
+        param
+        for param in ("Macc", "a", "Porb", "b")
+        if param in available_parameters
+    ]
+    if not plot_params:
+        raise ValueError("No configured parameters are available for prefit comparison")
+
+    for param in plot_params:
+        param_data = summary[summary["parameter"] == param].copy()
+        param_data.to_csv(
+            TABLE_DIR / f"prefit_improvement_by_cadence_baseline_{param}.csv",
+            index=False,
+        )
+        baselines = numpy.sort(param_data["baseline"].dropna().unique())
+        cadences = numpy.sort(param_data["cadence"].dropna().unique())
+        if len(baselines) == 0 or len(cadences) == 0:
+            continue
+
+        fig, axes = pyplot.subplots(
+            len(baselines),
+            len(cadences),
+            figsize=(2.45 * len(cadences), 1.85 * len(baselines)),
+            sharex=True,
+            sharey=True,
+            constrained_layout=True,
+        )
+        axes = numpy.asarray(axes, dtype=object).reshape(len(baselines), len(cadences))
+
+        for row_index, baseline in enumerate(baselines):
+            for col_index, cadence in enumerate(cadences):
+                axis = axes[row_index, col_index]
+                panel_data = param_data[
+                    (param_data["baseline"] == baseline)
+                    & (param_data["cadence"] == cadence)
+                ]
+                for stage, style in PREFIT_COMPARISON_STAGE_STYLES.items():
+                    stage_data = panel_data[
+                        panel_data["fit_stage"] == stage
+                    ].sort_values("RV accuracy")
+                    if stage_data.empty:
+                        continue
+                    x = stage_data["RV accuracy"].to_numpy(dtype=float)
+                    median = stage_data["median_relative_error"].to_numpy(dtype=float)
+                    q25 = stage_data["q25_relative_error"].to_numpy(dtype=float)
+                    q75 = stage_data["q75_relative_error"].to_numpy(dtype=float)
+                    axis.plot(
+                        x,
+                        median,
+                        color=style["color"],
+                        marker=style["marker"],
+                        linestyle=style["linestyle"],
+                        linewidth=1.1,
+                        markersize=3.2,
+                    )
+                    axis.fill_between(
+                        x,
+                        q25,
+                        q75,
+                        color=style["color"],
+                        alpha=0.14,
+                        linewidth=0,
+                    )
+
+                if row_index == 0:
+                    axis.set_title(f"Cadence {cadence:g} d")
+                if col_index == 0:
+                    axis.set_ylabel(
+                        f"Baseline {baseline / 365:g} yr\nRelative error"
+                    )
+                else:
+                    axis.set_ylabel("")
+                if row_index == len(baselines) - 1:
+                    axis.set_xlabel(r"RV accuracy [m s$^{-1}$]")
+                else:
+                    axis.set_xlabel("")
+                axis.set_xscale("log")
+                axis.set_yscale("log")
+                axis.grid(True, which="both", axis="both", alpha=0.22)
+
+        legend_handles = [
+            Line2D(
+                [0],
+                [0],
+                color=style["color"],
+                marker=style["marker"],
+                linestyle=style["linestyle"],
+                linewidth=1.2,
+                markersize=4,
+                label=stage,
+            )
+            for stage, style in PREFIT_COMPARISON_STAGE_STYLES.items()
+        ]
+        fig.legend(
+            handles=legend_handles,
+            loc="upper center",
+            ncol=2,
+            bbox_to_anchor=(0.5, 1.08),
+            frameon=False,
+        )
+        filename = f"prefit_improvement_by_cadence_baseline_{param}"
+        for suffix in ("pdf", "png"):
+            fig.savefig(FIGURE_DIR / f"{filename}.{suffix}", bbox_inches="tight")
+        pyplot.close(fig)
 
 
 def prefit_compact_object_class_rows(results):
@@ -1320,6 +1816,53 @@ def binned_metric_table(
     label_formatter=range_label,
     aggfunc="median",
 ):
+    finite = binned_metric_rows(
+        results,
+        value_column=value_column,
+        metric_column=metric_column,
+        unit=unit,
+        n_bins=n_bins,
+        bins=bins,
+        labels=labels,
+        label_formatter=label_formatter,
+    )
+
+    table = (
+        finite.groupby(
+            [
+                "baseline",
+                "baseline_years",
+                "cadence",
+                "RV accuracy",
+                "_value_bin",
+                "_value_bin_label",
+            ],
+            observed=True,
+            dropna=False,
+        )
+        .agg(
+            **{
+                metric_name: pandas.NamedAgg(column=metric_column, aggfunc=aggfunc),
+                "n_systems": pandas.NamedAgg(column="pristine_id", aggfunc="nunique"),
+            }
+        )
+        .reset_index()
+        .sort_values(["baseline", "cadence", "RV accuracy", "_value_bin"])
+    )
+    return table
+
+
+def binned_metric_rows(
+    results,
+    value_column,
+    metric_column,
+    unit,
+    n_bins=4,
+    bins=None,
+    labels=None,
+    label_formatter=range_label,
+):
+    """Return finite metric rows annotated with the true-value bin."""
     finite = results[
         numpy.isfinite(results[value_column]) & numpy.isfinite(results[metric_column])
     ].copy()
@@ -1349,30 +1892,7 @@ def binned_metric_table(
         )
         finite = finite.dropna(subset=["_value_bin"]).copy()
         finite["_value_bin_label"] = finite["_value_bin"].astype(str)
-
-    table = (
-        finite.groupby(
-            [
-                "baseline",
-                "baseline_years",
-                "cadence",
-                "RV accuracy",
-                "_value_bin",
-                "_value_bin_label",
-            ],
-            observed=True,
-            dropna=False,
-        )
-        .agg(
-            **{
-                metric_name: pandas.NamedAgg(column=metric_column, aggfunc=aggfunc),
-                "n_systems": pandas.NamedAgg(column="pristine_id", aggfunc="nunique"),
-            }
-        )
-        .reset_index()
-        .sort_values(["baseline", "cadence", "RV accuracy", "_value_bin"])
-    )
-    return table
+    return finite
 
 
 def plot_recovery_by_truth_range(
@@ -1580,6 +2100,144 @@ def plot_metric_by_truth_range(
             shrink=0.78,
             label=colorbar_label,
         )
+    for suffix in ("pdf", "png"):
+        fig.savefig(FIGURE_DIR / f"{filename}.{suffix}", bbox_inches="tight")
+    pyplot.close(fig)
+
+
+def plot_relative_error_distribution_by_truth_range(
+    results,
+    value_column,
+    metric_column,
+    unit,
+    filename,
+    x_label,
+    bins=None,
+    labels=None,
+    label_formatter=range_label,
+):
+    """Replace each relative-error heatmap cell with a 1D histogram."""
+    plot_data = binned_metric_rows(
+        results,
+        value_column=value_column,
+        metric_column=metric_column,
+        unit=unit,
+        bins=bins,
+        labels=labels,
+        label_formatter=label_formatter,
+    )
+    plot_data.to_csv(TABLE_DIR / f"{filename}.csv", index=False)
+
+    baselines = numpy.sort(plot_data["baseline"].dropna().unique())
+    cadences = numpy.sort(plot_data["cadence"].dropna().unique())
+    bin_labels = (
+        list(labels)
+        if labels is not None
+        else list(plot_data["_value_bin_label"].drop_duplicates())
+    )
+    rv_accuracies = numpy.sort(plot_data["RV accuracy"].dropna().unique())
+    positive_data = plot_data[plot_data[metric_column] > 0].copy()
+    if positive_data.empty:
+        raise ValueError(f"No positive relative errors available for {metric_column}")
+
+    log_errors = numpy.log10(positive_data[metric_column].to_numpy(dtype=float))
+    log_min = numpy.floor(log_errors.min())
+    log_max = numpy.ceil(log_errors.max())
+    if log_min == log_max:
+        log_min -= 0.5
+        log_max += 0.5
+    histogram_edges = numpy.linspace(log_min, log_max, 11)
+
+    fig, axes = pyplot.subplots(
+        len(baselines),
+        len(cadences),
+        figsize=(8.2, 6.8),
+        sharex=True,
+        sharey=True,
+        constrained_layout=True,
+    )
+    axes = numpy.asarray(axes, dtype=object).reshape(len(baselines), len(cadences))
+
+    for row_index, baseline in enumerate(baselines):
+        for col_index, cadence in enumerate(cadences):
+            axis = axes[row_index, col_index]
+            panel_data = positive_data[
+                (positive_data["baseline"] == baseline)
+                & (positive_data["cadence"] == cadence)
+            ]
+
+            # Make the parent axes identical to the heatmap grid. Each inset
+            # occupies the corresponding heatmap cell and contains its own
+            # normalised, log-relative-error histogram.
+            axis.set_xlim(0, len(bin_labels))
+            axis.set_ylim(len(rv_accuracies), 0)
+            axis.set_xticks(numpy.arange(len(bin_labels)) + 0.5, bin_labels)
+            axis.set_yticks(
+                numpy.arange(len(rv_accuracies)) + 0.5,
+                rv_accuracy_tick_labels(rv_accuracies),
+            )
+            axis.set_aspect("equal")
+            axis.set_facecolor("white")
+            axis.set_xticks(numpy.arange(len(bin_labels) + 1), minor=True)
+            axis.set_yticks(numpy.arange(len(rv_accuracies) + 1), minor=True)
+            axis.grid(which="minor", color="0.72", linewidth=0.65)
+            axis.tick_params(which="minor", bottom=False, left=False)
+
+            for y_index, accuracy in enumerate(rv_accuracies):
+                for x_index, value_bin_label in enumerate(bin_labels):
+                    cell_data = panel_data[
+                        (panel_data["RV accuracy"] == accuracy)
+                        & (panel_data["_value_bin_label"] == value_bin_label)
+                    ][metric_column].to_numpy(dtype=float)
+                    cell_data = cell_data[numpy.isfinite(cell_data) & (cell_data > 0)]
+                    if cell_data.size == 0:
+                        continue
+                    inset = axis.inset_axes(
+                        [
+                            (x_index + 0.06) / len(bin_labels),
+                            1.0 - (y_index + 0.94) / len(rv_accuracies),
+                            0.88 / len(bin_labels),
+                            0.88 / len(rv_accuracies),
+                        ]
+                    )
+                    counts, _ = numpy.histogram(numpy.log10(cell_data), bins=histogram_edges)
+                    frequencies = counts / counts.sum()
+                    inset.bar(
+                        histogram_edges[:-1],
+                        frequencies,
+                        width=numpy.diff(histogram_edges),
+                        align="edge",
+                        color="#0072B2",
+                        edgecolor="white",
+                        linewidth=0.18,
+                    )
+                    inset.set_xlim(log_min, log_max)
+                    inset.set_ylim(0, max(0.35, frequencies.max() * 1.08))
+                    inset.set_axis_off()
+
+            if row_index == 0:
+                axis.set_title(f"Cadence {cadence:g} d")
+            if col_index == 0:
+                axis.set_ylabel(
+                    f"Baseline {baseline / 365:g} yr\n"
+                    + r"RV accuracy [m s$^{-1}$]"
+                )
+            else:
+                axis.set_ylabel("")
+            if row_index == len(baselines) - 1:
+                axis.set_xlabel(x_label)
+            else:
+                axis.set_xlabel("")
+            axis.tick_params(axis="x", rotation=35)
+
+    fig.text(
+        0.5,
+        0.01,
+        "Within each cell: relative-error histogram (logarithmic bins; error increases left to right)",
+        ha="center",
+        va="bottom",
+        fontsize=8,
+    )
     for suffix in ("pdf", "png"):
         fig.savefig(FIGURE_DIR / f"{filename}.{suffix}", bbox_inches="tight")
     pyplot.close(fig)
@@ -1954,6 +2612,24 @@ def plot_lens_mass_relative_error_iqr_by_mass(results):
     )
 
 
+def plot_lens_mass_relative_error_distribution_by_mass(results):
+    plot_relative_error_distribution_by_truth_range(
+        results,
+        value_column="Macc",
+        metric_column="Macc_relative_error",
+        unit=r"$M_\odot$",
+        filename="lens_mass_relative_error_distribution_by_lens_mass",
+        x_label=r"True lens mass range",
+        bins=[0.0, 3.0, 5.0, 20.0, 50.0],
+        labels=[
+            r"$<3\,M_\odot$",
+            r"$3$--$5\,M_\odot$",
+            r"$5$--$20\,M_\odot$",
+            r"$20$--$50\,M_\odot$",
+        ],
+    )
+
+
 def plot_orbital_period_recovery_by_period(results):
     plot_recovery_by_truth_range(
         results,
@@ -1979,6 +2655,18 @@ def plot_orbital_period_relative_error_by_period(results):
         label_formatter=period_range_label,
         percent_scale=True,
         vmax=100,
+    )
+
+
+def plot_orbital_period_relative_error_distribution_by_period(results):
+    plot_relative_error_distribution_by_truth_range(
+        results,
+        value_column="Porb",
+        metric_column="Porb_relative_error",
+        unit="d",
+        filename="orbital_period_relative_error_distribution_by_period",
+        x_label=r"True orbital period range",
+        label_formatter=period_range_label,
     )
 
 
@@ -2254,6 +2942,11 @@ def main():
         plot_lens_mass_relative_error_by_mass,
         results,
     )
+    run_step(
+        "lens mass relative-error distribution by lens mass figure",
+        plot_lens_mass_relative_error_distribution_by_mass,
+        results,
+    )
     # run_step(
     #     "lens mass relative error IQR by lens mass figure",
     #     plot_lens_mass_relative_error_iqr_by_mass,
@@ -2267,6 +2960,11 @@ def main():
     run_step(
         "orbital period relative error by period figure",
         plot_orbital_period_relative_error_by_period,
+        results,
+    )
+    run_step(
+        "orbital period relative-error distribution by period figure",
+        plot_orbital_period_relative_error_distribution_by_period,
         results,
     )
     # Not currently included in main.tex.
@@ -2283,6 +2981,26 @@ def main():
     run_step(
         "prefit improvement by lens-mass range figure",
         plot_prefit_improvement_by_lens_mass_range,
+        results,
+    )
+    run_step(
+        "prefit improvement by cadence and baseline figures",
+        plot_prefit_improvement_by_cadence_and_baseline,
+        results,
+    )
+    run_step(
+        "prefit relative-error improvement scatter grids",
+        plot_prefit_relative_error_improvement_scatter_grids,
+        results,
+    )
+    run_step(
+        "prefit relative-error improvement scatter grids by photometric observable",
+        plot_prefit_relative_error_improvement_scatter_grids_by_photometric_observable,
+        results,
+    )
+    run_step(
+        "photometry-informed RV follow-up recommendation maps",
+        plot_photometry_followup_recommendation_maps,
         results,
     )
     run_step(

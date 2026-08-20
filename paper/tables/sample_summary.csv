@@ -1,7 +1,0 @@
-Quantity,Value
-Fitted observing configurations,374265
-Unique pristine systems,8317
-Campaign baselines [yr],"1, 3, 5"
-RV cadences [d],"1, 30, 300"
-RV accuracies [m s$^{-1}$],"0.1, 1, 10, 100, 1000"
-Recovery criterion,$|\Delta x|/x \leq 0.1$
