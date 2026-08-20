@@ -74,14 +74,13 @@
 % If you need two or more lines of authors, add an extra line using \newauthor
 \author[Adam McMaster et al.]{
 Adam McMaster,$^{1}$\thanks{E-mail: a.mcmaster@soton.ac.uk}
-A. N. Other,$^{2}$
-Third Author$^{2,3}$
-and Fourth Author$^{3}$
+Madeline-Mai Ward,$^{1}$
+Hugh J. Dickinson$^{2}$
+and Matthew J. Middleton$^{1}$
 \\
 % List of institutions
-$^{1}$University of Southampton...\\
-$^{2}$Department, Institution, Street Address, City Postal Code, Country\\
-$^{3}$Another Department, Different Institution, Street Address, City Postal Code, Country
+$^{1}$Department of Physics and Astronomy, University of Southampton, Highfield, Southampton SO17 1BJ, UK\\
+$^{2}$School of Physical Sciences, The Open University, Milton Keynes, MK7 6AA, UK
 }
 
 % These dates will be filled out by the publisher
@@ -279,7 +278,7 @@ where $\nu_\mathrm{TESS}$ is the TESS-band effective frequency and $v_r(t)$ is t
 
 % Adapted from Maddie's thesis
 
-Gaussian processes are designed to model smoothly varying correlated noise \citep{rasmussen_gaussian_2005}. In the exoplanet community, this has been highly successful in allowing exoplanet signals to be disentangled from stellar noise. In order to generate realistic, TESS-like light curves, we combine several kernels to model granulation and asteroseismic modes, based on the simulated stellar properties. We use \texttt{tinygp} with quasi-separable simple harmonic oscillator (SHO) kernels \textbf{TODO: Citations and more detail?}.
+Gaussian processes are designed to model smoothly varying correlated noise \citep{rasmussen_gaussian_2005}. In the exoplanet community, this has been highly successful in allowing exoplanet signals to be disentangled from stellar noise. In order to generate realistic, TESS-like light curves, we combine several kernels to model granulation and asteroseismic modes, based on the simulated stellar properties. We use \texttt{tinygp} with quasi-separable simple harmonic oscillator (SHO) kernels \textbf{TODO: Citation for tinygp?}.
 
 Granulation is a form of aperiodic correlated noise due to convection cells at the stellar surface. Granulation appears as low-amplitude correlated noise; aperiodic in nature, it prefers certain timescales dictated by the size and age of the star \citep{kjeldsen_amplitudes_1995}. As derived
 in \cite{foreman-mackey_exoplanet_2021}, we consider this a characteristic timescale of a damped stochastic process. We model such a process using a damped harmonic oscillator kernel with a fixed quality factor ($Q= \frac{1}{\sqrt{2}}$) parameter to create a damped random walk (DRW). This creates frequency-dependent broadband noise with a characteristic timescale but no dominant frequencies. The characteristic
@@ -446,7 +445,7 @@ The quantity sampled by the MCMC is then the sum of these terms plus the paramet
 \end{equation}
 The reported fitted parameters are posterior summaries rather than single maximum-posterior samples: after burn-in, we retain the 256 samples with the highest finite posterior values for each fit and take the mean of the fitted parameters, using a circular mean for the periapsis phase angle.
 
-\subsection{Predicted detection rates} \label{sec:pop-synth}
+\subsection{Predicting recovery of real self-lensing systems} \label{sec:pop-synth}
 
 In order to inform expectations about how many self-lensing systems might be correctly characterised as a result of detection in modern photometric surveys, we seek to combine our estimates of the recoverability of the physical properties of self-lensing systems with the detectability estimates of \cite{wiktorowicz_predicting_2021}. We note that the survey-specific detection yields we use here come from their Table~2, which is an optimistic upper limit including events for which only one photometric detection is made (i.e. one photometric point in the light curve falls within the lensing event). In reality, detections would require multiple photometric points to estimate $t_0$ and $\tau_\mathrm{eff}$.
 
@@ -567,9 +566,7 @@ Figure~\ref{fig:prefit-compact-object-class-by-lens-mass-range} shows the percen
 
 In all cases, the lowest lens-mass relative error comes from jointly fitting the photometry and radial velocity data. For the other parameters, the joint fit is often comparable to just fitting RV alone, so in those cases it might be tempting to think that we could reliably discover self-lensing systems with a radial velocity survey alone, albeit by sacrificing some accuracy in the modelled lens mass. However, it is important to note that even with the RV-only fit we have the benefit of having a strong prior on the orbital phase, thanks to having a prior photometric detection (even if the photometry is not included in the fit). We can save a small amount of computational effort by independently fitting the RV, but to avoid needing a larger number of RV measurements we still require a photometric detection first.
 
-\subsection{Predicted detection rates}
-
-\textbf{TODO: Thinking about this further... it doesn't make sense to define ``detection'' as meaning we've fitted the mass/porb to within some threshold. It's discovered if we see clear binary orbital motion in the RV, even if we get the fit wrong we know we've discovered an SL binary. Need to think about how to quantify that.}
+\subsection{Predicted recovery rates}
 
 \textbf{TODO: Need to re-run this analysis and regenerate the figures, then update the text. Description has already drifted from the figures in the paper and those aren't even the final ones!}
 
@@ -582,30 +579,16 @@ We first used the emulator to estimate the recovery rates for parameters based o
     \label{fig:population-weighted-rv-followup-heatmaps-counts-class}
 \end{figure*}
 
-Figure~\ref{fig:population-weighted-rv-followup-heatmaps-counts-class} shows the recovery rates for compact-object class. Class recovery spans roughly 50--80\% depending on RV observing strategy, with a mean of 70.4\%. Recovery improves modestly with longer baseline on average (67.1, 71.7, 72.6 per cent for 1, 3, 5 yr). Recovery rate for a 300 d cadence is lower than 1 or 30 d cadence. The dependence on RV accuracy is weak/non-monotonic compared with cadence and baseline.
-
-\begin{figure*}
-    \centering
-    \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps_counts_macc.pdf}
-    \caption{Lens-mass recovery percentage, scaled by population synthesis results. Columns show observing baseline, and each panel separates cadence and instrumental RV accuracy.}
-    \label{fig:population-weighted-rv-followup-heatmaps-counts-macc}
-\end{figure*}
+Figure~\ref{fig:population-weighted-rv-followup-heatmaps-counts-class} shows the recovery rates for compact-object class. Class recovery spans roughly 50--80\% depending on RV observing strategy, with a mean of 70.4\%. Recovery improves modestly with longer baseline on average (67.1, 71.7, 72.6 per cent for 1, 3, 5 yr). Recovery rate for a 300 d cadence is lower than 1 or 30 d cadence. The dependence on RV accuracy is weak/non-monotonic compared with cadence and baseline. \textbf{TODO: Update this}
 
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps_relative_error_macc.pdf}
-    \caption{Detected-population median lens-mass relative error for the population-synthesis sample. Cell values give the median emulated $|\Delta M_\mathrm{lens}|/M_\mathrm{lens}$ in per cent. Columns show observing baseline, and each panel separates cadence and instrumental RV accuracy.}
+    \caption{Median relative error for fitted lens mass scaled to the detectable population from population synthesis. Cell values give the median emulated $|\Delta M_\mathrm{lens}|/M_\mathrm{lens}$ in per cent. Columns show observing baseline, and each panel separates cadence and instrumental RV accuracy.}
     \label{fig:population-weighted-rv-followup-heatmaps-relative-error-macc}
 \end{figure*}
 
-Figure~\ref{fig:population-weighted-rv-followup-heatmaps-counts-macc} shows the detected-population recovery rates for lens mass. Lens-mass recovery is much harder than class recovery (18.8--53.2\%, with a mean of 39.2\%). We can determine the class more easily than the accurate mass, so a sensible strategy would be to obtain a small number of RV observations to determine the likely object class, and then prioritise further RV observations based on those results to accurately determine the mass for the most interesting systems. Observing baseline has a large effect on the recovery rate, with the mean rising from 27.8 per cent at 1 yr to 42.4 per cent at 3 yr and 47.5 per cent at 5 yr. The 300 d cadence rows are generally worse than 1 or 30 d cadence, so observing cadence will also be an important consideration.
-
-\begin{figure*}
-    \centering
-    \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps_counts_porb.pdf}
-    \caption{Orbital-period recovery percentage, scaled by population synthesis results. Columns show observing baseline, and each panel separates cadence and instrumental RV accuracy.}
-    \label{fig:population-weighted-rv-followup-heatmaps-counts-porb}
-\end{figure*}
+Figure~\ref{fig:population-weighted-rv-followup-heatmaps-relative-error-macc} shows the detected-population recovery rates for lens mass. Lens-mass recovery is much harder than class recovery (18.8--53.2\%, with a mean of 39.2\%). We can determine the class more easily than the accurate mass, so a sensible strategy would be to obtain a small number of RV observations to determine the likely object class, and then prioritise further RV observations based on those results to accurately determine the mass for the most interesting systems. Observing baseline has a large effect on the recovery rate, with the mean rising from 27.8 per cent at 1 yr to 42.4 per cent at 3 yr and 47.5 per cent at 5 yr. The 300 d cadence rows are generally worse than 1 or 30 d cadence, so observing cadence will also be an important consideration. \textbf{TODO: Update this}
 
 \begin{figure*}
     \centering
@@ -614,11 +597,11 @@ Figure~\ref{fig:population-weighted-rv-followup-heatmaps-counts-macc} shows the 
     \label{fig:population-weighted-rv-followup-heatmaps-relative-error-porb}
 \end{figure*}
 
-Figure~\ref{fig:population-weighted-rv-followup-heatmaps-counts-porb} shows the recovery rates for orbital period. The recovery rate ranges from 36.2--81.5\%, with a mean of 66.8\%. As with the other parameters, the cadence and observing baseline affect recovery, with RV accuracy having a smaller effect.
+Figure~\ref{fig:population-weighted-rv-followup-heatmaps-relative-error-porb} shows the recovery rates for orbital period. The recovery rate ranges from 36.2--81.5\%, with a mean of 66.8\%. As with the other parameters, the cadence and observing baseline affect recovery, with RV accuracy having a smaller effect. \textbf{TODO: Update this}
 
-Table~\ref{tab:population-weighted-followup-counts-summary} shows a summary of the results of applying these recovery rates to the survey-specific photometric detection yields given by \cite{wiktorowicz_predicting_2021} (i.e. it shows the number of photometrically detectable systems in each survey for which each parameter can be accurately measured after RV follow-up). Full values are given in Tables \ref{tab:population-weighted-followup-counts-class}, \ref{tab:population-weighted-followup-counts-macc}, and \ref{tab:population-weighted-followup-counts-porb}. Note that the recovery rate is the same regardless of survey, as this is based on the RV follow-up observations; differences in recovered population sizes reflects the different numbers of photometrically-detectable systems in each survey.
+% Table~\ref{tab:population-weighted-followup-counts-summary} shows a summary of the results of applying these recovery rates to the survey-specific photometric detection yields given by \cite{wiktorowicz_predicting_2021} (i.e. it shows the number of photometrically detectable systems in each survey for which each parameter can be accurately measured after RV follow-up). Full values are given in Tables \ref{tab:population-weighted-followup-counts-class}, \ref{tab:population-weighted-followup-counts-macc}, and \ref{tab:population-weighted-followup-counts-porb}. Note that the recovery rate is the same regardless of survey, as this is based on the RV follow-up observations; differences in recovered population sizes reflects the different numbers of photometrically-detectable systems in each survey.
 
-\input{paper/tables/population_weighted_followup_counts_summary}
+% \input{paper/tables/population_weighted_followup_counts_summary}
 
 \section{Conclusions}
 We know self-lensing systems can be confirmed from photometry alone, and when this is not possible they can be confirmed with RV, at least in the case of relatively short period white dwarf lenses. We show it is possible to characterise lenses across the full compact object mass range, including for very long orbital periods where only one self-lensing event is detectable.
@@ -663,16 +646,16 @@ The authors acknowledge the use of the Codex coding agent in creating and debugg
 
 %%%%%%%%%%%%%%%%% APPENDICES %%%%%%%%%%%%%%%%%%%%%
 
-\appendix
+% \appendix
 
-\section{Expected recovered detections by survey}
-\label{app:population-weighted-followup-counts}
+% \section{Expected recovered detections by survey}
+% \label{app:population-weighted-followup-counts}
 
-\input{paper/tables/population_weighted_followup_counts_class}
+% \input{paper/tables/population_weighted_followup_counts_class}
 
-\input{paper/tables/population_weighted_followup_counts_macc}
+% \input{paper/tables/population_weighted_followup_counts_macc}
 
-\input{paper/tables/population_weighted_followup_counts_porb}
+% \input{paper/tables/population_weighted_followup_counts_porb}
 
 \FloatBarrier
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
