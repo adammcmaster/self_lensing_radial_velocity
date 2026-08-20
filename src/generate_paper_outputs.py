@@ -52,6 +52,8 @@ LENS_MASS_RANGE_LABELS = [
     r"$5$--$20\,M_\odot$",
     r"$20$--$50\,M_\odot$",
 ]
+ORBITAL_PERIOD_RANGE_LABELS = ["<1 yr", "1-10 yr", "10-100 yr", ">=100 yr"]
+ALL_MASSES_LABEL = "All masses"
 COMPACT_OBJECT_CLASS_BINS = LENS_MASS_RANGE_BINS
 COMPACT_OBJECT_CLASS_LABELS = LENS_MASS_RANGE_LABELS
 
@@ -784,7 +786,8 @@ def plot_photometry_followup_recommendation_maps(results):
 def plot_prefit_improvement_by_n_rv(results):
     error_rows = prefit_joint_error_rows(results)
     summary = summarise_prefit_joint_errors(error_rows)
-    summary.to_csv(TABLE_DIR / "prefit_improvement_by_n_rv.csv", index=False)
+    # The CSV summary is not currently included in main.tex.
+    # summary.to_csv(TABLE_DIR / "prefit_improvement_by_n_rv.csv", index=False)
 
     plot_params = [
         param for param in ("Macc", "a", "Porb", "b") if param in set(summary["parameter"])
@@ -868,10 +871,11 @@ def plot_prefit_improvement_by_n_rv(results):
 def plot_prefit_improvement_by_lens_mass_range(results):
     error_rows = prefit_joint_error_rows(results)
     summary = summarise_prefit_joint_errors_by_lens_mass_range(error_rows)
-    summary.to_csv(
-        TABLE_DIR / "prefit_improvement_by_lens_mass_range.csv",
-        index=False,
-    )
+    # The CSV summary is not currently included in main.tex.
+    # summary.to_csv(
+    #     TABLE_DIR / "prefit_improvement_by_lens_mass_range.csv",
+    #     index=False,
+    # )
 
     plot_params = [
         param for param in ("Macc", "a", "Porb", "b") if param in set(summary["parameter"])
@@ -1000,10 +1004,11 @@ def plot_prefit_improvement_by_cadence_and_baseline(results):
 
     for param in plot_params:
         param_data = summary[summary["parameter"] == param].copy()
-        param_data.to_csv(
-            TABLE_DIR / f"prefit_improvement_by_cadence_baseline_{param}.csv",
-            index=False,
-        )
+        # This figure and its CSV sidecar are not currently included in main.tex.
+        # param_data.to_csv(
+        #     TABLE_DIR / f"prefit_improvement_by_cadence_baseline_{param}.csv",
+        #     index=False,
+        # )
         baselines = numpy.sort(param_data["baseline"].dropna().unique())
         cadences = numpy.sort(param_data["cadence"].dropna().unique())
         if len(baselines) == 0 or len(cadences) == 0:
@@ -1328,7 +1333,8 @@ def plot_self_lensing_observable_space():
             }
         ]
     )
-    summary.to_csv(TABLE_DIR / "self_lensing_observable_space_summary.csv", index=False)
+    # The CSV summary is not currently included in main.tex.
+    # summary.to_csv(TABLE_DIR / "self_lensing_observable_space_summary.csv", index=False)
 
     color_by = [
         (r"$M_\mathrm{lens}$ [$M_\odot$]", lens_mass[valid], None),
@@ -1380,10 +1386,11 @@ def plot_self_lensing_observable_space():
 def plot_prefit_compact_object_class_by_lens_mass_range(results):
     class_rows = prefit_compact_object_class_rows(results)
     summary = summarise_prefit_compact_object_class_rows(class_rows)
-    summary.to_csv(
-        TABLE_DIR / "prefit_compact_object_class_by_lens_mass_range.csv",
-        index=False,
-    )
+    # The CSV summary is not currently included in main.tex.
+    # summary.to_csv(
+    #     TABLE_DIR / "prefit_compact_object_class_by_lens_mass_range.csv",
+    #     index=False,
+    # )
 
     mass_ranges = [
         label
@@ -1499,83 +1506,13 @@ def plot_population_weighted_survey_followup_heatmaps():
         )
         return
 
-    survey_counts = pandas.read_csv(survey_counts_path)
-    metrics = [
-        ("classified_fraction", "classified_survey_count", "class", "Compact-object class"),
-        ("measured_mass_fraction", "measured_mass_survey_count", "macc", r"$M_\mathrm{lens}$"),
-        ("measured_period_fraction", "measured_period_survey_count", "porb", r"$P_\mathrm{orb}$"),
-    ]
-    baselines = numpy.sort(survey_counts["baseline"].unique())
-    for fraction_metric, count_metric, slug, label in metrics:
-        reference_survey = next(iter(SURVEY_DETECTED_COUNTS))
-        reference_data = survey_counts[
-            survey_counts["survey"] == reference_survey
-        ].copy()
-        cadences = numpy.sort(reference_data["cadence"].unique())
-        rv_values = numpy.sort(reference_data["RV accuracy"].unique())
-        n_baselines = len(baselines)
-
-        fig = pyplot.figure(figsize=(8.8, 2.8))
-        grid = fig.add_gridspec(
-            1,
-            n_baselines + 1,
-            width_ratios=[1.0] * n_baselines + [0.045],
-            left=0.10,
-            right=0.90,
-            top=0.88,
-            bottom=0.24,
-            wspace=0.08,
-        )
-        axes = numpy.empty(n_baselines, dtype=object)
-        colorbar_axis = fig.add_subplot(grid[0, -1])
-        for col_index in range(n_baselines):
-            sharey = axes[0] if col_index > 0 else None
-            axes[col_index] = fig.add_subplot(grid[0, col_index], sharey=sharey)
-
-        for col_index, baseline in enumerate(baselines):
-            axis = axes[col_index]
-            subset = reference_data[reference_data["baseline"] == baseline]
-            matrix = subset.pivot(
-                index="cadence",
-                columns="RV accuracy",
-                values=fraction_metric,
-            ).reindex(index=cadences, columns=rv_values)
-            heatmap = seaborn.heatmap(
-                100.0 * matrix,
-                ax=axis,
-                vmin=0,
-                vmax=100,
-                cmap="viridis",
-                annot=True,
-                annot_kws={"fontsize": 6.3},
-                fmt=".0f",
-                linewidths=0.35,
-                linecolor="white",
-                square=True,
-                cbar=col_index == n_baselines - 1,
-                cbar_ax=colorbar_axis if col_index == n_baselines - 1 else None,
-                cbar_kws={"label": "Recovered [per cent]"},
-            )
-            if col_index == 0:
-                axis.set_ylabel("Cadence [d]", labelpad=10)
-            else:
-                axis.set_ylabel("")
-                axis.tick_params(axis="y", left=False, labelleft=False)
-            axis.set_title(f"{baseline / 365:g} yr")
-            axis.set_xlabel(r"RV accuracy [m s$^{-1}$]")
-            axis.set_xticklabels(
-                rv_accuracy_tick_labels(rv_values),
-                rotation=40,
-                ha="right",
-            )
-        colorbar_axis.tick_params(labelsize=8)
-        for suffix in ("pdf", "png"):
-            fig.savefig(
-                FIGURE_DIR
-                / f"population_weighted_rv_followup_heatmaps_counts_{slug}.{suffix}",
-                bbox_inches="tight",
-            )
-        pyplot.close(fig)
+    plot_population_weighted_period_heatmaps(
+        pandas.read_csv(survey_counts_path),
+        metrics=[
+            ("classified_fraction", "class", "Recovered [per cent]", "viridis", ".0f", 100),
+        ],
+        filename_prefix="population_weighted_rv_followup_heatmaps_counts",
+    )
 
 
 def plot_population_weighted_relative_error_heatmaps():
@@ -1617,73 +1554,107 @@ def plot_population_weighted_relative_error_heatmaps():
         )
         return
 
-    reference_survey = next(iter(SURVEY_DETECTED_COUNTS))
-    reference_data = survey_counts[survey_counts["survey"] == reference_survey].copy()
-    baselines = numpy.sort(reference_data["baseline"].unique())
-    cadences = numpy.sort(reference_data["cadence"].unique())
-    rv_values = numpy.sort(reference_data["RV accuracy"].unique())
-    n_baselines = len(baselines)
+    plot_population_weighted_period_heatmaps(
+        survey_counts,
+        metrics=[
+            (value_column, slug, colorbar_label, "viridis_r", ".1f", None)
+            for value_column, slug, _, colorbar_label in metrics
+        ],
+        filename_prefix="population_weighted_rv_followup_heatmaps_relative_error",
+    )
 
-    for value_column, slug, label, colorbar_label in metrics:
-        vmax = colorbar_vmax(100.0 * reference_data[value_column])
-        fig = pyplot.figure(figsize=(8.8, 2.8))
-        grid = fig.add_gridspec(
-            1,
-            n_baselines + 1,
-            width_ratios=[1.0] * n_baselines + [0.045],
-            left=0.10,
-            right=0.90,
-            top=0.88,
-            bottom=0.24,
-            wspace=0.08,
+
+def plot_population_weighted_period_heatmaps(survey_counts, metrics, filename_prefix):
+    """Plot weighted metrics by orbital period in the recovery-grid layout."""
+    required_columns = {"lens_mass_range", "period_range"}
+    missing = sorted(required_columns.difference(survey_counts.columns))
+    if missing:
+        raise KeyError(
+            "Population-weighted heatmaps require period-bin rows. Re-run "
+            "src/5_population_weighted_followup.py; missing columns: "
+            f"{missing}"
         )
-        axes = numpy.empty(n_baselines, dtype=object)
-        colorbar_axis = fig.add_subplot(grid[0, -1])
-        for col_index in range(n_baselines):
-            sharey = axes[0] if col_index > 0 else None
-            axes[col_index] = fig.add_subplot(grid[0, col_index], sharey=sharey)
 
-        for col_index, baseline in enumerate(baselines):
-            axis = axes[col_index]
-            subset = reference_data[reference_data["baseline"] == baseline]
-            matrix = subset.pivot(
-                index="cadence",
-                columns="RV accuracy",
-                values=value_column,
-            ).reindex(index=cadences, columns=rv_values)
-            heatmap = seaborn.heatmap(
-                100.0 * matrix,
-                ax=axis,
-                vmin=0,
-                vmax=vmax,
-                cmap="viridis_r",
-                annot=True,
-                annot_kws={"fontsize": 6.3},
-                fmt=".1f",
-                linewidths=0.35,
-                linecolor="white",
-                square=True,
-                cbar=col_index == n_baselines - 1,
-                cbar_ax=colorbar_axis if col_index == n_baselines - 1 else None,
-                cbar_kws={"label": colorbar_label},
+    reference_survey = next(iter(SURVEY_DETECTED_COUNTS))
+    data = survey_counts[
+        (survey_counts["survey"] == reference_survey)
+        & (survey_counts["lens_mass_range"] == ALL_MASSES_LABEL)
+        & survey_counts["period_range"].isin(ORBITAL_PERIOD_RANGE_LABELS)
+    ].copy()
+    if data.empty:
+        raise ValueError(
+            "Population-weighted heatmaps require rows with lens_mass_range='All masses'. "
+            "Re-run src/5_population_weighted_followup.py."
+        )
+
+    baselines = numpy.sort(data["baseline"].unique())
+    cadences = numpy.sort(data["cadence"].unique())
+    rv_values = numpy.sort(data["RV accuracy"].unique())
+    period_ranges = ORBITAL_PERIOD_RANGE_LABELS
+
+    for value_column, slug, colorbar_label, cmap, fmt, fixed_vmax in metrics:
+        vmax = fixed_vmax or colorbar_vmax(100.0 * data[value_column])
+        fig, axes = pyplot.subplots(
+            len(baselines),
+            len(cadences),
+            figsize=(8.2, 6.8),
+            sharex=True,
+            sharey=True,
+            constrained_layout=True,
+        )
+        axes = numpy.asarray(axes, dtype=object).reshape(len(baselines), len(cadences))
+        last_mesh = None
+        for row_index, baseline in enumerate(baselines):
+            for col_index, cadence in enumerate(cadences):
+                axis = axes[row_index, col_index]
+                subset = data[
+                    (data["baseline"] == baseline) & (data["cadence"] == cadence)
+                ]
+                matrix = subset.pivot(
+                    index="RV accuracy",
+                    columns="period_range",
+                    values=value_column,
+                ).reindex(index=rv_values, columns=period_ranges)
+                heatmap = seaborn.heatmap(
+                    100.0 * matrix,
+                    ax=axis,
+                    vmin=0,
+                    vmax=vmax,
+                    cmap=cmap,
+                    annot=True,
+                    annot_kws={"fontsize": 6.0},
+                    fmt=fmt,
+                    cbar=False,
+                    linewidths=0.35,
+                    linecolor="white",
+                )
+                last_mesh = heatmap.collections[0]
+                if row_index == 0:
+                    axis.set_title(f"Cadence {cadence:g} d")
+                if col_index == 0:
+                    axis.set_ylabel(
+                        f"Baseline {baseline / 365:g} yr\\n"
+                        + r"RV accuracy [m s$^{-1}$]"
+                    )
+                else:
+                    axis.set_ylabel("")
+                if row_index == len(baselines) - 1:
+                    axis.set_xlabel("True orbital period range")
+                    axis.tick_params(axis="x", rotation=35)
+                else:
+                    axis.set_xlabel("")
+                    axis.tick_params(axis="x", labelbottom=False)
+        if last_mesh is not None:
+            fig.colorbar(
+                last_mesh,
+                ax=axes,
+                location="right",
+                shrink=0.78,
+                label=colorbar_label,
             )
-            if col_index == 0:
-                axis.set_ylabel("Cadence [d]", labelpad=10)
-            else:
-                axis.set_ylabel("")
-                axis.tick_params(axis="y", left=False, labelleft=False)
-            axis.set_title(f"{baseline / 365:g} yr")
-            axis.set_xlabel(r"RV accuracy [m s$^{-1}$]")
-            axis.set_xticklabels(
-                rv_accuracy_tick_labels(rv_values),
-                rotation=40,
-                ha="right",
-            )
-        colorbar_axis.tick_params(labelsize=8)
         for suffix in ("pdf", "png"):
             fig.savefig(
-                FIGURE_DIR
-                / f"population_weighted_rv_followup_heatmaps_relative_error_{slug}.{suffix}",
+                FIGURE_DIR / f"{filename_prefix}_{slug}.{suffix}",
                 bbox_inches="tight",
             )
         pyplot.close(fig)
@@ -1919,7 +1890,8 @@ def plot_recovery_by_truth_range(
         labels=labels,
         label_formatter=label_formatter,
     )
-    table.to_csv(TABLE_DIR / f"{filename}.csv", index=False)
+    # This CSV sidecar is not included in main.tex.
+    # table.to_csv(TABLE_DIR / f"{filename}.csv", index=False)
 
     baselines = numpy.sort(table["baseline"].dropna().unique())
     cadences = numpy.sort(table["cadence"].dropna().unique())
@@ -2024,7 +1996,8 @@ def plot_metric_by_truth_range(
         label_formatter=label_formatter,
         aggfunc=aggfunc,
     )
-    table.to_csv(TABLE_DIR / f"{filename}.csv", index=False)
+    # This CSV sidecar is not included in main.tex.
+    # table.to_csv(TABLE_DIR / f"{filename}.csv", index=False)
 
     if percent_scale and vmax is not None:
         vmax = colorbar_vmax(100.0 * table[metric_name], minimum=vmax)
@@ -2126,7 +2099,8 @@ def plot_relative_error_distribution_by_truth_range(
         labels=labels,
         label_formatter=label_formatter,
     )
-    plot_data.to_csv(TABLE_DIR / f"{filename}.csv", index=False)
+    # This CSV sidecar is not included in main.tex.
+    # plot_data.to_csv(TABLE_DIR / f"{filename}.csv", index=False)
 
     baselines = numpy.sort(plot_data["baseline"].dropna().unique())
     cadences = numpy.sort(plot_data["cadence"].dropna().unique())
@@ -2587,6 +2561,45 @@ def plot_lens_mass_relative_error_by_mass(results):
     )
 
 
+def plot_lens_mass_class_recovery_by_period(results):
+    """Plot compact-object class recovery grouped by true orbital period."""
+    classified = results.copy()
+    true_class = compact_object_class(classified["Macc"])
+    fitted_class = compact_object_class(classified["fitted_Macc"])
+    classified["Macc_compact_object_class_recovered"] = (
+        true_class.notna() & fitted_class.notna() & (true_class == fitted_class)
+    )
+
+    plot_recovery_by_truth_range(
+        classified,
+        param="Macc",
+        value_column="Porb",
+        unit="d",
+        filename="lens_mass_class_recovery_by_period",
+        x_label=r"True orbital period range",
+        label_formatter=period_range_label,
+        recovered_column="Macc_compact_object_class_recovered",
+        colorbar_label="Correct compact-object class [per cent]",
+    )
+
+
+def plot_lens_mass_relative_error_by_period(results):
+    """Plot median lens-mass relative error grouped by true orbital period."""
+    plot_metric_by_truth_range(
+        results,
+        value_column="Porb",
+        metric_column="Macc_relative_error",
+        metric_name="median_relative_error",
+        unit="d",
+        filename="lens_mass_relative_error_by_period",
+        x_label=r"True orbital period range",
+        colorbar_label=r"Median $|\Delta M_\mathrm{lens}|/M_\mathrm{lens}$ [per cent]",
+        label_formatter=period_range_label,
+        percent_scale=True,
+        vmax=100,
+    )
+
+
 def plot_lens_mass_relative_error_iqr_by_mass(results):
     plot_metric_by_truth_range(
         results,
@@ -2906,14 +2919,11 @@ def main():
     results_path = result_path()
     logger.info("Using fitted results table %s", results_path)
     results = run_step("load fitted results", load_results, results_path)
-    strategy_summary = run_step(
-        "summarise strategy recovery",
-        summarise_strategy_recovery,
-        results,
-    )
-    strategy_summary_path = TABLE_DIR / "recovery_strategy_summary.csv"
-    strategy_summary.to_csv(strategy_summary_path, index=False)
-    logger.info("Wrote %s", strategy_summary_path.relative_to(PROJECT_ROOT))
+    # This also adds the relative-error columns needed by active recovery figures.
+    run_step("calculate recovery metrics", summarise_strategy_recovery, results)
+    # The strategy-summary CSV is not currently included in main.tex.
+    # strategy_summary_path = TABLE_DIR / "recovery_strategy_summary.csv"
+    # logger.info("Wrote %s", strategy_summary_path.relative_to(PROJECT_ROOT))
 
     # Not currently included in main.tex.
     # run_step(
@@ -2921,11 +2931,12 @@ def main():
     #     plot_mass_recovery_by_strategy,
     #     strategy_summary,
     # )
-    run_step(
-        "lens mass recovery by lens mass figure",
-        plot_lens_mass_recovery_by_mass,
-        results,
-    )
+    # Not currently included in main.tex.
+    # run_step(
+    #     "lens mass recovery by lens mass figure",
+    #     plot_lens_mass_recovery_by_mass,
+    #     results,
+    # )
     run_step(
         "lens mass class recovery by lens mass figure",
         plot_lens_mass_class_recovery_by_mass,
@@ -2943,30 +2954,43 @@ def main():
         results,
     )
     run_step(
-        "lens mass relative-error distribution by lens mass figure",
-        plot_lens_mass_relative_error_distribution_by_mass,
+        "lens mass class recovery by orbital period figure",
+        plot_lens_mass_class_recovery_by_period,
         results,
     )
+    run_step(
+        "lens mass relative error by orbital period figure",
+        plot_lens_mass_relative_error_by_period,
+        results,
+    )
+    # Not currently included in main.tex.
+    # run_step(
+    #     "lens mass relative-error distribution by lens mass figure",
+    #     plot_lens_mass_relative_error_distribution_by_mass,
+    #     results,
+    # )
     # run_step(
     #     "lens mass relative error IQR by lens mass figure",
     #     plot_lens_mass_relative_error_iqr_by_mass,
     #     results,
     # )
-    run_step(
-        "orbital period recovery by period figure",
-        plot_orbital_period_recovery_by_period,
-        results,
-    )
+    # Not currently included in main.tex.
+    # run_step(
+    #     "orbital period recovery by period figure",
+    #     plot_orbital_period_recovery_by_period,
+    #     results,
+    # )
     run_step(
         "orbital period relative error by period figure",
         plot_orbital_period_relative_error_by_period,
         results,
     )
-    run_step(
-        "orbital period relative-error distribution by period figure",
-        plot_orbital_period_relative_error_distribution_by_period,
-        results,
-    )
+    # Not currently included in main.tex.
+    # run_step(
+    #     "orbital period relative-error distribution by period figure",
+    #     plot_orbital_period_relative_error_distribution_by_period,
+    #     results,
+    # )
     # Not currently included in main.tex.
     # run_step(
     #     "parameter recovery curves figure",
@@ -2983,26 +3007,30 @@ def main():
         plot_prefit_improvement_by_lens_mass_range,
         results,
     )
-    run_step(
-        "prefit improvement by cadence and baseline figures",
-        plot_prefit_improvement_by_cadence_and_baseline,
-        results,
-    )
-    run_step(
-        "prefit relative-error improvement scatter grids",
-        plot_prefit_relative_error_improvement_scatter_grids,
-        results,
-    )
-    run_step(
-        "prefit relative-error improvement scatter grids by photometric observable",
-        plot_prefit_relative_error_improvement_scatter_grids_by_photometric_observable,
-        results,
-    )
-    run_step(
-        "photometry-informed RV follow-up recommendation maps",
-        plot_photometry_followup_recommendation_maps,
-        results,
-    )
+    # Not currently included in main.tex.
+    # run_step(
+    #     "prefit improvement by cadence and baseline figures",
+    #     plot_prefit_improvement_by_cadence_and_baseline,
+    #     results,
+    # )
+    # Not currently included in main.tex.
+    # run_step(
+    #     "prefit relative-error improvement scatter grids",
+    #     plot_prefit_relative_error_improvement_scatter_grids,
+    #     results,
+    # )
+    # Not currently included in main.tex.
+    # run_step(
+    #     "prefit relative-error improvement scatter grids by photometric observable",
+    #     plot_prefit_relative_error_improvement_scatter_grids_by_photometric_observable,
+    #     results,
+    # )
+    # Not currently included in main.tex.
+    # run_step(
+    #     "photometry-informed RV follow-up recommendation maps",
+    #     plot_photometry_followup_recommendation_maps,
+    #     results,
+    # )
     run_step(
         "prefit compact-object class by lens-mass range figure",
         plot_prefit_compact_object_class_by_lens_mass_range,
@@ -3016,22 +3044,23 @@ def main():
         "population-weighted relative-error heatmaps",
         plot_population_weighted_relative_error_heatmaps,
     )
-    run_step(
-        "population-weighted survey follow-up count tables",
-        write_population_weighted_survey_count_tables,
-    )
-    run_step("sample summary table", write_sample_summary, results)
-    run_step("mass recovery table", write_mass_recovery_table, strategy_summary)
-    run_step(
-        "compact-object class confusion table",
-        write_compact_object_class_confusion_table,
-        results,
-    )
-    run_step(
-        "RV accuracy requirement table",
-        write_rv_accuracy_requirement_table,
-        strategy_summary,
-    )
+    # Tables are commented out in main.tex.
+    # run_step(
+    #     "population-weighted survey follow-up count tables",
+    #     write_population_weighted_survey_count_tables,
+    # )
+    # run_step("sample summary table", write_sample_summary, results)
+    # run_step("mass recovery table", write_mass_recovery_table, strategy_summary)
+    # run_step(
+    #     "compact-object class confusion table",
+    #     write_compact_object_class_confusion_table,
+    #     results,
+    # )
+    # run_step(
+    #     "RV accuracy requirement table",
+    #     write_rv_accuracy_requirement_table,
+    #     strategy_summary,
+    # )
 
     logger.info("Paper output generation complete")
     print("\nWrote figures:")

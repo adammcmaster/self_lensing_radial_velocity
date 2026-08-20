@@ -77,6 +77,8 @@ LENS_MASS_LABELS = [
 ]
 PERIOD_BINS = [0.0, 365.25, 3652.5, 36525.0, numpy.inf]
 PERIOD_LABELS = ["<1 yr", "1-10 yr", "10-100 yr", ">=100 yr"]
+ALL_PERIODS_LABEL = "All periods"
+ALL_MASSES_LABEL = "All masses"
 PRECISION_TIER_LABELS = {
     0.1: "0.1 m/s",
     1.0: "1 m/s",
@@ -851,7 +853,22 @@ def aggregate_transferred(population, pristine, response, neighbour_indices, nei
             summary_row[f"{metric}_median"] = median
         summary_rows.append(summary_row)
 
-        for keys, group in population_groups.groupby(group_columns, dropna=False):
+        grouped_population = list(
+            population_groups.groupby(group_columns, dropna=False)
+        )
+        grouped_population.extend(
+            ((lens_mass_range, ALL_PERIODS_LABEL), group)
+            for lens_mass_range, group in population_groups.groupby(
+                "lens_mass_range", dropna=False
+            )
+        )
+        grouped_population.extend(
+            ((ALL_MASSES_LABEL, period_range), group)
+            for period_range, group in population_groups.groupby(
+                "period_range", dropna=False
+            )
+        )
+        for keys, group in grouped_population:
             row_indices = group["_row"].to_numpy(dtype=int)
             group_weights = weights[row_indices]
             tier_row = {
@@ -1101,7 +1118,21 @@ def aggregate_population_cache(pristine, response, k):
                 "_row": numpy.arange(len(batch), dtype=int),
             }
         )
-        grouped_rows = list(group_frame.groupby(["lens_mass_range", "period_range"], dropna=False))
+        grouped_rows = list(
+            group_frame.groupby(["lens_mass_range", "period_range"], dropna=False)
+        )
+        grouped_rows.extend(
+            ((lens_mass_range, ALL_PERIODS_LABEL), group)
+            for lens_mass_range, group in group_frame.groupby(
+                "lens_mass_range", dropna=False
+            )
+        )
+        grouped_rows.extend(
+            ((ALL_MASSES_LABEL, period_range), group)
+            for period_range, group in group_frame.groupby(
+                "period_range", dropna=False
+            )
+        )
 
         query_k = min(k, len(pristine_features))
         for start in range(0, len(batch), TRANSFER_CHUNK_SIZE):
@@ -1659,23 +1690,25 @@ def main():
             neighbour_indices,
             neighbour_weights,
         )
-    summary.to_csv(TABLE_DIR / "population_weighted_followup_summary.csv", index=False)
-    precision_tiers.to_csv(
-        TABLE_DIR / "population_weighted_precision_tiers.csv",
-        index=False,
-    )
+    # These summaries are not currently included in main.tex.
+    # summary.to_csv(TABLE_DIR / "population_weighted_followup_summary.csv", index=False)
+    # precision_tiers.to_csv(
+    #     TABLE_DIR / "population_weighted_precision_tiers.csv",
+    #     index=False,
+    # )
     bh_summary = summarise_bh_like_followup(precision_tiers)
-    bh_summary.to_csv(
-        TABLE_DIR / "population_weighted_bh_followup_summary.csv",
-        index=False,
-    )
-    survey_counts = survey_scaled_followup_counts(summary)
+    # bh_summary.to_csv(
+    #     TABLE_DIR / "population_weighted_bh_followup_summary.csv",
+    #     index=False,
+    # )
+    # This is the intermediate input for the active mass-bin heatmaps.
+    survey_counts = survey_scaled_followup_counts(precision_tiers)
     survey_counts.to_csv(
         TABLE_DIR / "population_weighted_followup_survey_counts.csv",
         index=False,
     )
-    write_latex_summary(summary)
-    write_latex_bh_summary(bh_summary)
+    # write_latex_summary(summary)
+    # write_latex_bh_summary(bh_summary)
     # Not currently included in main.tex.
     # plot_mass_period_recovery(precision_tiers)
     logger.info("Wrote detected-population follow-up tables and figures")
