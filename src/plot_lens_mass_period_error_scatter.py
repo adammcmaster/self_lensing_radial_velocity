@@ -11,6 +11,7 @@ import numpy
 import pandas
 from matplotlib import pyplot
 from matplotlib.colors import LogNorm
+from scipy.stats import gaussian_kde
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -86,16 +87,42 @@ def main():
         mass_edges,
         period_edges,
         plotted_error,
-        cmap="viridis",
+        cmap="viridis_r",
         norm=LogNorm(vmin=colour_floor, vmax=colour_ceiling),
         shading="auto",
         rasterized=True,
     )
+
+    # Estimate density in log coordinates, then transform the contour grid
+    # back to the physical coordinates used by the plot axes.
+    log_mass = numpy.log10(truth_mass[valid])
+    log_period = numpy.log10(truth_period[valid])
+    if numpy.unique(log_mass).size > 1 and numpy.unique(log_period).size > 1:
+        kde = gaussian_kde(numpy.vstack((log_mass, log_period)))
+        kde_mass, kde_period = numpy.meshgrid(
+            numpy.linspace(log_mass.min(), log_mass.max(), 160),
+            numpy.linspace(log_period.min(), log_period.max(), 160),
+        )
+        density = kde(numpy.vstack((kde_mass.ravel(), kde_period.ravel()))).reshape(
+            kde_mass.shape
+        )
+        density_levels = density.max() * numpy.array([0.1, 0.25, 0.4, 0.55, 0.7])
+        axis.contour(
+            10**kde_mass,
+            10**kde_period,
+            density,
+            levels=density_levels,
+            colors="white",
+            linewidths=0.8,
+            alpha=0.9,
+        )
     axis.set_xscale("log")
     axis.set_yscale("log")
     axis.set_xlabel(r"True lens mass, $M_{\mathrm{lens}}\;[M_\odot]$")
     axis.set_ylabel(r"True orbital period, $P_{\mathrm{orb}}\;[\mathrm{d}]$")
-    axis.set_title("Median lens-mass recovery error across the simulated parameter space")
+    axis.set_title(
+        "Median lens-mass recovery error across the simulated parameter space"
+    )
     colourbar = figure.colorbar(histogram, ax=axis, pad=0.02)
     colourbar.set_label(
         r"Median relative error in fitted lens mass, "
