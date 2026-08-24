@@ -21,6 +21,7 @@ from matplotlib import pyplot
 from matplotlib.colors import ListedColormap, LogNorm, Normalize
 from matplotlib.lines import Line2D
 
+from estimation import calc_self_lensing_observable_space
 from utils import configure_logging
 
 
@@ -98,8 +99,7 @@ SURVEY_DETECTED_COUNTS = {
     "TESS": 123.28,
 }
 
-OBSERVABLE_SPACE_SAMPLE_SIZE = 10_000
-OBSERVABLE_SPACE_RANDOM_SEED = 20260813
+PAPER_OBSERVABLE_SPACE_RANDOM_SEED = 20260813
 
 
 def candidate_result_paths():
@@ -1190,142 +1190,26 @@ def summarise_prefit_compact_object_class_rows(class_rows):
 
 
 def plot_self_lensing_observable_space():
-    import jax
-    import jax.numpy as jnp
-    from selflensing.batch import make_batched_light_curve_generator
-    from selflensing.lightcurves import PARAMETER_ORDER
-    from selflensing.orbits import (
-        AU_M,
-        DAY_S,
-        M_SUN_KG,
-        R_SUN_M,
-        einstein_radius_m,
-        orbital_period_days,
+    estimates = calc_self_lensing_observable_space(
+        random_seed=PAPER_OBSERVABLE_SPACE_RANDOM_SEED
     )
-
-    jax.config.update("jax_enable_x64", True)
-
-    n_samples = OBSERVABLE_SPACE_SAMPLE_SIZE
-    key = jax.random.key(OBSERVABLE_SPACE_RANDOM_SEED)
-    keys = jax.random.split(key, 5)
-
-    def uniform(draw_key, low, high):
-        return jax.random.uniform(draw_key, (n_samples,), minval=low, maxval=high)
-
-    def log_uniform(draw_key, low, high):
-        return 10 ** uniform(draw_key, numpy.log10(low), numpy.log10(high))
-
-    companion_mass_msun = 1.0
-    companion_radius_rsun = 1.0
-    companion_teff_k = 5800.0
-
-    semi_major_axis_au = log_uniform(keys[0], 0.3, 100.0)
-    lens_mass_msun = log_uniform(keys[1], 3.0, 50.0)
-    companion_mass = jnp.full(n_samples, companion_mass_msun)
-    companion_radius = jnp.full(n_samples, companion_radius_rsun)
-    companion_teff = jnp.full(n_samples, companion_teff_k)
-    eccentricity = uniform(keys[2], 0.0, 0.6)
-    periapsis_phase = uniform(keys[3], 0.0, 2.0 * numpy.pi)
-    impact_fraction = uniform(keys[4], 0.0, 0.95)
-
-    semi_major_axis_m = semi_major_axis_au * AU_M
-    lens_mass_kg = lens_mass_msun * M_SUN_KG
-    companion_mass_kg = companion_mass * M_SUN_KG
-    companion_radius_m = companion_radius * R_SUN_M
-
-    edge_on_einstein_radius_m = einstein_radius_m(
-        semi_major_axis_m,
-        jnp.ones(n_samples),
-        lens_mass_kg,
-        eccentricity,
-        periapsis_phase,
-    )
-    maximum_impact = 1.0 + companion_radius_m / edge_on_einstein_radius_m
-    impact_einstein_radii = impact_fraction * maximum_impact
-    cos_inclination = jnp.clip(
-        impact_einstein_radii * edge_on_einstein_radius_m / semi_major_axis_m,
-        0.0,
-        0.2,
-    )
-    inclination = jnp.arccos(cos_inclination)
-
-    param_matrix = jnp.stack(
-        [
-            {
-                "a": semi_major_axis_au,
-                "i": inclination,
-                "Macc": lens_mass_msun,
-                "Mcomp": companion_mass,
-                "Rcomp": companion_radius,
-                "Teff": companion_teff,
-                "e": eccentricity,
-                "periapsis_phase": periapsis_phase,
-            }[name]
-            for name in PARAMETER_ORDER
-        ],
-        axis=-1,
-    )
-
-    sin_inclination = jnp.sin(inclination)
-    orbital_period_days_value = orbital_period_days(
-        semi_major_axis_m,
-        lens_mass_kg + companion_mass_kg,
-    )
-    orbital_period_seconds = orbital_period_days_value * DAY_S
-    einstein_radius_m_value = einstein_radius_m(
-        semi_major_axis_m,
-        sin_inclination,
-        lens_mass_kg,
-        eccentricity,
-        periapsis_phase,
-    )
-    impact_parameter = jnp.abs(
-        semi_major_axis_m * jnp.cos(inclination) / einstein_radius_m_value
-    )
-    maximum_impact = 1.0 + companion_radius_m / einstein_radius_m_value
-    crossing_time_days = (
-        (orbital_period_seconds * (einstein_radius_m_value + companion_radius_m))
-        / (jnp.pi * semi_major_axis_m * sin_inclination)
-        * jnp.sqrt(
-            jnp.clip(1.0 - (impact_parameter / maximum_impact) ** 2, 0.0, 1.0)
-        )
-    ) / DAY_S
-
-    generate = make_batched_light_curve_generator(
-        jnp.array([0.0]),
-        peak_times=0.0,
-        sl=True,
-        ev=False,
-        db=False,
-        device=jax.devices()[0],
-    )
-    peak_flux = numpy.asarray(generate(param_matrix).block_until_ready())[:, 0]
-    peak_amplification_ppm = 1e6 * (peak_flux - 1.0)
-    crossing_time_hr = numpy.asarray(crossing_time_days) * 24.0
-    orbital_period_yr = numpy.asarray(orbital_period_days_value) / 365.25
-    lens_mass = numpy.asarray(lens_mass_msun)
-    inclination = numpy.asarray(inclination)
-
-    valid = (
-        numpy.isfinite(peak_amplification_ppm)
-        & numpy.isfinite(crossing_time_hr)
-        & numpy.isfinite(orbital_period_yr)
-        & (peak_amplification_ppm > 1.0)
-        & (crossing_time_hr > 0.0)
-        & (orbital_period_yr > 0.0)
-    )
-    if not valid.any():
-        raise ValueError("No valid self-lensing observable-space samples were generated")
+    n_samples = estimates["sample_size"]
+    peak_amplification_ppm = estimates["peak_amplification_ppm"]
+    crossing_time_hr = estimates["crossing_time_hr"]
+    orbital_period_yr = estimates["orbital_period_yr"]
+    lens_mass = estimates["lens_mass_msun"]
+    inclination = estimates["inclination_rad"]
+    valid = estimates["valid"]
 
     summary = pandas.DataFrame(
         [
             {
                 "sample_size": n_samples,
                 "valid_rows": int(valid.sum()),
-                "random_seed": OBSERVABLE_SPACE_RANDOM_SEED,
-                "fixed_Mcomp_Msun": companion_mass_msun,
-                "fixed_Rcomp_Rsun": companion_radius_rsun,
-                "fixed_Teff_K": companion_teff_k,
+                "random_seed": estimates["random_seed"],
+                "fixed_Mcomp_Msun": estimates["companion_mass_msun"],
+                "fixed_Rcomp_Rsun": estimates["companion_radius_rsun"],
+                "fixed_Teff_K": estimates["companion_teff_k"],
                 "median_peak_amplification_ppm": numpy.nanmedian(
                     peak_amplification_ppm[valid]
                 ),
