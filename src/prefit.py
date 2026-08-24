@@ -12,7 +12,10 @@ from astropy.time import Time
 
 from fitting import PREFIT_POSTERIOR_PATH, PREFIT_RESULTS_PATH, SCHEDULE_TABLE_PATH
 from schedule import schedule_rv_observations_from_posterior
-from selflensing.fitting import self_lensing_system_from_fit_blackjax
+from selflensing.fitting import (
+    self_lensing_system_from_fit_blackjax,
+    self_lensing_systems_from_batched_fit_blackjax,
+)
 from selflensing.lightcurves import PARAMETER_ORDER
 
 
@@ -27,11 +30,12 @@ FIT_NSTEPS = int(os.environ.get("SLRV_PREFIT_NSTEPS", os.environ.get("SLRV_FIT_N
 FIT_NWALKERS = int(os.environ.get("SLRV_PREFIT_NWALKERS", os.environ.get("SLRV_FIT_NWALKERS", 128)))
 FIT_BURN = int(os.environ.get("SLRV_PREFIT_BURN", os.environ.get("SLRV_FIT_BURN", 200)))
 FIT_LC_BINS = int(os.environ.get("SLRV_PREFIT_LC_BINS", 100))
-FIT_DEVICE = os.environ.get("SLRV_PREFIT_DEVICE", os.environ.get("SLRV_FIT_DEVICE", "auto"))
+FIT_DEVICE = os.environ.get("SLRV_PREFIT_DEVICE", os.environ.get("SLRV_FIT_DEVICE", "gpu:0"))
 FIT_LENSING_METHOD = os.environ.get("SLRV_PREFIT_LENSING_METHOD")
 FIT_MCMC_PROGRESS = os.environ.get("SLRV_PREFIT_MCMC_PROGRESS", "0").lower() in (
     "1", "true", "yes", "on"
 )
+PREFIT_BATCH_SIZE = int(os.environ.get("SLRV_PREFIT_BATCH_SIZE", 50))
 
 PREFIT_PARAMETER_NAMES = ("a", "i", "Macc", "e", "periapsis_phase")
 PREFIT_RESULT_COLUMNS = tuple(f"prefit_fitted_{name}" for name in (
@@ -156,7 +160,7 @@ def fit_photometry_row(row):
         lensing_method=FIT_LENSING_METHOD,
         center_lc_model=True,
         device=FIT_DEVICE,
-        prefer_gpu=FIT_DEVICE == "auto",
+        prefer_gpu=True,
         proposal_scale_fraction=0.02,
         return_sampler=True,
         return_walker_state=True,
@@ -178,6 +182,82 @@ def fit_photometry_row(row):
     )
     campaign_start, offset_years = _campaign_start(row)
     return _prefit_result_row(row, sls, campaign_start, offset_years, posterior_path)
+
+
+def _padded_lightcurve_inputs(rows):
+    """Pad independently binned photometry curves for a batched likelihood."""
+    curves = [
+        lightcurve_fit_window(load_lightcurve(row), row["peak_time"], row["tau_eff"])
+        for row in rows
+    ]
+    width = max(len(curve["times"]) for curve in curves)
+    times = numpy.zeros((len(rows), width), dtype=float)
+    flux = numpy.zeros((len(rows), width), dtype=float)
+    err = numpy.ones((len(rows), width), dtype=float)
+    mask = numpy.zeros((len(rows), width), dtype=bool)
+    for index, curve in enumerate(curves):
+        size = len(curve["times"])
+        times[index, :size] = curve["times"]
+        if size < width:
+            times[index, size:] = curve["times"][-1]
+        flux[index, :size] = curve["flux"]
+        err[index, :size] = curve["err"]
+        mask[index, :size] = True
+    return times, flux, err, mask
+
+
+def _save_prefit_result(row, sls, sampler, walker_coords):
+    posterior_path = _posterior_path(row["simulation_id"])
+    posterior_path.parent.mkdir(parents=True, exist_ok=True)
+    chain = numpy.asarray(sampler.get_chain(), dtype=float)
+    flat_chain = numpy.asarray(sampler.get_chain(flat=True, discard=FIT_BURN), dtype=float)
+    numpy.savez_compressed(
+        posterior_path,
+        chain=chain,
+        flat_chain=flat_chain,
+        final_walker_coords=numpy.asarray(walker_coords, dtype=float),
+        parameter_names=numpy.asarray(PREFIT_PARAMETER_NAMES),
+    )
+    campaign_start, offset_years = _campaign_start(row)
+    return _prefit_result_row(row, sls, campaign_start, offset_years, posterior_path)
+
+
+def fit_photometry_rows(rows):
+    """Fit photometry prefits in GPU batches and save one posterior per system."""
+    if not rows:
+        return []
+    results = []
+    for start in range(0, len(rows), PREFIT_BATCH_SIZE):
+        batch = rows[start : start + PREFIT_BATCH_SIZE]
+        lc_times, observed_lc, observed_lc_err, lc_mask = _padded_lightcurve_inputs(batch)
+        systems, samplers, walker_state = self_lensing_systems_from_batched_fit_blackjax(
+            lc_times=Time(lc_times, format="jd"),
+            observed_lc=observed_lc * units.dimensionless_unscaled,
+            observed_lc_err=observed_lc_err * units.dimensionless_unscaled,
+            lc_mask=lc_mask,
+            peak_time=Time([row["peak_time"] for row in batch], format="jd"),
+            Mcomp=numpy.asarray([row["Mcomp"] for row in batch]) * units.M_sun,
+            Rcomp=numpy.asarray([row["Rcomp"] for row in batch]) * units.R_sun,
+            Teff=numpy.asarray([row["Teff"] for row in batch]) * units.K,
+            false_alarm_probability=0.5,
+            nsteps=FIT_NSTEPS,
+            nwalkers=FIT_NWALKERS,
+            burn=FIT_BURN,
+            progress=FIT_MCMC_PROGRESS,
+            lensing_method=FIT_LENSING_METHOD,
+            center_lc_model=True,
+            device=FIT_DEVICE,
+            prefer_gpu=True,
+            proposal_scale_fraction=0.02,
+            return_sampler=True,
+            return_walker_state=True,
+        )
+        walker_coords = numpy.asarray(walker_state.coords, dtype=float)
+        results.extend(
+            _save_prefit_result(row, system, sampler, walker_coords[index])
+            for index, (row, system, sampler) in enumerate(zip(batch, systems, samplers))
+        )
+    return results
 
 
 def load_posterior_parameters(row):

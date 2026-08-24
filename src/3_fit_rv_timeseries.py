@@ -25,8 +25,10 @@ os.environ.setdefault(
     "XLA_PYTHON_CLIENT_PREALLOCATE",
     os.environ.get("SLRV_JAX_PREALLOCATE", "false"),
 )
-if "SLRV_JAX_PLATFORMS" in os.environ:
-    os.environ.setdefault("JAX_PLATFORMS", os.environ["SLRV_JAX_PLATFORMS"])
+# JAX calls the NVIDIA backend "cuda".  Explicitly select it so inherited
+# cluster settings (for example ``JAX_PLATFORMS=rocm``) cannot select an
+# unavailable backend; SLRV_JAX_PLATFORMS remains the supported override.
+os.environ["JAX_PLATFORMS"] = os.environ.get("SLRV_JAX_PLATFORMS", "cuda")
 
 DEFAULT_JAX_COMPILATION_CACHE_DIR = (
     Path(__file__).resolve().parent.parent / "data" / "jax_compilation_cache"
@@ -136,15 +138,11 @@ def jax_device_summary():
 
 
 def default_fit_max_workers():
-    if any(device.platform == "gpu" for device in JAX_DEVICES):
-        return 2
-    return 4
+    return 1
 
 
 def default_fit_device():
-    if any(device.platform == "gpu" for device in JAX_DEVICES):
-        return "gpu:0"
-    return "auto"
+    return "gpu:0"
 
 
 def optional_positive_int(value):
@@ -231,7 +229,7 @@ FIT_PROPOSAL_SCALE_FRACTION = float(
 FIT_PREFIT_PROPOSAL_SCALE_FRACTION = float(
     os.environ.get("SLRV_FIT_PREFIT_PROPOSAL_SCALE_FRACTION", 0.02)
 )
-REQUIRE_GPU = os.environ.get("SLRV_REQUIRE_GPU", "").lower() in (
+REQUIRE_GPU = os.environ.get("SLRV_REQUIRE_GPU", "1").lower() in (
     "1",
     "true",
     "yes",
