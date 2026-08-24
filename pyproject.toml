@@ -21,6 +21,7 @@ dependencies = [
     "jax (>=0.10.0,<1.0.0)",
     "jax-cuda12-plugin[with-cuda] (>=0.10.0,<1.0.0) ; sys_platform == 'linux'",
     "selflensing @ git+ssh://git@github.com/COBALT-lensing/py-self-lensing.git",
+    "searchlight @ git+ssh://git@github.com/COBALT-lensing/AstroSearchLight.git",
 ]
 
 [dependency-groups]

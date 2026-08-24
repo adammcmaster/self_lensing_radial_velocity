@@ -31,7 +31,14 @@ def main():
     configure_logging()
     if REQUIRE_GPU and not any(device.platform == "gpu" for device in jax.devices()):
         raise RuntimeError("Stage 1 requires a JAX GPU; set SLRV_REQUIRE_GPU=0 for debugging.")
-    rows = photometry_rows(photometry_simulation_paths(PHOTOMETRY_SIMULATION_PATH))
+    paths = photometry_simulation_paths(PHOTOMETRY_SIMULATION_PATH)
+    if not paths:
+        raise FileNotFoundError(
+            "No photometry FITS files found in "
+            f"{PHOTOMETRY_SIMULATION_PATH}. Ensure Searchlight's DATA_PATH "
+            "contains simulations/1.0/lensing with the input *.fits.gz files."
+        )
+    rows = photometry_rows(paths)
     existing = load_table(PREFIT_RESULTS_PATH)
     completed = (
         set(existing["simulation_id"].astype(str))

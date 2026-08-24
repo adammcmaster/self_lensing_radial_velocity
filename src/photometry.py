@@ -9,10 +9,11 @@ from pathlib import Path
 
 import pandas
 
+from searchlight.paths import DATA_PATH as SEARCHLIGHT_DATA_PATH
 from utils import DATA_PATH
 
 
-PHOTOMETRY_SIMULATION_PATH = Path.home() / "Code/lc-filter/data/simulations/1.0/lensing"
+PHOTOMETRY_SIMULATION_PATH = SEARCHLIGHT_DATA_PATH / "simulations/1.0/lensing"
 PHOTOMETRY_METADATA_PATH = DATA_PATH / "photometry_prefits.gz"
 
 
