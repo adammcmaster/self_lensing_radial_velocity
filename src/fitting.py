@@ -13,6 +13,15 @@ logger = logging.getLogger(__name__)
 TIMESERIES_TABLE_PATH = Path(
     os.environ.get("SLRV_FIT_OUTPUT_PATH", DATA_PATH / "fitted_timeseries.gz")
 )
+PREFIT_RESULTS_PATH = Path(
+    os.environ.get("SLRV_PREFIT_OUTPUT_PATH", DATA_PATH / "photometry_prefits.gz")
+)
+PREFIT_POSTERIOR_PATH = Path(
+    os.environ.get("SLRV_PREFIT_POSTERIOR_PATH", DATA_PATH / "photometry_posteriors")
+)
+SCHEDULE_TABLE_PATH = Path(
+    os.environ.get("SLRV_SCHEDULE_OUTPUT_PATH", DATA_PATH / "rv_schedules.gz")
+)
 SAMPLER_STATE_PATH = Path(
     os.environ.get("SLRV_FIT_SAMPLER_STATE_PATH", DATA_PATH / "fit_sampler_states")
 )
