@@ -21,6 +21,7 @@ os.environ.setdefault("MPLCONFIGDIR", os.environ.get("SLRV_MPLCONFIGDIR", "/tmp"
 
 logger = logging.getLogger(__name__)
 DEFAULT_FIT_RESULTS = Path(__file__).parent / Path("../data/fitted_timeseries.gz")
+DEFAULT_PREFIT_RESULTS = Path(__file__).parent / Path("../data/photometry_prefits.gz")
 DEFAULT_FIG_PATH = Path(__file__).parent / Path("../data/figures")
 FIG_PATH = Path(os.environ.get("SLRV_FIG_PATH", DEFAULT_FIG_PATH))
 PLOT_MAX_WORKERS = int(os.environ.get("SLRV_PLOT_MAX_WORKERS", min(os.cpu_count(), 16) or 1))
@@ -464,7 +465,7 @@ def plot_fit(row):
         f"$e$={scalar_value(row['e']):.2f}\n"
         f"$\\varphi$={scalar_value(row['periapsis_phase']):.2f} rad\n"
         f"Baseline={scalar_value(row['baseline']):.2f} d\n"
-        f"Nobs={scalar_value(row['nobs']):.2f} d"
+        f"Nobs={scalar_value(row['nobs']):.0f}"
     )
     fit_text = (
         "Fit\n"
@@ -681,7 +682,7 @@ def observational_token_for_row(ts):
     return "_".join(
         (
             format_filename_token("baseline", ts["baseline"], "d"),
-            format_filename_token("nobs", ts["nobs"], "d"),
+            format_filename_token("nobs", ts["nobs"], ""),
             format_filename_token("rv", ts["RV accuracy"], "ms"),
         )
     )
@@ -779,7 +780,23 @@ def path_string(value):
     return str(numpy.asarray(value).item())
 
 
+def prefit_record_for_row(ts):
+    """Load the separate stage-1 record for this RV system."""
+    path = Path(os.environ.get("SLRV_PREFIT_OUTPUT_PATH", DEFAULT_PREFIT_RESULTS))
+    if not path.exists():
+        raise FileNotFoundError(f"Photometry-prefit table does not exist: {path}")
+    prefits = pandas.read_pickle(path)
+    matches = prefits[prefits["simulation_id"].astype(str) == str(ts["system_id"])]
+    if len(matches) != 1:
+        raise KeyError(f"Expected one prefit for system_id={ts['system_id']}, found {len(matches)}")
+    return matches.iloc[0]
+
+
 def prefit_sampler_state_path_for_row(ts, state):
+    record = prefit_record_for_row(ts)
+    path = Path(record["prefit_posterior_path"])
+    if path.exists():
+        return path
     if (
         "fit_prefit_sampler_state_path" in ts
         and not pandas.isna(ts["fit_prefit_sampler_state_path"])
@@ -805,10 +822,7 @@ def attach_prefit_sampler_state(ts, state):
         return state
     with numpy.load(path) as data:
         state["prefit_chain"] = data["chain"].copy()
-        state["prefit_log_prob"] = data["log_prob"].copy()
-        state["prefit_acceptance"] = data["acceptance"].copy()
         state["prefit_parameter_names"] = data["parameter_names"].copy()
-        state["prefit_nsteps"] = data["nsteps"].copy()
     state["prefit_path"] = path
     return state
 
@@ -856,16 +870,9 @@ def has_prefit_fit_columns(row):
 
 
 def prefit_parameter_values(row):
-    if has_prefit_fit_columns(row):
-        return numpy.asarray(
-            [
-                scalar_value(row["prefit_fitted_a"]),
-                scalar_value(row["prefit_fitted_i"]),
-                scalar_value(row["prefit_fitted_Macc"]),
-                scalar_value(row["prefit_fitted_e"]),
-                scalar_value(row["prefit_fitted_periapsis_phase"]),
-            ]
-        )
+    record = prefit_record_for_row(row)
+    if has_prefit_fit_columns(record):
+        return numpy.asarray([scalar_value(record[f"prefit_fitted_{name}"]) for name in FIT_PARAMETER_NAMES])
 
     state = load_sampler_state(row)
     if "prefit_chain" not in state:
@@ -899,7 +906,7 @@ def plot_label(ts):
     return (
         f"rv_id={ts.get('rv_id')} | "
         f"baseline={float(ts['baseline']):g} d | "
-        f"nobs={float(ts['nobs']):g} d | "
+        f"nobs={float(ts['nobs']):g} | "
         f"RV accuracy={float(ts['RV accuracy']):g} m/s"
     )
 

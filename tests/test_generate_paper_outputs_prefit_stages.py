@@ -1,5 +1,6 @@
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -16,6 +17,48 @@ import generate_paper_outputs as paper_outputs
 
 
 class PrefitImprovementStageTest(unittest.TestCase):
+    def test_load_results_joins_separate_prefit_table_and_uses_nobs_as_count(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            directory = Path(tempdir)
+            fitted_path = directory / "fitted.gz"
+            prefit_path = directory / "prefits.gz"
+            pandas.DataFrame(
+                {
+                    "system_id": ["system-a"],
+                    "baseline": [5 * 365],
+                    "nobs": [7],
+                    "RV accuracy": [100.0],
+                    "Macc": [8.0],
+                    "a": [2.0],
+                    "Porb": [500.0],
+                    "b": [0.1],
+                    "fitted_Macc": [8.1],
+                    "fitted_a": [2.1],
+                    "fitted_porb": [510.0],
+                    "fitted_b": [0.12],
+                }
+            ).to_pickle(fitted_path)
+            pandas.DataFrame(
+                {
+                    "simulation_id": ["system-a"],
+                    "prefit_fitted_Macc": [7.5],
+                    "prefit_fitted_a": [1.8],
+                }
+            ).to_pickle(prefit_path)
+            previous = os.environ.get("SLRV_PREFIT_OUTPUT_PATH")
+            os.environ["SLRV_PREFIT_OUTPUT_PATH"] = str(prefit_path)
+            try:
+                results = paper_outputs.load_results(fitted_path)
+            finally:
+                if previous is None:
+                    os.environ.pop("SLRV_PREFIT_OUTPUT_PATH", None)
+                else:
+                    os.environ["SLRV_PREFIT_OUTPUT_PATH"] = previous
+
+        self.assertEqual(results.loc[0, "n_rv"], 7)
+        self.assertEqual(results.loc[0, "prefit_fitted_Macc"], 7.5)
+        self.assertEqual(results.loc[0, "strategy"], "5 yr, Nobs=7")
+
     def test_prefit_error_rows_include_rv_no_peak_time_stage(self):
         results = pandas.DataFrame(
             {

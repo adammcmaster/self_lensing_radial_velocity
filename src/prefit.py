@@ -53,6 +53,7 @@ def _metadata_from_photometry_path(path):
         "Macc": float(header["MBH"]),
         "Porb": float(header["P"]),
         "tau_eff": float(header["TAU_EFF"]),
+        "source_amp_sl": float(header["AMP_SL"]) if "AMP_SL" in header else numpy.nan,
         "Mcomp": float(header["MSTAR"]),
         "Rcomp": float(header["RSTAR"]),
         "Teff": float(header["TEFF"]),
@@ -163,13 +164,15 @@ def fit_photometry_row(row):
     sls, sampler, walker_state = result
     posterior_path = _posterior_path(row["simulation_id"])
     posterior_path.parent.mkdir(parents=True, exist_ok=True)
-    chain = numpy.asarray(sampler.get_chain(flat=True, discard=FIT_BURN), dtype=float)
+    chain = numpy.asarray(sampler.get_chain(), dtype=float)
+    flat_chain = numpy.asarray(sampler.get_chain(flat=True, discard=FIT_BURN), dtype=float)
     final_walker_coords = numpy.asarray(
         getattr(walker_state, "coords", walker_state), dtype=float
     )
     numpy.savez_compressed(
         posterior_path,
         chain=chain,
+        flat_chain=flat_chain,
         final_walker_coords=final_walker_coords,
         parameter_names=numpy.asarray(PREFIT_PARAMETER_NAMES),
     )
@@ -179,7 +182,12 @@ def fit_photometry_row(row):
 
 def load_posterior_parameters(row):
     with numpy.load(row["prefit_posterior_path"]) as samples:
-        chain = numpy.asarray(samples["chain"], dtype=float)
+        chain = numpy.asarray(
+            samples["flat_chain"] if "flat_chain" in samples.files else samples["chain"],
+            dtype=float,
+        )
+    if chain.ndim == 3:
+        chain = chain[FIT_BURN:].reshape((-1, chain.shape[-1]))
     if len(chain) == 0:
         raise ValueError(f"Photometry posterior for {row['simulation_id']} is empty")
     count = min(POSTERIOR_SCHEDULE_SAMPLES, len(chain))

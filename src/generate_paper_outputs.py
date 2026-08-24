@@ -22,6 +22,7 @@ from matplotlib.colors import ListedColormap, LogNorm, Normalize
 from matplotlib.lines import Line2D
 
 from estimation import calc_self_lensing_observable_space
+from fitting import PREFIT_RESULTS_PATH
 from utils import configure_logging
 
 
@@ -126,6 +127,49 @@ def result_path():
     return path
 
 
+def prefit_result_path():
+    """Return the separate photometry-prefit table when it is available."""
+    return Path(os.environ.get("SLRV_PREFIT_OUTPUT_PATH", PREFIT_RESULTS_PATH))
+
+
+def attach_prefit_results(results):
+    """Join photometry-only fit summaries to every RV/joint-fit row."""
+    path = prefit_result_path()
+    if not path.exists():
+        logger.warning(
+            "Photometry-prefit table is unavailable at %s; prefit comparison "
+            "figures will be skipped", path,
+        )
+        return results
+
+    prefits = pandas.read_pickle(path).copy()
+    required = {"simulation_id", "prefit_fitted_Macc"}
+    missing = sorted(required.difference(prefits.columns))
+    if missing:
+        raise KeyError(f"Photometry-prefit table is missing required columns: {missing}")
+
+    columns = [
+        "simulation_id",
+        *[column for column in prefits if column.startswith("prefit_fitted_")],
+        *[column for column in ("source_amp_sl", "tau_eff") if column in prefits],
+    ]
+    prefits = prefits.loc[:, list(dict.fromkeys(columns))].rename(
+        columns={"simulation_id": "system_id"}
+    )
+    prefits["system_id"] = prefits["system_id"].astype(str)
+    if prefits["system_id"].duplicated().any():
+        raise ValueError("Photometry-prefit table contains duplicate simulation_id values")
+
+    merged = results.copy()
+    merged["system_id"] = merged["system_id"].astype(str)
+    duplicate_columns = [
+        column for column in prefits.columns if column != "system_id" and column in merged
+    ]
+    if duplicate_columns:
+        merged = merged.drop(columns=duplicate_columns)
+    return merged.merge(prefits, on="system_id", how="left", validate="many_to_one")
+
+
 def relative_error(truth, fitted):
     truth = numpy.asarray(truth, dtype=float)
     fitted = numpy.asarray(fitted, dtype=float)
@@ -191,12 +235,13 @@ def load_results(path):
         results[column] = numeric_scalar_series(results[column])
 
     results = results.dropna(subset=["baseline", "nobs", "RV accuracy"]).copy()
+    results = attach_prefit_results(results)
     results["baseline_years"] = results["baseline"] / 365.0
-    results["n_rv"] = numpy.ceil(results["baseline"] / results["nobs"]).astype(int)
+    results["n_rv"] = results["nobs"].astype(int)
     results["strategy"] = (
         results["baseline_years"].map(lambda value: f"{value:g} yr")
         + ", "
-        + results["nobs"].map(lambda value: f"{value:g} d")
+        + results["nobs"].map(lambda value: f"Nobs={value:g}")
     )
     logger.info(
         "Loaded %d fitted rows across %d photometry systems",
@@ -449,22 +494,10 @@ def attach_photometric_observables(results):
     """Attach source peak amplification and crossing time to fitted rows."""
     enriched = results.copy()
     if "source_amp_sl" not in enriched:
-        metadata_paths = [
-            PROJECT_ROOT / "data" / "photometry_rv" / "metadata.csv",
-            Path("/scratch/anm1u24/self_lensing_radial_velocity/data/photometry_rv/metadata.csv"),
-        ]
-        metadata_path = next((path for path in metadata_paths if path.exists()), None)
-        if metadata_path is None:
-            raise FileNotFoundError(
-                "Could not find photometry photometry metadata needed for peak amplification"
-            )
-        metadata = pandas.read_csv(
-            metadata_path,
-            usecols=["simulation_id", "source_amp_sl"],
-        ).rename(columns={"simulation_id": "system_id"})
-        metadata["system_id"] = metadata["system_id"].astype(str)
-        enriched["system_id"] = enriched["system_id"].astype(str)
-        enriched = enriched.merge(metadata, on="system_id", how="left")
+        raise KeyError(
+            "Photometry-prefit results do not provide source_amp_sl; rerun the "
+            "photometry-prefit stage to regenerate its metadata."
+        )
     enriched["peak_amplification"] = numeric_scalar_series(enriched["source_amp_sl"])
     crossing_column = (
         "prefit_fitted_tau_eff"
@@ -623,7 +656,7 @@ def plot_prefit_relative_error_improvement_scatter_grids(
                         zorder=3,
                     )
                 if row_index == 0:
-                    axis.set_title(f"Nobs {nobs:g} d")
+                    axis.set_title(f"Nobs {nobs:g}")
                 if col_index == 0:
                     axis.set_ylabel(
                         f"Baseline {baseline / 365:g} yr\nRelative-error improvement"
@@ -1060,7 +1093,7 @@ def plot_prefit_improvement_by_nobs_and_baseline(results):
                     )
 
                 if row_index == 0:
-                    axis.set_title(f"Nobs {nobs:g} d")
+                    axis.set_title(f"Nobs {nobs:g}")
                 if col_index == 0:
                     axis.set_ylabel(
                         f"Baseline {baseline / 365:g} yr\nRelative error"
@@ -1514,7 +1547,7 @@ def plot_population_weighted_period_heatmaps(survey_counts, metrics, filename_pr
                 )
                 last_mesh = heatmap.collections[0]
                 if row_index == 0:
-                    axis.set_title(f"Nobs {nobs:g} d")
+                    axis.set_title(f"Nobs {nobs:g}")
                 if col_index == 0:
                     axis.set_ylabel(
                         f"Baseline {baseline / 365:g} yr\\n"
@@ -1825,7 +1858,7 @@ def plot_recovery_by_truth_range(
             )
             last_mesh = heatmap.collections[0]
             if row_index == 0:
-                axis.set_title(f"Nobs {nobs:g} d")
+                axis.set_title(f"Nobs {nobs:g}")
             if col_index == 0:
                 axis.set_ylabel(
                     f"Baseline {baseline / 365:g} yr\n"
@@ -1935,7 +1968,7 @@ def plot_metric_by_truth_range(
             )
             last_mesh = heatmap.collections[0]
             if row_index == 0:
-                axis.set_title(f"Nobs {nobs:g} d")
+                axis.set_title(f"Nobs {nobs:g}")
             if col_index == 0:
                 axis.set_ylabel(
                     f"Baseline {baseline / 365:g} yr\n"
@@ -2074,7 +2107,7 @@ def plot_relative_error_distribution_by_truth_range(
                     inset.set_axis_off()
 
             if row_index == 0:
-                axis.set_title(f"Nobs {nobs:g} d")
+                axis.set_title(f"Nobs {nobs:g}")
             if col_index == 0:
                 axis.set_ylabel(
                     f"Baseline {baseline / 365:g} yr\n"
@@ -2685,7 +2718,7 @@ def write_sample_summary(results):
                 ", ".join(f"{value:g}" for value in sorted(results["baseline_years"].unique())),
             ),
             (
-                "RV nobss [d]",
+                "RV observations per schedule",
                 ", ".join(f"{value:g}" for value in sorted(results["nobs"].unique())),
             ),
             (

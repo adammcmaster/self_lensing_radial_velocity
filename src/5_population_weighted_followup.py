@@ -47,7 +47,7 @@ POPULATION_CACHE_PATH = POPULATION_CACHE_DIR / "followup_population_cache.parque
 DETECTED_SAMPLE_CACHE_DIR = PROJECT_ROOT / "paper" / "tables" / "cache"
 DETECTED_SAMPLE_CACHE_TEMPLATE = "detected_followup_sample_{sample_size}.parquet"
 FITTED_PATH = DATA_PATH / "fitted_timeseries.gz"
-PHOTOMETRY_METADATA_PATH = DATA_PATH / "photometry_rv" / "metadata.csv"
+PHOTOMETRY_METADATA_PATH = DATA_PATH / "photometry_prefits.gz"
 
 RECOVERY_THRESHOLD = 0.10
 DEFAULT_K = 25
@@ -479,7 +479,7 @@ def load_fitted_results():
 def load_photometry_metadata():
     if not PHOTOMETRY_METADATA_PATH.exists():
         raise FileNotFoundError(f"Photometry metadata not found at {PHOTOMETRY_METADATA_PATH}")
-    metadata = pandas.read_csv(PHOTOMETRY_METADATA_PATH)
+    metadata = pandas.read_pickle(PHOTOMETRY_METADATA_PATH)
     required = {"simulation_id", "Macc", "Porb", "e"}
     missing = sorted(required.difference(metadata.columns))
     if missing:
@@ -626,7 +626,7 @@ def transferred_rows(population, photometry, response, neighbour_indices, neighb
                     "baseline": float(strategy["baseline"]),
                     "baseline_years": float(strategy["baseline"]) / 365.0,
                     "nobs": float(strategy["nobs"]),
-                    "n_rv": int(numpy.ceil(float(strategy["baseline"]) / float(strategy["nobs"]))),
+                    "n_rv": int(strategy["nobs"]),
                     "RV accuracy": float(strategy["RV accuracy"]),
                     "precision_tier": PRECISION_TIER_LABELS.get(
                         float(strategy["RV accuracy"]),
@@ -831,7 +831,7 @@ def aggregate_transferred(population, photometry, response, neighbour_indices, n
             "baseline": baseline,
             "baseline_years": baseline / 365.0,
             "nobs": nobs,
-            "n_rv": int(numpy.ceil(baseline / nobs)),
+            "n_rv": int(nobs),
             "RV accuracy": rv_accuracy,
             "precision_tier": PRECISION_TIER_LABELS.get(
                 rv_accuracy,
@@ -928,7 +928,7 @@ def response_arrays_by_strategy(response, system_ids):
                 "baseline": baseline,
                 "baseline_years": baseline / 365.0,
                 "nobs": nobs,
-                "n_rv": int(numpy.ceil(baseline / nobs)),
+                "n_rv": int(nobs),
                 "RV accuracy": rv_accuracy,
                 "precision_tier": PRECISION_TIER_LABELS.get(
                     rv_accuracy,
