@@ -12,7 +12,7 @@ from prefit import (
     photometry_rows,
     save_prefits_and_schedules,
 )
-from pristine import PHOTOMETRY_SIMULATION_PATH, photometry_simulation_paths
+from photometry import PHOTOMETRY_SIMULATION_PATH, photometry_simulation_paths
 from utils import configure_logging
 
 

@@ -1,9 +1,9 @@
 """
-Submit realistic-timeseries generation jobs as a SLURM array.
+Submit rv-timeseries generation jobs as a SLURM array.
 
-Each array task owns a batch of pristine simulation IDs. That keeps writes to
-grouped realistic FITS files disjoint, because each pristine simulation maps to
-one realistic output file.
+Each array task owns a batch of photometry simulation IDs. That keeps writes to
+grouped rv FITS files disjoint, because each photometry simulation maps to
+one rv output file.
 """
 
 import argparse
@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pandas
 
-from pristine import PRISTINE_METADATA_PATH, load_pristine_timeseries
-from realistic import PARAMS, load_realistic_timeseries
+from photometry import PHOTOMETRY_METADATA_PATH, load_photometry_timeseries
+from rv_timeseries import PARAMS, load_rv_timeseries
 from utils import DATA_PATH
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -32,7 +32,7 @@ def positive_int(value):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Batch realistic-timeseries generation and submit it to SLURM."
+        description="Batch rv-timeseries generation and submit it to SLURM."
     )
     parser.add_argument(
         "--submit-root",
@@ -83,10 +83,10 @@ def parse_args():
         help="Optional SLURM GRES request, for example gpu:a100:1.",
     )
     parser.add_argument(
-        "--target-pristine-per-job",
+        "--target-photometry-per-job",
         type=positive_int,
         default=4,
-        help="Preferred number of pristine simulations per array task.",
+        help="Preferred number of photometry simulations per array task.",
     )
     parser.add_argument(
         "--max-jobs",
@@ -98,7 +98,7 @@ def parse_args():
         "--sample-size",
         type=positive_int,
         default=None,
-        help="Optional maximum number of pristine simulations to submit.",
+        help="Optional maximum number of photometry simulations to submit.",
     )
     parser.add_argument(
         "--seed",
@@ -113,16 +113,16 @@ def parse_args():
         help="SLRV_GENERATE_PARAM_MAX_WORKERS inside each array task.",
     )
     parser.add_argument(
-        "--realistic-max-workers",
+        "--rv-max-workers",
         type=positive_int,
         default=4,
-        help="SLRV_GENERATE_REALISTIC_MAX_WORKERS inside each array task.",
+        help="SLRV_GENERATE_RV_TIMESERIES_MAX_WORKERS inside each array task.",
     )
     parser.add_argument(
         "--vector-batch-size",
         type=positive_int,
         default=50,
-        help="Number of RV-accuracy variants to generate at once per pristine curve.",
+        help="Number of RV-accuracy variants to generate at once per photometry curve.",
     )
     parser.add_argument(
         "--plain-python",
@@ -137,14 +137,14 @@ def parse_args():
     return parser.parse_args()
 
 
-def missing_count_for_pristine(pristine_id, existing_keys):
+def missing_count_for_photometry(system_id, existing_keys):
     count = 0
     for baseline in PARAMS["campaign_baselines"]:
-        for cadence in PARAMS["cadences"]:
+        for nobs in PARAMS["nobs"]:
             for rv_accuracy in PARAMS["rv_accuracies"]:
                 key = (
-                    str(pristine_id),
-                    int(cadence),
+                    str(system_id),
+                    int(nobs),
                     f"{float(rv_accuracy):.17g}",
                     int(baseline),
                 )
@@ -153,20 +153,20 @@ def missing_count_for_pristine(pristine_id, existing_keys):
     return count
 
 
-def load_pristine_index():
-    if PRISTINE_METADATA_PATH.exists():
-        return pandas.read_csv(PRISTINE_METADATA_PATH)
-    return load_pristine_timeseries()
+def load_photometry_index():
+    if PHOTOMETRY_METADATA_PATH.exists():
+        return pandas.read_csv(PHOTOMETRY_METADATA_PATH)
+    return load_photometry_timeseries()
 
 
-def load_existing_realistic_keys():
-    table = load_realistic_timeseries()
+def load_existing_rv_keys():
+    table = load_rv_timeseries()
     if table.empty:
         return set()
     return {
         (
-            str(row["pristine_id"]),
-            int(row["cadence"]),
+            str(row["system_id"]),
+            int(row["nobs"]),
             f"{float(row['RV accuracy']):.17g}",
             int(row["baseline"]),
         )
@@ -174,27 +174,27 @@ def load_existing_realistic_keys():
     }
 
 
-def pristine_with_missing_realistic_rows(pristine):
-    existing_keys = load_existing_realistic_keys()
+def photometry_with_missing_rv_rows(photometry):
+    existing_keys = load_existing_rv_keys()
     rows = []
-    for _, row in pristine.iterrows():
-        missing_count = missing_count_for_pristine(row["simulation_id"], existing_keys)
+    for _, row in photometry.iterrows():
+        missing_count = missing_count_for_photometry(row["simulation_id"], existing_keys)
         if missing_count:
             rows.append(
                 {
                     "simulation_id": row["simulation_id"],
                     "rv_path": row["rv_path"],
-                    "missing_realistic_count": missing_count,
+                    "missing_rv_count": missing_count,
                 }
             )
     return pandas.DataFrame(rows)
 
 
-def split_batches(table, target_pristine_per_job, max_jobs):
+def split_batches(table, target_photometry_per_job, max_jobs):
     if table.empty:
         return []
 
-    preferred_jobs = math.ceil(len(table) / target_pristine_per_job)
+    preferred_jobs = math.ceil(len(table) / target_photometry_per_job)
     n_jobs = min(max_jobs, preferred_jobs)
     rows_per_job = math.ceil(len(table) / n_jobs)
     return [
@@ -246,9 +246,9 @@ def write_sbatch_script(args, submit_dir, n_batches):
         "set -euo pipefail",
         f"cd {shlex.quote(str(REPO_ROOT))}",
         "",
-        "export SLRV_SKIP_PRISTINE_GENERATION=1",
+        "export SLRV_SKIP_PHOTOMETRY_GENERATION=1",
         f"export SLRV_GENERATE_PARAM_MAX_WORKERS={args.param_max_workers}",
-        f"export SLRV_GENERATE_REALISTIC_MAX_WORKERS={args.realistic_max_workers}",
+        f"export SLRV_GENERATE_RV_TIMESERIES_MAX_WORKERS={args.rv_max_workers}",
         f"export SLRV_GENERATE_VECTOR_BATCH_SIZE={args.vector_batch_size}",
         "export SLRV_MP_START_METHOD=spawn",
         "export OMP_NUM_THREADS=1",
@@ -264,7 +264,7 @@ def write_sbatch_script(args, submit_dir, n_batches):
         'export SLRV_GENERATE_BATCH_FILE="$BATCH_FILE"',
         'export SLRV_GENERATE_METADATA_OUTPUT_PATH="$METADATA_FILE"',
         "",
-        f"{python_command} src/2_generate_realistic_timeseries.py",
+        f"{python_command} src/2_generate_rv_timeseries.py",
         "",
     ]
 
@@ -288,13 +288,13 @@ def submit(script_path):
 def main():
     args = parse_args()
     submit_name = args.name or datetime.now().strftime(
-        "realistic_generate_%Y%m%d_%H%M%S"
+        "rv_generate_%Y%m%d_%H%M%S"
     )
     submit_dir = (args.submit_root / submit_name).resolve()
     batch_dir = submit_dir / "batches"
 
-    pristine = load_pristine_index()
-    table = pristine_with_missing_realistic_rows(pristine)
+    photometry = load_photometry_index()
+    table = photometry_with_missing_rv_rows(photometry)
     table.sort_values("simulation_id", inplace=True)
 
     if args.sample_size is not None and len(table) > args.sample_size:
@@ -302,27 +302,27 @@ def main():
             "simulation_id"
         )
 
-    batches = split_batches(table, args.target_pristine_per_job, args.max_jobs)
+    batches = split_batches(table, args.target_photometry_per_job, args.max_jobs)
     if not batches:
-        print("No missing realistic timeseries combinations found; nothing to submit.")
+        print("No missing rv timeseries combinations found; nothing to submit.")
         return
 
     manifest_paths = write_batches(batches, batch_dir)
     script_path = write_sbatch_script(args, submit_dir, len(batches))
 
-    total_realistic = int(table["missing_realistic_count"].sum())
-    max_pristine_per_task = max(len(batch) for batch in batches)
-    max_realistic_per_task = max(
-        int(batch["missing_realistic_count"].sum()) for batch in batches
+    total_rv = int(table["missing_rv_count"].sum())
+    max_photometry_per_task = max(len(batch) for batch in batches)
+    max_rv_per_task = max(
+        int(batch["missing_rv_count"].sum()) for batch in batches
     )
     print(
-        f"Prepared {len(table)} pristine simulations "
-        f"({total_realistic} realistic timeseries) "
+        f"Prepared {len(table)} photometry simulations "
+        f"({total_rv} rv timeseries) "
         f"in {len(manifest_paths)} SLURM array tasks."
     )
     print(
-        f"Largest array task: {max_pristine_per_task} pristine simulations "
-        f"({max_realistic_per_task} realistic timeseries)."
+        f"Largest array task: {max_photometry_per_task} photometry simulations "
+        f"({max_rv_per_task} rv timeseries)."
     )
     if len(manifest_paths) == args.max_jobs:
         print(

@@ -47,7 +47,7 @@ POPULATION_CACHE_PATH = POPULATION_CACHE_DIR / "followup_population_cache.parque
 DETECTED_SAMPLE_CACHE_DIR = PROJECT_ROOT / "paper" / "tables" / "cache"
 DETECTED_SAMPLE_CACHE_TEMPLATE = "detected_followup_sample_{sample_size}.parquet"
 FITTED_PATH = DATA_PATH / "fitted_timeseries.gz"
-PRISTINE_METADATA_PATH = DATA_PATH / "pristine_rv" / "metadata.csv"
+PHOTOMETRY_METADATA_PATH = DATA_PATH / "photometry_rv" / "metadata.csv"
 
 RECOVERY_THRESHOLD = 0.10
 DEFAULT_K = 25
@@ -167,7 +167,7 @@ def parse_args():
         "--k",
         type=int,
         default=DEFAULT_K,
-        help="Number of nearest pristine simulations used by the emulator.",
+        help="Number of nearest photometry simulations used by the emulator.",
     )
     parser.add_argument(
         "--rebuild-cache",
@@ -442,9 +442,9 @@ def load_fitted_results():
         raise FileNotFoundError(f"Fitted results not found at {FITTED_PATH}")
     results = pandas.read_pickle(FITTED_PATH).copy()
     required = {
-        "pristine_id",
+        "system_id",
         "baseline",
-        "cadence",
+        "nobs",
         "RV accuracy",
         "Macc",
         "Porb",
@@ -454,7 +454,7 @@ def load_fitted_results():
     missing = sorted(required.difference(results.columns))
     if missing:
         raise KeyError(f"Fitted results table is missing columns: {missing}")
-    for column in required.difference({"pristine_id"}):
+    for column in required.difference({"system_id"}):
         results[column] = numeric_scalar_series(results[column])
     results = results.dropna(subset=list(required)).copy()
     results["classified"] = (
@@ -476,14 +476,14 @@ def load_fitted_results():
     return results
 
 
-def load_pristine_metadata():
-    if not PRISTINE_METADATA_PATH.exists():
-        raise FileNotFoundError(f"Pristine metadata not found at {PRISTINE_METADATA_PATH}")
-    metadata = pandas.read_csv(PRISTINE_METADATA_PATH)
+def load_photometry_metadata():
+    if not PHOTOMETRY_METADATA_PATH.exists():
+        raise FileNotFoundError(f"Photometry metadata not found at {PHOTOMETRY_METADATA_PATH}")
+    metadata = pandas.read_csv(PHOTOMETRY_METADATA_PATH)
     required = {"simulation_id", "Macc", "Porb", "e"}
     missing = sorted(required.difference(metadata.columns))
     if missing:
-        raise KeyError(f"Pristine metadata table is missing columns: {missing}")
+        raise KeyError(f"Photometry metadata table is missing columns: {missing}")
     for column in ("Macc", "Porb", "e", "b", "i"):
         if column in metadata:
             metadata[column] = numeric_scalar_series(metadata[column])
@@ -505,20 +505,20 @@ def feature_table(table):
     return features[finite], finite
 
 
-def scaled_feature_arrays(pristine, population):
-    pristine_features, pristine_mask = feature_table(pristine)
+def scaled_feature_arrays(photometry, population):
+    photometry_features, photometry_mask = feature_table(photometry)
     population_features, population_mask = feature_table(population)
     columns = ["log_Macc", "log_Porb", "e", "b"]
     scale_source = pandas.concat(
-        [pristine_features[columns], population_features[columns]], ignore_index=True
+        [photometry_features[columns], population_features[columns]], ignore_index=True
     )
     center = scale_source.median()
     scale = scale_source.quantile(0.84) - scale_source.quantile(0.16)
     scale = scale.replace(0, numpy.nan).fillna(scale_source.std()).replace(0, 1.0)
     return (
-        ((pristine_features[columns] - center) / scale).to_numpy(dtype=float),
+        ((photometry_features[columns] - center) / scale).to_numpy(dtype=float),
         ((population_features[columns] - center) / scale).to_numpy(dtype=float),
-        pristine.loc[pristine_mask].copy(),
+        photometry.loc[photometry_mask].copy(),
         population.loc[population_mask].copy(),
     )
 
@@ -539,10 +539,10 @@ def apply_feature_scaler(table, center, scale):
     return scaled, table.loc[mask].copy()
 
 
-def nearest_neighbour_weights(pristine_features, population_features, k):
-    k = min(k, len(pristine_features))
+def nearest_neighbour_weights(photometry_features, population_features, k):
+    k = min(k, len(photometry_features))
     if cKDTree is not None:
-        tree = cKDTree(pristine_features)
+        tree = cKDTree(photometry_features)
         distances, indices = tree.query(population_features, k=k, workers=-1)
     else:
         logger.warning("scipy is unavailable; using slower chunked nearest neighbours")
@@ -550,7 +550,7 @@ def nearest_neighbour_weights(pristine_features, population_features, k):
         distances = []
         for start in range(0, len(population_features), 2048):
             chunk = population_features[start : start + 2048]
-            diff = chunk[:, None, :] - pristine_features[None, :, :]
+            diff = chunk[:, None, :] - photometry_features[None, :, :]
             dist = numpy.sqrt(numpy.sum(diff * diff, axis=2))
             idx = numpy.argpartition(dist, kth=k - 1, axis=1)[:, :k]
             row = numpy.arange(len(chunk))[:, None]
@@ -570,7 +570,7 @@ def nearest_neighbour_weights(pristine_features, population_features, k):
 
 def response_by_strategy(results):
     response = (
-        results.groupby(["baseline", "cadence", "RV accuracy", "pristine_id"], dropna=False)
+        results.groupby(["baseline", "nobs", "RV accuracy", "system_id"], dropna=False)
         .agg(
             classified=("classified", "mean"),
             measured_mass=("measured_mass", "mean"),
@@ -584,17 +584,17 @@ def response_by_strategy(results):
     return response
 
 
-def transferred_rows(population, pristine, response, neighbour_indices, neighbour_weights):
-    pristine_ids = pristine["simulation_id"].astype(str).to_numpy()
-    neighbour_ids = pristine_ids[neighbour_indices]
-    strategies = response[["baseline", "cadence", "RV accuracy"]].drop_duplicates()
+def transferred_rows(population, photometry, response, neighbour_indices, neighbour_weights):
+    system_ids = photometry["simulation_id"].astype(str).to_numpy()
+    neighbour_ids = system_ids[neighbour_indices]
+    strategies = response[["baseline", "nobs", "RV accuracy"]].drop_duplicates()
     rows = []
-    for _, strategy in strategies.sort_values(["baseline", "cadence", "RV accuracy"]).iterrows():
+    for _, strategy in strategies.sort_values(["baseline", "nobs", "RV accuracy"]).iterrows():
         strategy_response = response[
             (response["baseline"] == strategy["baseline"])
-            & (response["cadence"] == strategy["cadence"])
+            & (response["nobs"] == strategy["nobs"])
             & (response["RV accuracy"] == strategy["RV accuracy"])
-        ].set_index("pristine_id")
+        ].set_index("system_id")
 
         metric_arrays = {}
         coverage = None
@@ -604,7 +604,7 @@ def transferred_rows(population, pristine, response, neighbour_indices, neighbou
             "measured_period",
             "measured_mass_and_period",
         ):
-            metric_by_id = strategy_response[metric].reindex(pristine_ids).to_numpy(dtype=float)
+            metric_by_id = strategy_response[metric].reindex(system_ids).to_numpy(dtype=float)
             valid = numpy.isfinite(metric_by_id[neighbour_indices])
             valid_weight = numpy.sum(neighbour_weights * valid, axis=1)
             if coverage is None:
@@ -625,15 +625,15 @@ def transferred_rows(population, pristine, response, neighbour_indices, neighbou
                     "period_range": population["period_range"].to_numpy(),
                     "baseline": float(strategy["baseline"]),
                     "baseline_years": float(strategy["baseline"]) / 365.0,
-                    "cadence": float(strategy["cadence"]),
-                    "n_rv": int(numpy.ceil(float(strategy["baseline"]) / float(strategy["cadence"]))),
+                    "nobs": float(strategy["nobs"]),
+                    "n_rv": int(numpy.ceil(float(strategy["baseline"]) / float(strategy["nobs"]))),
                     "RV accuracy": float(strategy["RV accuracy"]),
                     "precision_tier": PRECISION_TIER_LABELS.get(
                         float(strategy["RV accuracy"]),
                         f"{float(strategy['RV accuracy']):g} m/s",
                     ),
                     "response_coverage": coverage,
-                    "nearest_pristine_ids": [";".join(ids) for ids in neighbour_ids],
+                    "nearest_system_ids": [";".join(ids) for ids in neighbour_ids],
                     **metric_arrays,
                 }
             )
@@ -711,7 +711,7 @@ def summarise_transferred(transferred):
     group_columns = [
         "baseline",
         "baseline_years",
-        "cadence",
+        "nobs",
         "n_rv",
         "RV accuracy",
         "precision_tier",
@@ -766,10 +766,10 @@ def summarise_precision_tiers(transferred):
     return pandas.DataFrame(rows).sort_values(["RV accuracy", "lens_mass_range", "period_range"])
 
 
-def aggregate_transferred(population, pristine, response, neighbour_indices, neighbour_weights):
+def aggregate_transferred(population, photometry, response, neighbour_indices, neighbour_weights):
     """Aggregate emulated recovery and relative-error responses."""
-    pristine_ids = pristine["simulation_id"].astype(str).to_numpy()
-    strategies = response[["baseline", "cadence", "RV accuracy"]].drop_duplicates()
+    system_ids = photometry["simulation_id"].astype(str).to_numpy()
+    strategies = response[["baseline", "nobs", "RV accuracy"]].drop_duplicates()
     weights = population["weight"].to_numpy(dtype=float)
     population_weight = float(weights.sum())
     if population_weight <= 0:
@@ -781,18 +781,18 @@ def aggregate_transferred(population, pristine, response, neighbour_indices, nei
     population_groups = population[group_columns].copy()
     population_groups["_row"] = numpy.arange(len(population_groups))
 
-    for _, strategy in strategies.sort_values(["baseline", "cadence", "RV accuracy"]).iterrows():
+    for _, strategy in strategies.sort_values(["baseline", "nobs", "RV accuracy"]).iterrows():
         strategy_response = response[
             (response["baseline"] == strategy["baseline"])
-            & (response["cadence"] == strategy["cadence"])
+            & (response["nobs"] == strategy["nobs"])
             & (response["RV accuracy"] == strategy["RV accuracy"])
-        ].set_index("pristine_id")
+        ].set_index("system_id")
 
         metric_probabilities = {}
         metric_errors = {}
         response_coverage = None
         for metric in PROBABILITY_METRICS:
-            metric_by_id = strategy_response[metric].reindex(pristine_ids).to_numpy(dtype=float)
+            metric_by_id = strategy_response[metric].reindex(system_ids).to_numpy(dtype=float)
             neighbour_values = metric_by_id[neighbour_indices]
             valid = numpy.isfinite(neighbour_values)
             valid_weight = numpy.sum(neighbour_weights * valid, axis=1)
@@ -810,7 +810,7 @@ def aggregate_transferred(population, pristine, response, neighbour_indices, nei
                 raise ValueError(f"Emulated {metric} probabilities are outside [0, 1]")
             metric_probabilities[metric] = numpy.clip(values, 0.0, 1.0)
         for metric in RELATIVE_ERROR_METRICS:
-            metric_by_id = strategy_response[metric].reindex(pristine_ids).to_numpy(dtype=float)
+            metric_by_id = strategy_response[metric].reindex(system_ids).to_numpy(dtype=float)
             neighbour_values = metric_by_id[neighbour_indices]
             valid = numpy.isfinite(neighbour_values)
             valid_weight = numpy.sum(neighbour_weights * valid, axis=1)
@@ -825,13 +825,13 @@ def aggregate_transferred(population, pristine, response, neighbour_indices, nei
             raise ValueError("Emulated response coverage is outside [0, 1]")
 
         baseline = float(strategy["baseline"])
-        cadence = float(strategy["cadence"])
+        nobs = float(strategy["nobs"])
         rv_accuracy = float(strategy["RV accuracy"])
         base_row = {
             "baseline": baseline,
             "baseline_years": baseline / 365.0,
-            "cadence": cadence,
-            "n_rv": int(numpy.ceil(baseline / cadence)),
+            "nobs": nobs,
+            "n_rv": int(numpy.ceil(baseline / nobs)),
             "RV accuracy": rv_accuracy,
             "precision_tier": PRECISION_TIER_LABELS.get(
                 rv_accuracy,
@@ -902,33 +902,33 @@ def aggregate_transferred(population, pristine, response, neighbour_indices, nei
             tier_rows.append(tier_row)
 
     summary = pandas.DataFrame(summary_rows).sort_values(
-        ["baseline", "cadence", "RV accuracy"]
+        ["baseline", "nobs", "RV accuracy"]
     )
     precision_tiers = pandas.DataFrame(tier_rows).sort_values(
-        ["baseline", "cadence", "RV accuracy", "lens_mass_range", "period_range"]
+        ["baseline", "nobs", "RV accuracy", "lens_mass_range", "period_range"]
     )
     return summary, precision_tiers
 
 
-def response_arrays_by_strategy(response, pristine_ids):
-    strategies = response[["baseline", "cadence", "RV accuracy"]].drop_duplicates()
+def response_arrays_by_strategy(response, system_ids):
+    strategies = response[["baseline", "nobs", "RV accuracy"]].drop_duplicates()
     metric_columns = PROBABILITY_METRICS + RELATIVE_ERROR_METRICS
     strategy_rows = []
-    for _, strategy in strategies.sort_values(["baseline", "cadence", "RV accuracy"]).iterrows():
+    for _, strategy in strategies.sort_values(["baseline", "nobs", "RV accuracy"]).iterrows():
         strategy_response = response[
             (response["baseline"] == strategy["baseline"])
-            & (response["cadence"] == strategy["cadence"])
+            & (response["nobs"] == strategy["nobs"])
             & (response["RV accuracy"] == strategy["RV accuracy"])
-        ].set_index("pristine_id")
+        ].set_index("system_id")
         baseline = float(strategy["baseline"])
-        cadence = float(strategy["cadence"])
+        nobs = float(strategy["nobs"])
         rv_accuracy = float(strategy["RV accuracy"])
         strategy_rows.append(
             {
                 "baseline": baseline,
                 "baseline_years": baseline / 365.0,
-                "cadence": cadence,
-                "n_rv": int(numpy.ceil(baseline / cadence)),
+                "nobs": nobs,
+                "n_rv": int(numpy.ceil(baseline / nobs)),
                 "RV accuracy": rv_accuracy,
                 "precision_tier": PRECISION_TIER_LABELS.get(
                     rv_accuracy,
@@ -936,7 +936,7 @@ def response_arrays_by_strategy(response, pristine_ids):
                 ),
                 "metrics": {
                     metric: strategy_response[metric]
-                    .reindex(pristine_ids)
+                    .reindex(system_ids)
                     .to_numpy(dtype=float)
                     for metric in metric_columns
                 },
@@ -949,7 +949,7 @@ def empty_accumulator_row(strategy):
     return {
         "baseline": strategy["baseline"],
         "baseline_years": strategy["baseline_years"],
-        "cadence": strategy["cadence"],
+        "nobs": strategy["nobs"],
         "n_rv": strategy["n_rv"],
         "RV accuracy": strategy["RV accuracy"],
         "precision_tier": strategy["precision_tier"],
@@ -1053,10 +1053,10 @@ def finalise_accumulators(summary_accumulators, tier_accumulators, probability_m
         tier_rows.append(output)
 
     summary = pandas.DataFrame(summary_rows).sort_values(
-        ["baseline", "cadence", "RV accuracy"]
+        ["baseline", "nobs", "RV accuracy"]
     )
     precision_tiers = pandas.DataFrame(tier_rows).sort_values(
-        ["baseline", "cadence", "RV accuracy", "lens_mass_range", "period_range"]
+        ["baseline", "nobs", "RV accuracy", "lens_mass_range", "period_range"]
     )
     return summary, precision_tiers
 
@@ -1071,26 +1071,26 @@ def iter_population_cache_batches(path):
         yield row_group
 
 
-def aggregate_population_cache(pristine, response, k):
+def aggregate_population_cache(photometry, response, k):
     if not POPULATION_CACHE_PATH.exists():
         raise FileNotFoundError(
             f"Population cache not found at {POPULATION_CACHE_PATH}. "
             "Run without --sample-size once to build it."
         )
-    center, scale, pristine = feature_scaler(pristine)
-    pristine_features, pristine = apply_feature_scaler(pristine, center, scale)
-    pristine_ids = pristine["simulation_id"].astype(str).to_numpy()
+    center, scale, photometry = feature_scaler(photometry)
+    photometry_features, photometry = apply_feature_scaler(photometry, center, scale)
+    system_ids = photometry["simulation_id"].astype(str).to_numpy()
     if cKDTree is None:
         tree = None
     else:
-        tree = cKDTree(pristine_features)
-    strategy_rows, metric_columns = response_arrays_by_strategy(response, pristine_ids)
+        tree = cKDTree(photometry_features)
+    strategy_rows, metric_columns = response_arrays_by_strategy(response, system_ids)
     output_specs = []
     response_columns = []
     for strategy in strategy_rows:
         strategy_key = (
             strategy["baseline"],
-            strategy["cadence"],
+            strategy["nobs"],
             strategy["RV accuracy"],
         )
         for metric in metric_columns:
@@ -1134,14 +1134,14 @@ def aggregate_population_cache(pristine, response, k):
             )
         )
 
-        query_k = min(k, len(pristine_features))
+        query_k = min(k, len(photometry_features))
         for start in range(0, len(batch), TRANSFER_CHUNK_SIZE):
             stop = min(start + TRANSFER_CHUNK_SIZE, len(batch))
             feature_chunk = batch_features[start:stop]
             weight_chunk = weights[start:stop]
             if tree is None:
                 neighbour_indices, neighbour_weights = nearest_neighbour_weights(
-                    pristine_features,
+                    photometry_features,
                     feature_chunk,
                     k,
                 )
@@ -1239,7 +1239,7 @@ def aggregate_population_cache(pristine, response, k):
                 for output_index, (strategy_key, strategy, metric) in enumerate(output_specs):
                     tier_key = (
                         strategy["baseline"],
-                        strategy["cadence"],
+                        strategy["nobs"],
                         strategy["RV accuracy"],
                         lens_mass_range,
                         period_range,
@@ -1297,7 +1297,7 @@ def write_latex_summary(summary):
     table = table.rename(
         columns={
             "baseline_years": "Baseline [yr]",
-            "cadence": "Cadence [d]",
+            "nobs": "Nobs",
             "n_rv": r"$N_\mathrm{RV}$",
             "precision_tier": "RV precision",
             "response_coverage_fraction": "Coverage [per cent]",
@@ -1310,7 +1310,7 @@ def write_latex_summary(summary):
     table = table[
         [
             "Baseline [yr]",
-            "Cadence [d]",
+            "Nobs",
             r"$N_\mathrm{RV}$",
             "RV precision",
             "Coverage [per cent]",
@@ -1373,7 +1373,7 @@ def summarise_bh_like_followup(precision_tiers):
     group_columns = [
         "baseline",
         "baseline_years",
-        "cadence",
+        "nobs",
         "n_rv",
         "RV accuracy",
         "precision_tier",
@@ -1413,7 +1413,7 @@ def write_latex_bh_summary(summary):
     table = table.rename(
         columns={
             "baseline_years": "Baseline [yr]",
-            "cadence": "Cadence [d]",
+            "nobs": "Nobs",
             "n_rv": r"$N_\mathrm{RV}$",
             "precision_tier": "RV precision",
             "population_weight": r"$N_\mathrm{BH-like}$",
@@ -1427,7 +1427,7 @@ def write_latex_bh_summary(summary):
     table = table[
         [
             "Baseline [yr]",
-            "Cadence [d]",
+            "Nobs",
             r"$N_\mathrm{RV}$",
             "RV precision",
             r"$N_\mathrm{BH-like}$",
@@ -1494,7 +1494,7 @@ def plot_followup_heatmaps(summary):
             axis = axes[row_index, col_index]
             subset = summary[summary["baseline"] == baseline]
             matrix = subset.pivot(
-                index="cadence",
+                index="nobs",
                 columns="RV accuracy",
                 values=metric,
             ).sort_index().sort_index(axis=1)
@@ -1514,7 +1514,7 @@ def plot_followup_heatmaps(summary):
             if row_index == 0:
                 axis.set_title(f"{baseline / 365:g} yr")
             if col_index == 0:
-                axis.set_ylabel(f"{label}\nCadence [d]")
+                axis.set_ylabel(f"{label}\nNobs")
             else:
                 axis.set_ylabel("")
             if row_index == len(metrics) - 1:
@@ -1562,7 +1562,7 @@ def plot_mass_period_recovery(precision_tiers):
     rv_labels = [PRECISION_TIER_LABELS[value] for value in rv_order]
     best_strategy = precision_tiers[
         (precision_tiers["baseline"] == precision_tiers["baseline"].max())
-        & (precision_tiers["cadence"] == precision_tiers["cadence"].min())
+        & (precision_tiers["nobs"] == precision_tiers["nobs"].min())
     ].copy()
     if best_strategy.empty:
         raise ValueError("No data available for mass/period recovery plot")
@@ -1645,7 +1645,7 @@ def plot_mass_period_recovery(precision_tiers):
 
 def validate_weight_conservation(transferred):
     actual = transferred.groupby(
-        ["baseline", "cadence", "RV accuracy"], dropna=False
+        ["baseline", "nobs", "RV accuracy"], dropna=False
     )["weight"].sum()
     if not numpy.allclose(actual.to_numpy(), actual.iloc[0]):
         raise ValueError("Population weights were not conserved through emulation")
@@ -1658,7 +1658,7 @@ def main():
     FIGURE_DIR.mkdir(parents=True, exist_ok=True)
     TABLE_DIR.mkdir(parents=True, exist_ok=True)
 
-    pristine = load_pristine_metadata()
+    photometry = load_photometry_metadata()
     fitted = load_fitted_results()
     response = response_by_strategy(fitted)
 
@@ -1668,24 +1668,24 @@ def main():
             population = load_population(rebuild_cache=args.rebuild_cache)
             del population
         summary, precision_tiers = aggregate_population_cache(
-            pristine,
+            photometry,
             response,
             args.k,
         )
     else:
         population = load_detected_population(detected_sample_size)
-        pristine_features, population_features, pristine, population = scaled_feature_arrays(
-            pristine,
+        photometry_features, population_features, photometry, population = scaled_feature_arrays(
+            photometry,
             population,
         )
         neighbour_indices, neighbour_weights = nearest_neighbour_weights(
-            pristine_features,
+            photometry_features,
             population_features,
             args.k,
         )
         summary, precision_tiers = aggregate_transferred(
             population,
-            pristine,
+            photometry,
             response,
             neighbour_indices,
             neighbour_weights,

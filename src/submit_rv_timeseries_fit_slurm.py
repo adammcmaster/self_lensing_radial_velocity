@@ -1,5 +1,5 @@
 """
-Submit realistic-timeseries fitting jobs as a SLURM array.
+Submit rv-timeseries fitting jobs as a SLURM array.
 
 The submitter writes small CSV batch manifests and an sbatch script under
 data/slurm/. Each array task fits one manifest and writes its own result shard,
@@ -16,7 +16,7 @@ from pathlib import Path
 import pandas
 from tqdm import tqdm
 
-from realistic import load_realistic_timeseries
+from rv_timeseries import load_rv_timeseries
 from utils import DATA_PATH
 
 
@@ -34,7 +34,7 @@ def positive_int(value):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Batch realistic timeseries fits and submit them to SLURM."
+        description="Batch rv timeseries fits and submit them to SLURM."
     )
     parser.add_argument(
         "--submit-root",
@@ -88,7 +88,7 @@ def parse_args():
         "--target-rows-per-job",
         type=positive_int,
         default=10,
-        help="Preferred number of realistic rows per array task.",
+        help="Preferred number of rv rows per array task.",
     )
     parser.add_argument(
         "--max-jobs",
@@ -154,8 +154,8 @@ def load_existing_fitted_ids(
     path = Path(path)
     if path.exists():
         fitted = pandas.read_pickle(path)
-        if "realistic_id" in fitted.columns:
-            fitted_ids.update(fitted["realistic_id"].dropna().astype(str))
+        if "rv_id" in fitted.columns:
+            fitted_ids.update(fitted["rv_id"].dropna().astype(str))
 
     shard_paths = []
     shard_dir = path.parent / "fit_shards"
@@ -175,8 +175,8 @@ def load_existing_fitted_ids(
 
     for shard_path in shard_iter:
         fitted = pandas.read_pickle(shard_path)
-        if "realistic_id" in fitted.columns:
-            fitted_ids.update(fitted["realistic_id"].dropna().astype(str))
+        if "rv_id" in fitted.columns:
+            fitted_ids.update(fitted["rv_id"].dropna().astype(str))
     return fitted_ids
 
 
@@ -201,7 +201,7 @@ def write_batches(batches, batch_dir):
         # Each SLURM array task filters the fitter to these explicit IDs.
         # That makes per-task membership deterministic; random sampling inside
         # the fitter is bypassed whenever SLRV_FIT_BATCH_FILE is set.
-        batch[["realistic_id", "realistic_path"]].to_csv(path, index=False)
+        batch[["rv_id", "rv_path"]].to_csv(path, index=False)
         manifest_paths.append(path)
     return manifest_paths
 
@@ -209,8 +209,8 @@ def write_batches(batches, batch_dir):
 def prepare_rows(args):
     stats = {}
     with tqdm(total=5, desc="Preparing rows") as progress:
-        progress.set_postfix_str("loading realistic table")
-        table = load_realistic_timeseries()
+        progress.set_postfix_str("loading rv table")
+        table = load_rv_timeseries()
         stats["loaded_rows"] = len(table)
         progress.update()
 
@@ -224,21 +224,21 @@ def prepare_rows(args):
 
         progress.set_postfix_str("filtering fitted rows")
         if fitted_ids:
-            table = table[~table["realistic_id"].astype(str).isin(fitted_ids)].copy()
+            table = table[~table["rv_id"].astype(str).isin(fitted_ids)].copy()
         stats["unfitted_rows"] = len(table)
         progress.update()
 
         progress.set_postfix_str("sorting rows")
-        table.sort_values(["realistic_path", "realistic_id"], inplace=True)
+        table.sort_values(["rv_path", "rv_id"], inplace=True)
         progress.update()
 
         progress.set_postfix_str("sampling rows")
         stats["sampled_rows"] = 0
         if args.sample_size is not None and len(table) > args.sample_size:
             # Optional submit-time downsampling is deterministic. Without
-            # --sample-size, every currently-unfitted realistic row is batched.
+            # --sample-size, every currently-unfitted rv row is batched.
             table = table.sample(args.sample_size, random_state=args.seed).sort_values(
-                ["realistic_path", "realistic_id"]
+                ["rv_path", "rv_id"]
             )
             stats["sampled_rows"] = len(table)
         stats["prepared_rows"] = len(table)
@@ -308,7 +308,7 @@ def write_sbatch_script(args, submit_dir, n_batches):
         lines.append(f"export SLRV_FIT_BURN={args.fit_burn}")
     lines += [
         "",
-        f"{python_command} src/3_fit_realistic_timeseries.py",
+        f"{python_command} src/3_fit_rv_timeseries.py",
         "",
     ]
 
@@ -331,29 +331,29 @@ def submit(script_path):
 
 def main():
     args = parse_args()
-    submit_name = args.name or datetime.now().strftime("realistic_fit_%Y%m%d_%H%M%S")
+    submit_name = args.name or datetime.now().strftime("rv_fit_%Y%m%d_%H%M%S")
     submit_dir = (args.submit_root / submit_name).resolve()
     batch_dir = submit_dir / "batches"
 
-    print(f"Preparing realistic fit submission in {submit_dir}")
+    print(f"Preparing rv fit submission in {submit_dir}")
     print(f"Existing fitted table: {DEFAULT_FITTED_TABLE_PATH}")
     print(f"Submit root scanned for shards: {args.submit_root}")
 
     table, stats = prepare_rows(args)
     batches = split_batches(table, args.target_rows_per_job, args.max_jobs)
     if not batches:
-        print(f"Realistic rows loaded: {stats['loaded_rows']}")
-        print(f"Known fitted realistic ids: {stats['fitted_ids']}")
+        print(f"RV rows loaded: {stats['loaded_rows']}")
+        print(f"Known fitted rv ids: {stats['fitted_ids']}")
         print(f"Unfitted rows after filtering: {stats['unfitted_rows']}")
-        print("No unfitted realistic timeseries rows found; nothing to submit.")
+        print("No unfitted rv timeseries rows found; nothing to submit.")
         return
 
     manifest_paths = write_batches(batches, batch_dir)
     script_path = write_sbatch_script(args, submit_dir, len(batches))
 
     rows_per_job = math.ceil(len(table) / len(batches))
-    print(f"Realistic rows loaded: {stats['loaded_rows']}")
-    print(f"Known fitted realistic ids: {stats['fitted_ids']}")
+    print(f"RV rows loaded: {stats['loaded_rows']}")
+    print(f"Known fitted rv ids: {stats['fitted_ids']}")
     print(f"Unfitted rows after filtering: {stats['unfitted_rows']}")
     if args.sample_size is not None:
         print(f"Sample size requested: {args.sample_size}")

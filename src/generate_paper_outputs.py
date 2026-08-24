@@ -173,7 +173,7 @@ def load_results(path):
     logger.info("Loading fitted results from %s", path)
     results = pandas.read_pickle(path).copy()
 
-    required_columns = {"pristine_id", "baseline", "cadence", "RV accuracy"}
+    required_columns = {"system_id", "baseline", "nobs", "RV accuracy"}
     for param, spec in PARAMETERS.items():
         required_columns.update({param, spec["fitted"]})
     missing = sorted(required_columns.difference(results.columns))
@@ -182,7 +182,7 @@ def load_results(path):
 
     numeric_columns = [
         "baseline",
-        "cadence",
+        "nobs",
         "RV accuracy",
         *PARAMETERS.keys(),
         *(spec["fitted"] for spec in PARAMETERS.values()),
@@ -190,18 +190,18 @@ def load_results(path):
     for column in numeric_columns:
         results[column] = numeric_scalar_series(results[column])
 
-    results = results.dropna(subset=["baseline", "cadence", "RV accuracy"]).copy()
+    results = results.dropna(subset=["baseline", "nobs", "RV accuracy"]).copy()
     results["baseline_years"] = results["baseline"] / 365.0
-    results["n_rv"] = numpy.ceil(results["baseline"] / results["cadence"]).astype(int)
+    results["n_rv"] = numpy.ceil(results["baseline"] / results["nobs"]).astype(int)
     results["strategy"] = (
         results["baseline_years"].map(lambda value: f"{value:g} yr")
         + ", "
-        + results["cadence"].map(lambda value: f"{value:g} d")
+        + results["nobs"].map(lambda value: f"{value:g} d")
     )
     logger.info(
-        "Loaded %d fitted rows across %d pristine systems",
+        "Loaded %d fitted rows across %d photometry systems",
         len(results),
-        results["pristine_id"].nunique(),
+        results["system_id"].nunique(),
     )
     return results
 
@@ -225,9 +225,9 @@ def summarise_strategy_recovery(results):
         results[error_column] = relative_error(results[param], results[spec["fitted"]])
         results[recovered_column] = results[error_column] <= RECOVERY_THRESHOLD
 
-    strategy_columns = ["baseline", "baseline_years", "cadence", "n_rv", "RV accuracy"]
+    strategy_columns = ["baseline", "baseline_years", "nobs", "n_rv", "RV accuracy"]
     summary_aggs = {
-        "pristine_id": pandas.NamedAgg(column="pristine_id", aggfunc="nunique")
+        "system_id": pandas.NamedAgg(column="system_id", aggfunc="nunique")
     }
     for param in PARAMETERS:
         summary_aggs[f"{param}_recovery_fraction"] = pandas.NamedAgg(
@@ -240,7 +240,7 @@ def summarise_strategy_recovery(results):
     return (
         results.groupby(strategy_columns, dropna=False)
         .agg(**summary_aggs)
-        .rename(columns={"pristine_id": "n_systems"})
+        .rename(columns={"system_id": "n_systems"})
         .reset_index()
         .sort_values(strategy_columns)
     )
@@ -280,7 +280,7 @@ def prefit_joint_error_rows(results):
         ):
             if value_column is None:
                 continue
-            needed = list(dict.fromkeys([param, "Macc", value_column, "pristine_id", "n_rv"]))
+            needed = list(dict.fromkeys([param, "Macc", value_column, "system_id", "n_rv"]))
             finite = results.dropna(subset=needed).copy()
             if finite.empty:
                 continue
@@ -303,7 +303,7 @@ def prefit_joint_error_rows(results):
                     if column in finite
                     else numpy.full(len(finite), numpy.nan)
                 )
-                for column in ("baseline", "cadence", "RV accuracy")
+                for column in ("baseline", "nobs", "RV accuracy")
             }
             stage_rows = pandas.DataFrame(
                 {
@@ -313,7 +313,7 @@ def prefit_joint_error_rows(results):
                     "lens_mass_range": mass_range.astype(str).to_numpy(),
                     **observing_columns,
                     "n_rv": finite["n_rv"].astype(int).to_numpy(),
-                    "pristine_id": finite["pristine_id"].astype(str).to_numpy(),
+                    "system_id": finite["system_id"].astype(str).to_numpy(),
                     "relative_error": errors,
                     "recovered": errors <= RECOVERY_THRESHOLD,
                 }
@@ -374,7 +374,7 @@ def summarise_prefit_joint_errors(error_rows):
             ),
             recovery_fraction=pandas.NamedAgg(column="recovered", aggfunc="mean"),
             n_rows=pandas.NamedAgg(column="relative_error", aggfunc="size"),
-            n_systems=pandas.NamedAgg(column="pristine_id", aggfunc="nunique"),
+            n_systems=pandas.NamedAgg(column="system_id", aggfunc="nunique"),
         )
         .reset_index()
         .sort_values(["parameter", "fit_stage", "n_rv"])
@@ -405,7 +405,7 @@ def summarise_prefit_joint_errors_by_lens_mass_range(error_rows):
             ),
             recovery_fraction=pandas.NamedAgg(column="recovered", aggfunc="mean"),
             n_rows=pandas.NamedAgg(column="relative_error", aggfunc="size"),
-            n_systems=pandas.NamedAgg(column="pristine_id", aggfunc="nunique"),
+            n_systems=pandas.NamedAgg(column="system_id", aggfunc="nunique"),
         )
         .reset_index()
         .sort_values(["parameter", "lens_mass_range", "fit_stage", "n_rv"])
@@ -413,12 +413,12 @@ def summarise_prefit_joint_errors_by_lens_mass_range(error_rows):
 
 
 def summarise_prefit_joint_errors_by_observing_strategy(error_rows):
-    """Summarise prefit comparisons within each cadence/baseline panel."""
+    """Summarise prefit comparisons within each nobs/baseline panel."""
     strategy_columns = [
         "parameter",
         "parameter_label",
         "baseline",
-        "cadence",
+        "nobs",
         "RV accuracy",
         "fit_stage",
     ]
@@ -438,7 +438,7 @@ def summarise_prefit_joint_errors_by_observing_strategy(error_rows):
             ),
             recovery_fraction=pandas.NamedAgg(column="recovered", aggfunc="mean"),
             n_rows=pandas.NamedAgg(column="relative_error", aggfunc="size"),
-            n_systems=pandas.NamedAgg(column="pristine_id", aggfunc="nunique"),
+            n_systems=pandas.NamedAgg(column="system_id", aggfunc="nunique"),
         )
         .reset_index()
         .sort_values(strategy_columns)
@@ -450,21 +450,21 @@ def attach_photometric_observables(results):
     enriched = results.copy()
     if "source_amp_sl" not in enriched:
         metadata_paths = [
-            PROJECT_ROOT / "data" / "pristine_rv" / "metadata.csv",
-            Path("/scratch/anm1u24/self_lensing_radial_velocity/data/pristine_rv/metadata.csv"),
+            PROJECT_ROOT / "data" / "photometry_rv" / "metadata.csv",
+            Path("/scratch/anm1u24/self_lensing_radial_velocity/data/photometry_rv/metadata.csv"),
         ]
         metadata_path = next((path for path in metadata_paths if path.exists()), None)
         if metadata_path is None:
             raise FileNotFoundError(
-                "Could not find pristine photometry metadata needed for peak amplification"
+                "Could not find photometry photometry metadata needed for peak amplification"
             )
         metadata = pandas.read_csv(
             metadata_path,
             usecols=["simulation_id", "source_amp_sl"],
-        ).rename(columns={"simulation_id": "pristine_id"})
-        metadata["pristine_id"] = metadata["pristine_id"].astype(str)
-        enriched["pristine_id"] = enriched["pristine_id"].astype(str)
-        enriched = enriched.merge(metadata, on="pristine_id", how="left")
+        ).rename(columns={"simulation_id": "system_id"})
+        metadata["system_id"] = metadata["system_id"].astype(str)
+        enriched["system_id"] = enriched["system_id"].astype(str)
+        enriched = enriched.merge(metadata, on="system_id", how="left")
     enriched["peak_amplification"] = numeric_scalar_series(enriched["source_amp_sl"])
     crossing_column = (
         "prefit_fitted_tau_eff"
@@ -486,9 +486,9 @@ def prefit_relative_error_improvement_rows(results):
             spec["prefit"],
             spec["fitted"],
             "baseline",
-            "cadence",
+            "nobs",
             "RV accuracy",
-            "pristine_id",
+            "system_id",
         ]
         finite = results.dropna(subset=needed).copy()
         if finite.empty:
@@ -498,7 +498,7 @@ def prefit_relative_error_improvement_rows(results):
             spec["prefit"],
             spec["fitted"],
             "baseline",
-            "cadence",
+            "nobs",
             "RV accuracy",
         ):
             finite[column] = numeric_scalar_series(finite[column])
@@ -507,7 +507,7 @@ def prefit_relative_error_improvement_rows(results):
             & numpy.isfinite(finite[spec["prefit"]])
             & numpy.isfinite(finite[spec["fitted"]])
             & numpy.isfinite(finite["baseline"])
-            & numpy.isfinite(finite["cadence"])
+            & numpy.isfinite(finite["nobs"])
             & numpy.isfinite(finite["RV accuracy"])
         ]
         if finite.empty:
@@ -521,11 +521,11 @@ def prefit_relative_error_improvement_rows(results):
                     "parameter_label": spec["label"],
                     "photometry_only_fitted_value": finite[spec["prefit"]].to_numpy(),
                     "baseline": finite["baseline"].to_numpy(),
-                    "cadence": finite["cadence"].to_numpy(),
+                    "nobs": finite["nobs"].to_numpy(),
                     "RV accuracy": finite["RV accuracy"].to_numpy(),
                     "peak_amplification": finite["peak_amplification"].to_numpy(),
                     "crossing_time_days": finite["crossing_time_days"].to_numpy(),
-                    "pristine_id": finite["pristine_id"].astype(str).to_numpy(),
+                    "system_id": finite["system_id"].astype(str).to_numpy(),
                     "prefit_relative_error": prefit_error,
                     "joint_relative_error": joint_error,
                     "relative_error_improvement": prefit_error - joint_error,
@@ -554,7 +554,7 @@ def plot_prefit_relative_error_improvement_scatter_grids(
     for param in plot_params:
         param_data = plot_data[plot_data["parameter"] == param].copy()
         filename = (
-            f"prefit_relative_error_improvement_by_cadence_baseline_{param}"
+            f"prefit_relative_error_improvement_by_nobs_baseline_{param}"
             f"{filename_suffix}"
         )
         colored_data = param_data[
@@ -569,7 +569,7 @@ def plot_prefit_relative_error_improvement_scatter_grids(
             continue
         colored_data.to_csv(TABLE_DIR / f"{filename}.csv", index=False)
         baselines = numpy.sort(param_data["baseline"].unique())
-        cadences = numpy.sort(param_data["cadence"].unique())
+        nobss = numpy.sort(param_data["nobs"].unique())
         color_values = colored_data[color_column].to_numpy(dtype=float)
         norm = (
             LogNorm(vmin=color_values.min(), vmax=color_values.max())
@@ -579,20 +579,20 @@ def plot_prefit_relative_error_improvement_scatter_grids(
 
         fig, axes = pyplot.subplots(
             len(baselines),
-            len(cadences),
+            len(nobss),
             figsize=(8.2, 6.8),
             sharex=True,
             sharey=True,
             constrained_layout=True,
         )
-        axes = numpy.asarray(axes, dtype=object).reshape(len(baselines), len(cadences))
+        axes = numpy.asarray(axes, dtype=object).reshape(len(baselines), len(nobss))
         scatter = None
         for row_index, baseline in enumerate(baselines):
-            for col_index, cadence in enumerate(cadences):
+            for col_index, nobs in enumerate(nobss):
                 axis = axes[row_index, col_index]
                 panel_data = colored_data[
                     (colored_data["baseline"] == baseline)
-                    & (colored_data["cadence"] == cadence)
+                    & (colored_data["nobs"] == nobs)
                     & (colored_data["photometry_only_fitted_value"] > 0)
                 ]
                 scatter = axis.scatter(
@@ -623,7 +623,7 @@ def plot_prefit_relative_error_improvement_scatter_grids(
                         zorder=3,
                     )
                 if row_index == 0:
-                    axis.set_title(f"Cadence {cadence:g} d")
+                    axis.set_title(f"Nobs {nobs:g} d")
                 if col_index == 0:
                     axis.set_ylabel(
                         f"Baseline {baseline / 365:g} yr\nRelative-error improvement"
@@ -695,7 +695,7 @@ def plot_photometry_followup_recommendation_maps(results):
             spec["fitted"],
             *feature_columns,
             "baseline",
-            "cadence",
+            "nobs",
             "RV accuracy",
             "n_rv",
         ]
@@ -719,11 +719,11 @@ def plot_photometry_followup_recommendation_maps(results):
         data = data.dropna(subset=["peak_bin", "crossing_bin"])
         data["peak_bin"] = data["peak_bin"].astype(str)
         data["crossing_bin"] = data["crossing_bin"].astype(str)
-        group_columns = ["peak_bin", "crossing_bin", "baseline", "cadence", "RV accuracy", "n_rv"]
+        group_columns = ["peak_bin", "crossing_bin", "baseline", "nobs", "RV accuracy", "n_rv"]
         strategy = data.groupby(group_columns, observed=True).agg(
             prefit_error=("prefit_relative_error", "median"),
             joint_error=("joint_relative_error", "median"),
-            n_systems=("pristine_id", "nunique"),
+            n_systems=("system_id", "nunique"),
         ).reset_index()
         bin_columns = ["peak_bin", "crossing_bin"]
         strategy["best_joint_error"] = strategy.groupby(bin_columns)["joint_error"].transform("min")
@@ -748,7 +748,7 @@ def plot_photometry_followup_recommendation_maps(results):
         peak_labels = list(data["peak_bin"].drop_duplicates())
         crossing_labels = list(data["crossing_bin"].drop_duplicates())
         panels = [
-            ("cadence", "Cadence [d]"),
+            ("nobs", "Nobs"),
             ("baseline", "Baseline [yr]"),
             ("RV accuracy", r"RV accuracy [m s$^{-1}$]"),
         ]
@@ -984,10 +984,10 @@ def plot_prefit_improvement_by_lens_mass_range(results):
     pyplot.close(fig)
 
 
-def plot_prefit_improvement_by_cadence_and_baseline(results):
+def plot_prefit_improvement_by_nobs_and_baseline(results):
     """Write one prefit-comparison grid per physical parameter.
 
-    Each panel fixes the observing cadence and baseline, so RV accuracy is the
+    Each panel fixes the observing nobs and baseline, so RV accuracy is the
     varying quantity on the horizontal axis.  This avoids using ``n_rv`` as an
     axis within a panel, where it is necessarily constant.
     """
@@ -1006,30 +1006,30 @@ def plot_prefit_improvement_by_cadence_and_baseline(results):
         param_data = summary[summary["parameter"] == param].copy()
         # This figure and its CSV sidecar are not currently included in main.tex.
         # param_data.to_csv(
-        #     TABLE_DIR / f"prefit_improvement_by_cadence_baseline_{param}.csv",
+        #     TABLE_DIR / f"prefit_improvement_by_nobs_baseline_{param}.csv",
         #     index=False,
         # )
         baselines = numpy.sort(param_data["baseline"].dropna().unique())
-        cadences = numpy.sort(param_data["cadence"].dropna().unique())
-        if len(baselines) == 0 or len(cadences) == 0:
+        nobss = numpy.sort(param_data["nobs"].dropna().unique())
+        if len(baselines) == 0 or len(nobss) == 0:
             continue
 
         fig, axes = pyplot.subplots(
             len(baselines),
-            len(cadences),
-            figsize=(2.45 * len(cadences), 1.85 * len(baselines)),
+            len(nobss),
+            figsize=(2.45 * len(nobss), 1.85 * len(baselines)),
             sharex=True,
             sharey=True,
             constrained_layout=True,
         )
-        axes = numpy.asarray(axes, dtype=object).reshape(len(baselines), len(cadences))
+        axes = numpy.asarray(axes, dtype=object).reshape(len(baselines), len(nobss))
 
         for row_index, baseline in enumerate(baselines):
-            for col_index, cadence in enumerate(cadences):
+            for col_index, nobs in enumerate(nobss):
                 axis = axes[row_index, col_index]
                 panel_data = param_data[
                     (param_data["baseline"] == baseline)
-                    & (param_data["cadence"] == cadence)
+                    & (param_data["nobs"] == nobs)
                 ]
                 for stage, style in PREFIT_COMPARISON_STAGE_STYLES.items():
                     stage_data = panel_data[
@@ -1060,7 +1060,7 @@ def plot_prefit_improvement_by_cadence_and_baseline(results):
                     )
 
                 if row_index == 0:
-                    axis.set_title(f"Cadence {cadence:g} d")
+                    axis.set_title(f"Nobs {nobs:g} d")
                 if col_index == 0:
                     axis.set_ylabel(
                         f"Baseline {baseline / 365:g} yr\nRelative error"
@@ -1095,7 +1095,7 @@ def plot_prefit_improvement_by_cadence_and_baseline(results):
             bbox_to_anchor=(0.5, 1.08),
             frameon=False,
         )
-        filename = f"prefit_improvement_by_cadence_baseline_{param}"
+        filename = f"prefit_improvement_by_nobs_baseline_{param}"
         for suffix in ("pdf", "png"):
             fig.savefig(FIGURE_DIR / f"{filename}.{suffix}", bbox_inches="tight")
         pyplot.close(fig)
@@ -1111,7 +1111,7 @@ def prefit_compact_object_class_rows(results):
             "Expected prefit_fitted_Macc."
         )
 
-    needed = ["Macc", "pristine_id", "n_rv"]
+    needed = ["Macc", "system_id", "n_rv"]
     finite = results.dropna(subset=needed).copy()
     if finite.empty:
         raise ValueError(
@@ -1153,7 +1153,7 @@ def prefit_compact_object_class_rows(results):
                     "fit_stage": fit_stage,
                     "lens_mass_range": mass_range.astype(str).to_numpy(),
                     "n_rv": stage_data["n_rv"].astype(int).to_numpy(),
-                    "pristine_id": stage_data["pristine_id"].astype(str).to_numpy(),
+                    "system_id": stage_data["system_id"].astype(str).to_numpy(),
                     "correct_class": (
                         true_class.notna()
                         & fitted_class.notna()
@@ -1182,7 +1182,7 @@ def summarise_prefit_compact_object_class_rows(class_rows):
                 column="correct_class", aggfunc="mean"
             ),
             n_rows=pandas.NamedAgg(column="correct_class", aggfunc="size"),
-            n_systems=pandas.NamedAgg(column="pristine_id", aggfunc="nunique"),
+            n_systems=pandas.NamedAgg(column="system_id", aggfunc="nunique"),
         )
         .reset_index()
         .sort_values(["lens_mass_range", "fit_stage", "n_rv"])
@@ -1366,7 +1366,7 @@ def plot_prefit_compact_object_class_by_lens_mass_range(results):
 
 def percent_matrix(table, value_column, baseline):
     subset = table[table["baseline"] == baseline]
-    matrix = subset.pivot(index="cadence", columns="RV accuracy", values=value_column)
+    matrix = subset.pivot(index="nobs", columns="RV accuracy", values=value_column)
     matrix = matrix.sort_index().sort_index(axis=1)
     return 100.0 * matrix
 
@@ -1472,7 +1472,7 @@ def plot_population_weighted_period_heatmaps(survey_counts, metrics, filename_pr
         )
 
     baselines = numpy.sort(data["baseline"].unique())
-    cadences = numpy.sort(data["cadence"].unique())
+    nobss = numpy.sort(data["nobs"].unique())
     rv_values = numpy.sort(data["RV accuracy"].unique())
     period_ranges = ORBITAL_PERIOD_RANGE_LABELS
 
@@ -1480,19 +1480,19 @@ def plot_population_weighted_period_heatmaps(survey_counts, metrics, filename_pr
         vmax = fixed_vmax or colorbar_vmax(100.0 * data[value_column])
         fig, axes = pyplot.subplots(
             len(baselines),
-            len(cadences),
+            len(nobss),
             figsize=(8.2, 6.8),
             sharex=True,
             sharey=True,
             constrained_layout=True,
         )
-        axes = numpy.asarray(axes, dtype=object).reshape(len(baselines), len(cadences))
+        axes = numpy.asarray(axes, dtype=object).reshape(len(baselines), len(nobss))
         last_mesh = None
         for row_index, baseline in enumerate(baselines):
-            for col_index, cadence in enumerate(cadences):
+            for col_index, nobs in enumerate(nobss):
                 axis = axes[row_index, col_index]
                 subset = data[
-                    (data["baseline"] == baseline) & (data["cadence"] == cadence)
+                    (data["baseline"] == baseline) & (data["nobs"] == nobs)
                 ]
                 matrix = subset.pivot(
                     index="RV accuracy",
@@ -1514,7 +1514,7 @@ def plot_population_weighted_period_heatmaps(survey_counts, metrics, filename_pr
                 )
                 last_mesh = heatmap.collections[0]
                 if row_index == 0:
-                    axis.set_title(f"Cadence {cadence:g} d")
+                    axis.set_title(f"Nobs {nobs:g} d")
                 if col_index == 0:
                     axis.set_ylabel(
                         f"Baseline {baseline / 365:g} yr\\n"
@@ -1571,7 +1571,7 @@ def plot_mass_recovery_by_strategy(strategy_summary):
         )
         axis.set_title(f"Baseline {baseline / 365:g} yr")
         axis.set_xlabel(r"RV accuracy [m s$^{-1}$]")
-        axis.set_ylabel("Cadence [d]" if axis is axes[0] else "")
+        axis.set_ylabel("Nobs" if axis is axes[0] else "")
 
     for suffix in ("pdf", "png"):
         fig.savefig(FIGURE_DIR / f"mass_recovery_by_strategy.{suffix}", bbox_inches="tight")
@@ -1641,7 +1641,7 @@ def binned_recovery_table(
             [
                 "baseline",
                 "baseline_years",
-                "cadence",
+                "nobs",
                 "RV accuracy",
                 "_value_bin",
                 "_value_bin_label",
@@ -1651,10 +1651,10 @@ def binned_recovery_table(
         )
         .agg(
             recovery_fraction=pandas.NamedAgg(column=recovered_column, aggfunc="mean"),
-            n_systems=pandas.NamedAgg(column="pristine_id", aggfunc="nunique"),
+            n_systems=pandas.NamedAgg(column="system_id", aggfunc="nunique"),
         )
         .reset_index()
-        .sort_values(["baseline", "cadence", "RV accuracy", "_value_bin"])
+        .sort_values(["baseline", "nobs", "RV accuracy", "_value_bin"])
     )
     return table
 
@@ -1687,7 +1687,7 @@ def binned_metric_table(
             [
                 "baseline",
                 "baseline_years",
-                "cadence",
+                "nobs",
                 "RV accuracy",
                 "_value_bin",
                 "_value_bin_label",
@@ -1698,11 +1698,11 @@ def binned_metric_table(
         .agg(
             **{
                 metric_name: pandas.NamedAgg(column=metric_column, aggfunc=aggfunc),
-                "n_systems": pandas.NamedAgg(column="pristine_id", aggfunc="nunique"),
+                "n_systems": pandas.NamedAgg(column="system_id", aggfunc="nunique"),
             }
         )
         .reset_index()
-        .sort_values(["baseline", "cadence", "RV accuracy", "_value_bin"])
+        .sort_values(["baseline", "nobs", "RV accuracy", "_value_bin"])
     )
     return table
 
@@ -1778,30 +1778,30 @@ def plot_recovery_by_truth_range(
     # table.to_csv(TABLE_DIR / f"{filename}.csv", index=False)
 
     baselines = numpy.sort(table["baseline"].dropna().unique())
-    cadences = numpy.sort(table["cadence"].dropna().unique())
+    nobss = numpy.sort(table["nobs"].dropna().unique())
     bin_labels = list(labels) if labels is not None else list(table["_value_bin_label"].drop_duplicates())
 
     fig, axes = pyplot.subplots(
         len(baselines),
-        len(cadences),
+        len(nobss),
         figsize=(8.2, 6.8),
         sharex=True,
         sharey=True,
         constrained_layout=True,
     )
-    if len(baselines) == 1 and len(cadences) == 1:
+    if len(baselines) == 1 and len(nobss) == 1:
         axes = numpy.asarray([[axes]])
     elif len(baselines) == 1:
         axes = numpy.asarray([axes])
-    elif len(cadences) == 1:
+    elif len(nobss) == 1:
         axes = numpy.asarray([[axis] for axis in axes])
 
     last_mesh = None
     for row_index, baseline in enumerate(baselines):
-        for col_index, cadence in enumerate(cadences):
+        for col_index, nobs in enumerate(nobss):
             axis = axes[row_index, col_index]
             subset = table[
-                (table["baseline"] == baseline) & (table["cadence"] == cadence)
+                (table["baseline"] == baseline) & (table["nobs"] == nobs)
             ]
             matrix = (
                 subset.pivot(
@@ -1825,7 +1825,7 @@ def plot_recovery_by_truth_range(
             )
             last_mesh = heatmap.collections[0]
             if row_index == 0:
-                axis.set_title(f"Cadence {cadence:g} d")
+                axis.set_title(f"Nobs {nobs:g} d")
             if col_index == 0:
                 axis.set_ylabel(
                     f"Baseline {baseline / 365:g} yr\n"
@@ -1887,30 +1887,30 @@ def plot_metric_by_truth_range(
         vmax = colorbar_vmax(100.0 * table[metric_name], minimum=vmax)
 
     baselines = numpy.sort(table["baseline"].dropna().unique())
-    cadences = numpy.sort(table["cadence"].dropna().unique())
+    nobss = numpy.sort(table["nobs"].dropna().unique())
     bin_labels = list(labels) if labels is not None else list(table["_value_bin_label"].drop_duplicates())
 
     fig, axes = pyplot.subplots(
         len(baselines),
-        len(cadences),
+        len(nobss),
         figsize=(8.2, 6.8),
         sharex=True,
         sharey=True,
         constrained_layout=True,
     )
-    if len(baselines) == 1 and len(cadences) == 1:
+    if len(baselines) == 1 and len(nobss) == 1:
         axes = numpy.asarray([[axes]])
     elif len(baselines) == 1:
         axes = numpy.asarray([axes])
-    elif len(cadences) == 1:
+    elif len(nobss) == 1:
         axes = numpy.asarray([[axis] for axis in axes])
 
     last_mesh = None
     for row_index, baseline in enumerate(baselines):
-        for col_index, cadence in enumerate(cadences):
+        for col_index, nobs in enumerate(nobss):
             axis = axes[row_index, col_index]
             subset = table[
-                (table["baseline"] == baseline) & (table["cadence"] == cadence)
+                (table["baseline"] == baseline) & (table["nobs"] == nobs)
             ].copy()
             if percent_scale:
                 subset[metric_name] = 100.0 * subset[metric_name]
@@ -1935,7 +1935,7 @@ def plot_metric_by_truth_range(
             )
             last_mesh = heatmap.collections[0]
             if row_index == 0:
-                axis.set_title(f"Cadence {cadence:g} d")
+                axis.set_title(f"Nobs {nobs:g} d")
             if col_index == 0:
                 axis.set_ylabel(
                     f"Baseline {baseline / 365:g} yr\n"
@@ -1987,7 +1987,7 @@ def plot_relative_error_distribution_by_truth_range(
     # plot_data.to_csv(TABLE_DIR / f"{filename}.csv", index=False)
 
     baselines = numpy.sort(plot_data["baseline"].dropna().unique())
-    cadences = numpy.sort(plot_data["cadence"].dropna().unique())
+    nobss = numpy.sort(plot_data["nobs"].dropna().unique())
     bin_labels = (
         list(labels)
         if labels is not None
@@ -2008,20 +2008,20 @@ def plot_relative_error_distribution_by_truth_range(
 
     fig, axes = pyplot.subplots(
         len(baselines),
-        len(cadences),
+        len(nobss),
         figsize=(8.2, 6.8),
         sharex=True,
         sharey=True,
         constrained_layout=True,
     )
-    axes = numpy.asarray(axes, dtype=object).reshape(len(baselines), len(cadences))
+    axes = numpy.asarray(axes, dtype=object).reshape(len(baselines), len(nobss))
 
     for row_index, baseline in enumerate(baselines):
-        for col_index, cadence in enumerate(cadences):
+        for col_index, nobs in enumerate(nobss):
             axis = axes[row_index, col_index]
             panel_data = positive_data[
                 (positive_data["baseline"] == baseline)
-                & (positive_data["cadence"] == cadence)
+                & (positive_data["nobs"] == nobs)
             ]
 
             # Make the parent axes identical to the heatmap grid. Each inset
@@ -2074,7 +2074,7 @@ def plot_relative_error_distribution_by_truth_range(
                     inset.set_axis_off()
 
             if row_index == 0:
-                axis.set_title(f"Cadence {cadence:g} d")
+                axis.set_title(f"Nobs {nobs:g} d")
             if col_index == 0:
                 axis.set_ylabel(
                     f"Baseline {baseline / 365:g} yr\n"
@@ -2215,7 +2215,7 @@ def write_population_weighted_survey_count_tables():
         ("measured_mass_fraction", "measured_mass_survey_count", "macc", r"$M_\mathrm{lens}$"),
         ("measured_period_fraction", "measured_period_survey_count", "porb", r"$P_\mathrm{orb}$"),
     ]
-    strategy_columns = ["baseline_years", "cadence", "RV accuracy"]
+    strategy_columns = ["baseline_years", "nobs", "RV accuracy"]
     reference_survey = next(iter(SURVEY_DETECTED_COUNTS))
     rv_column = r"RV accuracy [m s$^{-1}$]"
     summary_rows = []
@@ -2225,7 +2225,7 @@ def write_population_weighted_survey_count_tables():
         table = reference[strategy_columns + [fraction_metric]].rename(
             columns={
                 "baseline_years": "Baseline [yr]",
-                "cadence": "Cadence [d]",
+                "nobs": "Nobs",
                 "RV accuracy": rv_column,
                 fraction_metric: "Recovered [per cent]",
             }
@@ -2237,14 +2237,14 @@ def write_population_weighted_survey_count_tables():
             )
             table = table.merge(
                 counts,
-                left_on=["Baseline [yr]", "Cadence [d]", rv_column],
+                left_on=["Baseline [yr]", "Nobs", rv_column],
                 right_on=strategy_columns,
                 how="left",
             )
             table = table.drop(columns=strategy_columns)
 
         table = table.sort_values(
-            ["Baseline [yr]", "Cadence [d]", rv_column]
+            ["Baseline [yr]", "Nobs", rv_column]
         )
         table["Recovered [per cent]"] = (100.0 * table["Recovered [per cent]"]).round(1)
         for survey in SURVEY_DETECTED_COUNTS:
@@ -2287,16 +2287,16 @@ def write_population_weighted_survey_count_tables():
             r"    \begin{tabular}{rrrrrrr}",
             r"        \hline",
             (
-                r"        Baseline [yr] & Cadence [d] & RV accuracy [m s$^{-1}$] "
+                r"        Baseline [yr] & Nobs & RV accuracy [m s$^{-1}$] "
                 r"& Recovered [per cent] & ZTF & LSST & TESS \\"
             ),
             r"        \hline",
         ]
         grouped_cells = {}
         for column_index, column in enumerate(
-            ["Baseline [yr]", "Cadence [d]", rv_column]
+            ["Baseline [yr]", "Nobs", rv_column]
         ):
-            group_columns = ["Baseline [yr]", "Cadence [d]", rv_column][
+            group_columns = ["Baseline [yr]", "Nobs", rv_column][
                 : column_index + 1
             ]
             for _, group in table.groupby(group_columns, sort=False):
@@ -2317,7 +2317,7 @@ def write_population_weighted_survey_count_tables():
             lines.append(
                 "        "
                 + f"{grouped_cells[(row_index, 'Baseline [yr]')]} & "
-                + f"{grouped_cells[(row_index, 'Cadence [d]')]} & "
+                + f"{grouped_cells[(row_index, 'Nobs')]} & "
                 + f"{grouped_cells[(row_index, rv_column)]} & "
                 + f"{row['Recovered [per cent]']:.1f} & "
                 + f"{row['ZTF']:.1f} & "
@@ -2330,7 +2330,7 @@ def write_population_weighted_survey_count_tables():
             _, next_row = ordered_rows[ordered_index + 1]
             if row["Baseline [yr]"] != next_row["Baseline [yr]"]:
                 lines.append(r"        \noalign{\vskip 1.5pt}\hline\noalign{\vskip 1.5pt}")
-            elif row["Cadence [d]"] != next_row["Cadence [d]"]:
+            elif row["Nobs"] != next_row["Nobs"]:
                 lines.append(r"        \noalign{\vskip 1pt}\cline{2-7}\noalign{\vskip 2.5pt}")
         lines.extend(
             [
@@ -2575,7 +2575,7 @@ def plot_parameter_recovery_curves(strategy_summary):
                 {
                     "parameter": spec["label"],
                     "baseline_years": row["baseline_years"],
-                    "cadence": row["cadence"],
+                    "nobs": row["nobs"],
                     "RV accuracy": row["RV accuracy"],
                     "recovery_percent": 100.0 * row[f"{param}_recovery_fraction"],
                 }
@@ -2586,8 +2586,8 @@ def plot_parameter_recovery_curves(strategy_summary):
         data=plot_data,
         x="RV accuracy",
         y="recovery_percent",
-        hue="cadence",
-        style="cadence",
+        hue="nobs",
+        style="nobs",
         row="parameter",
         col="baseline_years",
         kind="line",
@@ -2613,7 +2613,7 @@ def plot_parameter_recovery_curves(strategy_summary):
         )
         axis.grid(True, which="both", axis="x", alpha=0.25)
     if figure._legend is not None:
-        figure._legend.set_title("Cadence [d]")
+        figure._legend.set_title("Nobs")
     figure.fig.subplots_adjust(top=0.95)
     for suffix in ("pdf", "png"):
         figure.fig.savefig(
@@ -2679,14 +2679,14 @@ def write_sample_summary(results):
     sample_summary = pandas.DataFrame(
         [
             ("Fitted observing configurations", len(results)),
-            ("Unique pristine systems", results["pristine_id"].nunique()),
+            ("Unique photometry systems", results["system_id"].nunique()),
             (
                 "Campaign baselines [yr]",
                 ", ".join(f"{value:g}" for value in sorted(results["baseline_years"].unique())),
             ),
             (
-                "RV cadences [d]",
-                ", ".join(f"{value:g}" for value in sorted(results["cadence"].unique())),
+                "RV nobss [d]",
+                ", ".join(f"{value:g}" for value in sorted(results["nobs"].unique())),
             ),
             (
                 r"RV accuracies [m s$^{-1}$]",
@@ -2712,7 +2712,7 @@ def write_mass_recovery_table(strategy_summary):
     mass_table["Baseline [yr]"] = mass_table["baseline_years"].map(
         lambda value: f"{value:g}"
     )
-    mass_table["Cadence [d]"] = mass_table["cadence"].map(lambda value: f"{value:g}")
+    mass_table["Nobs"] = mass_table["nobs"].map(lambda value: f"{value:g}")
     mass_table[r"$N_\mathrm{RV}$"] = mass_table["n_rv"].astype(int)
     mass_table["RV accuracy"] = mass_table["RV accuracy"].map(lambda value: f"{value:g}")
     mass_table["Recovered [per cent]"] = (
@@ -2720,7 +2720,7 @@ def write_mass_recovery_table(strategy_summary):
     ).round(1)
 
     mass_pivot = mass_table.pivot_table(
-        index=["Baseline [yr]", "Cadence [d]", r"$N_\mathrm{RV}$"],
+        index=["Baseline [yr]", "Nobs", r"$N_\mathrm{RV}$"],
         columns="RV accuracy",
         values="Recovered [per cent]",
         aggfunc="first",
@@ -2729,10 +2729,10 @@ def write_mass_recovery_table(strategy_summary):
     rv_columns = [
         column
         for column in mass_pivot.columns
-        if column not in ["Baseline [yr]", "Cadence [d]", r"$N_\mathrm{RV}$"]
+        if column not in ["Baseline [yr]", "Nobs", r"$N_\mathrm{RV}$"]
     ]
     mass_pivot = mass_pivot[
-        ["Baseline [yr]", "Cadence [d]", r"$N_\mathrm{RV}$", *sorted(rv_columns, key=float)]
+        ["Baseline [yr]", "Nobs", r"$N_\mathrm{RV}$", *sorted(rv_columns, key=float)]
     ]
 
     write_latex_table(
@@ -2759,16 +2759,16 @@ def requirement_for_group(group, param):
 
 def write_rv_accuracy_requirement_table(strategy_summary):
     requirement_rows = []
-    group_columns = ["baseline", "baseline_years", "cadence", "n_rv"]
+    group_columns = ["baseline", "baseline_years", "nobs", "n_rv"]
     for param, spec in PARAMETERS.items():
-        for (_, baseline_years, cadence, n_rv), group in strategy_summary.groupby(
+        for (_, baseline_years, nobs, n_rv), group in strategy_summary.groupby(
             group_columns
         ):
             requirement_rows.append(
                 {
                     "Parameter": spec["table_label"],
                     "Baseline [yr]": f"{baseline_years:g}",
-                    "Cadence [d]": f"{cadence:g}",
+                    "Nobs": f"{nobs:g}",
                     r"$N_\mathrm{RV}$": int(n_rv),
                     r"Max RV accuracy [m s$^{-1}$]": requirement_for_group(group, param),
                 }
@@ -2893,8 +2893,8 @@ def main():
     )
     # Not currently included in main.tex.
     # run_step(
-    #     "prefit improvement by cadence and baseline figures",
-    #     plot_prefit_improvement_by_cadence_and_baseline,
+    #     "prefit improvement by nobs and baseline figures",
+    #     plot_prefit_improvement_by_nobs_and_baseline,
     #     results,
     # )
     # Not currently included in main.tex.

@@ -158,13 +158,21 @@ def fit_photometry_row(row):
         prefer_gpu=FIT_DEVICE == "auto",
         proposal_scale_fraction=0.02,
         return_sampler=True,
-        return_walker_state=False,
+        return_walker_state=True,
     )
-    sls, sampler = result[:2]
+    sls, sampler, walker_state = result
     posterior_path = _posterior_path(row["simulation_id"])
     posterior_path.parent.mkdir(parents=True, exist_ok=True)
     chain = numpy.asarray(sampler.get_chain(flat=True, discard=FIT_BURN), dtype=float)
-    numpy.savez_compressed(posterior_path, chain=chain, parameter_names=numpy.asarray(PREFIT_PARAMETER_NAMES))
+    final_walker_coords = numpy.asarray(
+        getattr(walker_state, "coords", walker_state), dtype=float
+    )
+    numpy.savez_compressed(
+        posterior_path,
+        chain=chain,
+        final_walker_coords=final_walker_coords,
+        parameter_names=numpy.asarray(PREFIT_PARAMETER_NAMES),
+    )
     campaign_start, offset_years = _campaign_start(row)
     return _prefit_result_row(row, sls, campaign_start, offset_years, posterior_path)
 

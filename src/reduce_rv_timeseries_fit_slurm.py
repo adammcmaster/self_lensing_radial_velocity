@@ -1,9 +1,9 @@
 """
 Reduce SLURM fit result shards into the main fitted-timeseries table.
 
-This reads per-array-task outputs written by submit_realistic_fit_slurm.py,
+This reads per-array-task outputs written by submit_rv_fit_slurm.py,
 combines them with the existing fitted_timeseries.gz table, deduplicates by
-realistic_id/realistic_idx, and writes the reduced table atomically.
+rv_id/rv_index, and writes the reduced table atomically.
 """
 
 import argparse
@@ -74,10 +74,10 @@ def parse_args():
 
 
 def result_checkpoint_key(row):
-    if "realistic_id" in row and not pandas.isna(row["realistic_id"]):
-        return f"id:{row['realistic_id']}"
-    if "realistic_idx" in row and not pandas.isna(row["realistic_idx"]):
-        return f"idx:{row['realistic_idx']}"
+    if "rv_id" in row and not pandas.isna(row["rv_id"]):
+        return f"id:{row['rv_id']}"
+    if "rv_index" in row and not pandas.isna(row["rv_index"]):
+        return f"idx:{row['rv_index']}"
     return f"row:{row.name}"
 
 
@@ -164,7 +164,7 @@ def deduplicate(table):
     if table.empty:
         return table
     table = table.copy().reset_index(drop=True)
-    if "realistic_id" in table.columns or "realistic_idx" in table.columns:
+    if "rv_id" in table.columns or "rv_index" in table.columns:
         table["_fit_key"] = table.apply(result_checkpoint_key, axis=1)
         table.drop_duplicates(subset="_fit_key", keep="last", inplace=True)
         table.drop(columns="_fit_key", inplace=True)

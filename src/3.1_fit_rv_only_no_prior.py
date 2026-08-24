@@ -101,7 +101,7 @@ from jax_compat import install_quax_jax_stage_patch
 install_quax_jax_stage_patch()
 
 from fitting import SAMPLER_STATE_PATH, TIMESERIES_TABLE_PATH
-from realistic import load_realistic_timeseries_curves
+from rv_timeseries import load_rv_timeseries_curves
 from rv_only_no_prior import (
     self_lensing_system_from_rv_fit_no_peak_prior_blackjax,
     self_lensing_systems_from_batched_rv_fit_no_peak_prior_blackjax,
@@ -139,7 +139,7 @@ RV_NO_PRIOR_PARAMETER_NAMES = numpy.asarray(
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "Fit existing realistic results with RV data only, sampling a free RV "
+            "Fit existing rv results with RV data only, sampling a free RV "
             "phase instead of using the photometric peak-time prior."
         )
     )
@@ -267,13 +267,13 @@ def sampler_state_shard_keys(ts):
 
 
 def sampler_state_path_for_row(ts):
-    if "realistic_id" in ts and not pandas.isna(ts["realistic_id"]):
-        token = safe_path_token(ts["realistic_id"])
-    elif "realistic_idx" in ts and not pandas.isna(ts["realistic_idx"]):
-        token = f"idx_{safe_path_token(ts['realistic_idx'])}"
+    if "rv_id" in ts and not pandas.isna(ts["rv_id"]):
+        token = safe_path_token(ts["rv_id"])
+    elif "rv_index" in ts and not pandas.isna(ts["rv_index"]):
+        token = f"idx_{safe_path_token(ts['rv_index'])}"
     else:
         token = f"row_{safe_path_token(getattr(ts, 'name', None))}"
-    pristine_id = safe_path_token(ts.get("pristine_id", "unknown"))
+    system_id = safe_path_token(ts.get("system_id", "unknown"))
     a_key, b_key, macc_key = sampler_state_shard_keys(ts)
     return (
         SAMPLER_STATE_PATH
@@ -281,7 +281,7 @@ def sampler_state_path_for_row(ts):
         / a_key
         / b_key
         / macc_key
-        / pristine_id
+        / system_id
         / f"{token}.npz"
     )
 
@@ -311,8 +311,8 @@ def sampler_state_payload(ts, sampler, walker_state):
         return None
     if sampler is None:
         logger.warning(
-            "Sampler saving is enabled, but no sampler was returned for realistic_id=%s",
-            ts.get("realistic_id", None),
+            "Sampler saving is enabled, but no sampler was returned for rv_id=%s",
+            ts.get("rv_id", None),
         )
         return None
     arrays = sampler_arrays(sampler)
@@ -331,10 +331,10 @@ def sampler_state_payload(ts, sampler, walker_state):
         "burn": numpy.asarray(FIT_BURN, dtype=int),
         "nsteps": numpy.asarray(FIT_NSTEPS, dtype=int),
         "nwalkers": numpy.asarray(FIT_NWALKERS, dtype=int),
-        "realistic_id": numpy.asarray(str(ts.get("realistic_id", ""))),
-        "pristine_id": numpy.asarray(str(ts.get("pristine_id", ""))),
-        "realistic_idx": numpy.asarray(
-            str(ts.get("realistic_idx", getattr(ts, "name", "")))
+        "rv_id": numpy.asarray(str(ts.get("rv_id", ""))),
+        "system_id": numpy.asarray(str(ts.get("system_id", ""))),
+        "rv_index": numpy.asarray(
+            str(ts.get("rv_index", getattr(ts, "name", "")))
         ),
     }
 
@@ -352,9 +352,9 @@ def write_sampler_state_payload(payload):
         burn=payload["burn"],
         nsteps=payload["nsteps"],
         nwalkers=payload["nwalkers"],
-        realistic_id=payload["realistic_id"],
-        pristine_id=payload["pristine_id"],
-        realistic_idx=payload["realistic_idx"],
+        rv_id=payload["rv_id"],
+        system_id=payload["system_id"],
+        rv_index=payload["rv_index"],
     )
     return path
 
@@ -413,10 +413,10 @@ def fit_columns_complete(row):
 
 
 def result_checkpoint_key(row):
-    if "realistic_id" in row and not pandas.isna(row["realistic_id"]):
-        return f"id:{row['realistic_id']}"
-    if "realistic_idx" in row and not pandas.isna(row["realistic_idx"]):
-        return f"idx:{row['realistic_idx']}"
+    if "rv_id" in row and not pandas.isna(row["rv_id"]):
+        return f"id:{row['rv_id']}"
+    if "rv_index" in row and not pandas.isna(row["rv_index"]):
+        return f"idx:{row['rv_index']}"
     return f"row:{row.name}"
 
 
@@ -434,18 +434,18 @@ def load_fitted_timeseries():
     return table
 
 
-def load_batch_realistic_ids(path):
+def load_batch_rv_ids(path):
     batch = pandas.read_csv(path)
-    if "realistic_id" not in batch.columns:
-        raise ValueError(f"Batch file {path} must contain a realistic_id column")
-    return set(batch["realistic_id"].dropna().astype(str))
+    if "rv_id" not in batch.columns:
+        raise ValueError(f"Batch file {path} must contain a rv_id column")
+    return set(batch["rv_id"].dropna().astype(str))
 
 
 def filter_to_batch(table, path):
-    realistic_ids = load_batch_realistic_ids(path)
-    if not realistic_ids:
+    rv_ids = load_batch_rv_ids(path)
+    if not rv_ids:
         return table.iloc[0:0].copy()
-    return table[table["realistic_id"].astype(str).isin(realistic_ids)].copy()
+    return table[table["rv_id"].astype(str).isin(rv_ids)].copy()
 
 
 def rows_requiring_fit(table):
@@ -466,16 +466,16 @@ def rows_requiring_fit(table):
     return pandas.DataFrame([row for _, row in selected], index=[index for index, _ in selected])
 
 
-def sample_realistic_path_groups(table, sample_size):
+def sample_rv_path_groups(table, sample_size):
     if table.empty:
         return table.copy()
-    paths = pandas.Series(table["realistic_path"].drop_duplicates())
+    paths = pandas.Series(table["rv_path"].drop_duplicates())
     sampled_paths = set(paths.sample(min(int(sample_size), len(paths))))
-    return table[table["realistic_path"].isin(sampled_paths)].copy()
+    return table[table["rv_path"].isin(sampled_paths)].copy()
 
 
-def grouped_realistic_rows(table):
-    return [list(group.iterrows()) for _, group in table.groupby("realistic_path", sort=True)]
+def grouped_rv_rows(table):
+    return [list(group.iterrows()) for _, group in table.groupby("rv_path", sort=True)]
 
 
 def padded_series(series, fill_value=0.0, fill_from_first=False):
@@ -496,7 +496,7 @@ def batched_fit_inputs(rows, curves):
     rv = []
     rv_err = []
     for _, ts in rows:
-        curve = curves[str(ts["realistic_id"])]
+        curve = curves[str(ts["rv_id"])]
         rv_times.append(curve["rv_times"])
         rv.append(curve["rv"])
         rv_err.append(curve["rv_err"])
@@ -540,9 +540,9 @@ def short_id(value, length=8):
 def run_rv_no_prior_fit(args):
     i, ts, curve = args
     logger.info(
-        "Starting RV-only no-prior fit for row index=%s realistic_id=%s",
+        "Starting RV-only no-prior fit for row index=%s rv_id=%s",
         i,
-        ts.get("realistic_id", None),
+        ts.get("rv_id", None),
     )
     fit_result, sampler, walker_state = (
         self_lensing_system_from_rv_fit_no_peak_prior_blackjax(
@@ -556,7 +556,7 @@ def run_rv_no_prior_fit(args):
             nwalkers=FIT_NWALKERS,
             burn=FIT_BURN,
             progress=FIT_MCMC_PROGRESS,
-            progress_desc=f"MCMC RV no prior {short_id(ts.get('realistic_id', None))}",
+            progress_desc=f"MCMC RV no prior {short_id(ts.get('rv_id', None))}",
             progress_chunk_size=FIT_PROGRESS_CHUNK_SIZE,
             lensing_method=FIT_LENSING_METHOD,
             device=FIT_DEVICE,
@@ -602,7 +602,7 @@ def run_rv_no_prior_batch(rows, curves):
             nwalkers=FIT_NWALKERS,
             burn=FIT_BURN,
             progress=FIT_MCMC_PROGRESS,
-            progress_desc=f"MCMC batched RV no prior {short_id(rows[0][1].get('pristine_id', None))}",
+            progress_desc=f"MCMC batched RV no prior {short_id(rows[0][1].get('system_id', None))}",
             progress_chunk_size=FIT_PROGRESS_CHUNK_SIZE,
             lensing_method=FIT_LENSING_METHOD,
             device=FIT_DEVICE,
@@ -632,13 +632,13 @@ def batched_row_chunks(rows):
         yield rows[start : start + FIT_BATCH_SIZE]
 
 
-def fit_realistic_file(rows):
+def fit_rv_file(rows):
     rows = list(rows)
     if not rows:
         return []
-    path = rows[0][1]["realistic_path"]
-    logger.info("Loading grouped realistic curves from %s", path)
-    curves = load_realistic_timeseries_curves(rows)
+    path = rows[0][1]["rv_path"]
+    logger.info("Loading grouped rv curves from %s", path)
+    curves = load_rv_timeseries_curves(rows)
     if FIT_BATCHED and not FIT_SAVE_SAMPLERS:
         results = []
         for batch_rows in batched_row_chunks(rows):
@@ -648,25 +648,25 @@ def fit_realistic_file(rows):
     for i, ts in tqdm(
         rows,
         total=len(rows),
-        desc=f"RV no-prior fits {short_id(rows[0][1].get('pristine_id', Path(path).stem))}",
+        desc=f"RV no-prior fits {short_id(rows[0][1].get('system_id', Path(path).stem))}",
         leave=False,
         dynamic_ncols=True,
     ):
-        results.append(run_rv_no_prior_fit((i, ts, curves[str(ts["realistic_id"])])))
+        results.append(run_rv_no_prior_fit((i, ts, curves[str(ts["rv_id"])])))
     return results
 
 
-def warm_realistic_file(rows):
+def warm_rv_file(rows):
     """Read a FITS file into the shared filesystem cache without serializing curves."""
-    path = Path(rows[0][1]["realistic_path"])
-    logger.debug("Preloading realistic FITS file into the filesystem cache: %s", path)
+    path = Path(rows[0][1]["rv_path"])
+    logger.debug("Preloading rv FITS file into the filesystem cache: %s", path)
     with path.open("rb", buffering=0) as handle:
         while handle.read(1024 * 1024):
             pass
     return rows
 
 
-def preloaded_realistic_file_jobs(jobs):
+def preloaded_rv_file_jobs(jobs):
     """Yield groups after a bounded, ordered look-ahead of file-cache warming."""
     jobs = iter(jobs)
     pool_size = max(0, FIT_PRELOAD_FILE_POOL_SIZE)
@@ -681,7 +681,7 @@ def preloaded_realistic_file_jobs(jobs):
                 rows = next(jobs)
             except StopIteration:
                 return
-            pending.append((rows, executor.submit(warm_realistic_file, rows)))
+            pending.append((rows, executor.submit(warm_rv_file, rows)))
 
     with ThreadPoolExecutor(max_workers=max(1, FIT_PRELOAD_MAX_WORKERS)) as executor:
         pending = deque()
@@ -701,17 +701,17 @@ def preloaded_process_map_iter(jobs, total=None, desc=None, max_workers=None):
         return
     if FIT_PRELOAD_FILE_POOL_SIZE <= 0:
         yield from process_map_iter(
-            fit_realistic_file,
+            fit_rv_file,
             jobs,
             total=total,
             desc=desc,
             max_workers=max_workers,
         )
         return
-    preloaded_jobs = preloaded_realistic_file_jobs(jobs)
+    preloaded_jobs = preloaded_rv_file_jobs(jobs)
     if max_workers == 1:
         for rows in tqdm(preloaded_jobs, total=total, desc=desc):
-            yield fit_realistic_file(rows)
+            yield fit_rv_file(rows)
         return
 
     context = multiprocessing.get_context(MP_START_METHOD)
@@ -719,7 +719,7 @@ def preloaded_process_map_iter(jobs, total=None, desc=None, max_workers=None):
         futures = deque()
         with tqdm(total=total, desc=desc) as progress:
             for rows in preloaded_jobs:
-                futures.append(executor.submit(fit_realistic_file, rows))
+                futures.append(executor.submit(fit_rv_file, rows))
                 if len(futures) >= max_workers:
                     yield futures.popleft().result()
                     progress.update()
@@ -751,8 +751,8 @@ def merge_rv_no_prior_results(existing_results, new_rows):
     if not new_rows:
         return existing_results.copy()
     merged = existing_results.copy()
-    if "realistic_id" not in merged.columns:
-        raise ValueError("Existing fitted results must contain realistic_id")
+    if "rv_id" not in merged.columns:
+        raise ValueError("Existing fitted results must contain rv_id")
     index_by_key = {
         result_checkpoint_key(row): index for index, row in merged.iterrows()
     }
@@ -917,9 +917,9 @@ if __name__ == "__main__":
     elif FIT_SAMPLE_SIZE is None:
         logger.info("Using all %d incomplete rows for standalone fitting", len(rows_to_fit))
     else:
-        rows_to_fit = sample_realistic_path_groups(rows_to_fit, FIT_SAMPLE_SIZE)
+        rows_to_fit = sample_rv_path_groups(rows_to_fit, FIT_SAMPLE_SIZE)
 
-    jobs = grouped_realistic_rows(rows_to_fit)
+    jobs = grouped_rv_rows(rows_to_fit)
     progress = FitProgress(new_rows=[])
     if FIT_MAX_WORKERS == 1:
         ACTIVE_SAMPLER_WRITER = SamplerStateWriter()

@@ -1,5 +1,5 @@
 """
-This fits a sample of the realistic timeseries and records the fitted parameters.
+This fits a sample of the rv timeseries and records the fitted parameters.
 """
 
 import logging
@@ -58,7 +58,7 @@ FIT_RESULTS_LOCK = None
 if __name__ == "__main__":
     from fitting import acquire_fit_results_lock
 
-    FIT_RESULTS_LOCK = acquire_fit_results_lock("realistic timeseries fitting script")
+    FIT_RESULTS_LOCK = acquire_fit_results_lock("rv timeseries fitting script")
 
 import jax
 
@@ -99,15 +99,15 @@ from selflensing.fitting import (
 
 from selflensing.models import DEFAULT_LIMITS, SelfLensingSystem
 
-from fitting import SAMPLER_STATE_PATH, TIMESERIES_TABLE_PATH
+from fitting import PREFIT_RESULTS_PATH, SAMPLER_STATE_PATH, TIMESERIES_TABLE_PATH
 from fit_materialization import (
     materialize_joint_batch_result as materialize_joint_batch_result_in_process,
     materialize_rv_only_batch_result as materialize_rv_only_batch_result_in_process,
 )
-from realistic import (
-    load_realistic_timeseries,
-    load_realistic_timeseries_curve,
-    load_realistic_timeseries_curves,
+from rv_timeseries import (
+    load_rv_timeseries,
+    load_rv_timeseries_curve,
+    load_rv_timeseries_curves,
 )
 from utils import configure_logging
 
@@ -119,7 +119,7 @@ warnings.filterwarnings("ignore", module="erfa.core")
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Fit realistic timeseries and record fitted parameters."
+        description="Fit rv timeseries and record fitted parameters."
     )
     parser.add_argument(
         "--clear-results",
@@ -202,6 +202,9 @@ FIT_BATCHED_RV_ONLY = os.environ.get("SLRV_FIT_BATCHED_RV_ONLY", "1").lower() in
     "true",
     "yes",
     "on",
+)
+FIT_RUN_RV_ONLY = os.environ.get("SLRV_FIT_RUN_RV_ONLY", "0").lower() in (
+    "1", "true", "yes", "on"
 )
 FIT_SAVE_SAMPLERS = os.environ.get("SLRV_FIT_SAVE_SAMPLERS", "0").lower() in (
     "1",
@@ -296,21 +299,21 @@ def sampler_state_shard_keys(ts):
 
 
 def sampler_state_path_for_row(ts):
-    if "realistic_id" in ts and not pandas.isna(ts["realistic_id"]):
-        token = safe_path_token(ts["realistic_id"])
-    elif "realistic_idx" in ts and not pandas.isna(ts["realistic_idx"]):
-        token = f"idx_{safe_path_token(ts['realistic_idx'])}"
+    if "rv_id" in ts and not pandas.isna(ts["rv_id"]):
+        token = safe_path_token(ts["rv_id"])
+    elif "rv_index" in ts and not pandas.isna(ts["rv_index"]):
+        token = f"idx_{safe_path_token(ts['rv_index'])}"
     else:
         token = f"row_{safe_path_token(getattr(ts, 'name', None))}"
-    pristine_id = safe_path_token(ts.get("pristine_id", "unknown"))
+    system_id = safe_path_token(ts.get("system_id", "unknown"))
     a_key, b_key, macc_key = sampler_state_shard_keys(ts)
-    return SAMPLER_STATE_PATH / a_key / b_key / macc_key / pristine_id / f"{token}.npz"
+    return SAMPLER_STATE_PATH / a_key / b_key / macc_key / system_id / f"{token}.npz"
 
 
 def prefit_sampler_state_path_for_row(ts):
-    pristine_id = safe_path_token(ts.get("pristine_id", "unknown"))
+    system_id = safe_path_token(ts.get("system_id", "unknown"))
     a_key, b_key, macc_key = sampler_state_shard_keys(ts)
-    return SAMPLER_STATE_PATH / a_key / b_key / macc_key / pristine_id / "_prefit.npz"
+    return SAMPLER_STATE_PATH / a_key / b_key / macc_key / system_id / "_prefit.npz"
 
 
 def sampler_arrays(sampler):
@@ -332,8 +335,8 @@ def sampler_state_payload(ts, sampler, walker_state, prefit_sampler_state_path=N
         return None
     if sampler is None:
         logger.warning(
-            "Sampler saving is enabled, but no sampler was returned for realistic_id=%s",
-            ts.get("realistic_id", None),
+            "Sampler saving is enabled, but no sampler was returned for rv_id=%s",
+            ts.get("rv_id", None),
         )
         return None
 
@@ -354,10 +357,10 @@ def sampler_state_payload(ts, sampler, walker_state, prefit_sampler_state_path=N
         "burn": numpy.asarray(FIT_BURN, dtype=int),
         "nsteps": numpy.asarray(FIT_NSTEPS, dtype=int),
         "nwalkers": numpy.asarray(FIT_NWALKERS, dtype=int),
-        "realistic_id": numpy.asarray(str(ts.get("realistic_id", ""))),
-        "pristine_id": numpy.asarray(str(ts.get("pristine_id", ""))),
-        "realistic_idx": numpy.asarray(
-            str(ts.get("realistic_idx", getattr(ts, "name", "")))
+        "rv_id": numpy.asarray(str(ts.get("rv_id", ""))),
+        "system_id": numpy.asarray(str(ts.get("system_id", ""))),
+        "rv_index": numpy.asarray(
+            str(ts.get("rv_index", getattr(ts, "name", "")))
         ),
     }
     if prefit_sampler_state_path is not None:
@@ -377,7 +380,7 @@ def prefit_sampler_state_payload(ts, prefit_sampler_state):
         "acceptance": prefit_sampler_state["acceptance"],
         "parameter_names": FIT_PARAMETER_NAMES,
         "nsteps": numpy.asarray(prefit_sampler_state["chain"].shape[0], dtype=int),
-        "pristine_id": numpy.asarray(str(ts.get("pristine_id", ""))),
+        "system_id": numpy.asarray(str(ts.get("system_id", ""))),
     }
 
 
@@ -398,9 +401,9 @@ def write_sampler_state_payload(payload):
         burn=payload["burn"],
         nsteps=payload["nsteps"],
         nwalkers=payload["nwalkers"],
-        realistic_id=payload["realistic_id"],
-        pristine_id=payload["pristine_id"],
-        realistic_idx=payload["realistic_idx"],
+        rv_id=payload["rv_id"],
+        system_id=payload["system_id"],
+        rv_index=payload["rv_index"],
         **({"prefit_sampler_state_path": payload["prefit_sampler_state_path"]}
            if "prefit_sampler_state_path" in payload
            else {}),
@@ -419,7 +422,7 @@ def write_prefit_sampler_state_payload(payload):
         acceptance=payload["acceptance"],
         parameter_names=payload["parameter_names"],
         nsteps=payload["nsteps"],
-        pristine_id=payload["pristine_id"],
+        system_id=payload["system_id"],
     )
     return path
 
@@ -546,22 +549,22 @@ def fitted_key_sets(results):
     if results.empty:
         logger.debug("No fitted keys because fitted results table is empty")
         return set(), set()
-    realistic_ids = set()
-    realistic_indices = set()
-    if "realistic_id" in results.columns:
-        realistic_ids = set(results["realistic_id"].dropna().astype(str))
-    if "realistic_idx" in results.columns:
-        if "realistic_id" in results.columns:
-            legacy_results = results[results["realistic_id"].isna()]
+    rv_ids = set()
+    rv_indices = set()
+    if "rv_id" in results.columns:
+        rv_ids = set(results["rv_id"].dropna().astype(str))
+    if "rv_index" in results.columns:
+        if "rv_id" in results.columns:
+            legacy_results = results[results["rv_id"].isna()]
         else:
             legacy_results = results
-        realistic_indices = set(legacy_results["realistic_idx"].dropna().astype(str))
+        rv_indices = set(legacy_results["rv_index"].dropna().astype(str))
     logger.debug(
         "Prepared fitted key sets with %d ids and %d legacy indices",
-        len(realistic_ids),
-        len(realistic_indices),
+        len(rv_ids),
+        len(rv_indices),
     )
-    return realistic_ids, realistic_indices
+    return rv_ids, rv_indices
 
 
 def scalar_is_finite(value):
@@ -581,15 +584,17 @@ def fit_columns_complete(row, columns):
 
 
 def row_needs_prefit(row):
-    return FIT_USE_LC and not fit_columns_complete(row, PREFIT_RESULT_COLUMNS)
+    # Script 1 owns photometry-only fitting and persists its posterior/walker
+    # state.  Never re-run that expensive stage here.
+    return False
 
 
 def row_needs_joint_fit(row):
-    return not fit_columns_complete(row, FIT_RESULT_COLUMNS)
+    return FIT_USE_LC and not fit_columns_complete(row, FIT_RESULT_COLUMNS)
 
 
 def row_needs_rv_only_fit(row):
-    return not fit_columns_complete(row, RV_ONLY_RESULT_COLUMNS)
+    return FIT_RUN_RV_ONLY and not fit_columns_complete(row, RV_ONLY_RESULT_COLUMNS)
 
 
 def row_needs_any_fit(row):
@@ -615,11 +620,11 @@ def merge_existing_result(row, existing):
     return merged
 
 
-def rows_requiring_fits(realistic_rows, existing_results):
+def rows_requiring_fits(rv_rows, existing_results):
     existing_by_key = existing_result_map(existing_results)
     selected = []
     complete_count = 0
-    for index, row in realistic_rows.iterrows():
+    for index, row in rv_rows.iterrows():
         checkpoint_key = result_checkpoint_key(row)
         merged = merge_existing_result(row, existing_by_key.get(checkpoint_key))
         if row_needs_any_fit(merged):
@@ -634,42 +639,42 @@ def rows_requiring_fits(realistic_rows, existing_results):
         complete_count,
     )
     if not selected:
-        return realistic_rows.iloc[0:0].copy()
+        return rv_rows.iloc[0:0].copy()
     return pandas.DataFrame([row for _, row in selected], index=[index for index, _ in selected])
 
 
-def load_batch_realistic_ids(path):
+def load_batch_rv_ids(path):
     batch = pandas.read_csv(path)
-    if "realistic_id" not in batch.columns:
-        raise ValueError(f"Batch file {path} must contain a realistic_id column")
-    realistic_ids = set(batch["realistic_id"].dropna().astype(str))
-    logger.debug("Loaded %d realistic IDs from batch file %s", len(realistic_ids), path)
-    return realistic_ids
+    if "rv_id" not in batch.columns:
+        raise ValueError(f"Batch file {path} must contain a rv_id column")
+    rv_ids = set(batch["rv_id"].dropna().astype(str))
+    logger.debug("Loaded %d rv IDs from batch file %s", len(rv_ids), path)
+    return rv_ids
 
 
 def filter_to_batch(table, path):
-    realistic_ids = load_batch_realistic_ids(path)
-    if not realistic_ids:
+    rv_ids = load_batch_rv_ids(path)
+    if not rv_ids:
         return table.iloc[0:0].copy()
-    return table[table["realistic_id"].astype(str).isin(realistic_ids)].copy()
+    return table[table["rv_id"].astype(str).isin(rv_ids)].copy()
 
 
-def is_already_fitted(row, realistic_ids, realistic_indices):
-    if "realistic_id" in row and not pandas.isna(row["realistic_id"]):
-        if str(row["realistic_id"]) in realistic_ids:
-            logger.debug("Skipping already fitted realistic_id=%s", row["realistic_id"])
+def is_already_fitted(row, rv_ids, rv_indices):
+    if "rv_id" in row and not pandas.isna(row["rv_id"]):
+        if str(row["rv_id"]) in rv_ids:
+            logger.debug("Skipping already fitted rv_id=%s", row["rv_id"])
             return True
-    already_fitted = str(row.name) in realistic_indices
+    already_fitted = str(row.name) in rv_indices
     if already_fitted:
-        logger.debug("Skipping already fitted legacy realistic_idx=%s", row.name)
+        logger.debug("Skipping already fitted legacy rv_index=%s", row.name)
     return already_fitted
 
 
 def result_checkpoint_key(row):
-    if "realistic_id" in row and not pandas.isna(row["realistic_id"]):
-        return f"id:{row['realistic_id']}"
-    if "realistic_idx" in row and not pandas.isna(row["realistic_idx"]):
-        return f"idx:{row['realistic_idx']}"
+    if "rv_id" in row and not pandas.isna(row["rv_id"]):
+        return f"id:{row['rv_id']}"
+    if "rv_index" in row and not pandas.isna(row["rv_index"]):
+        return f"idx:{row['rv_index']}"
     return f"row:{row.name}"
 
 
@@ -679,7 +684,7 @@ def save_results(results):
         return
     logger.info("Saving %d fit result rows to %s", len(results), TIMESERIES_TABLE_PATH)
     table = pandas.DataFrame(results).reset_index(drop=True)
-    if "realistic_id" in table.columns or "realistic_idx" in table.columns:
+    if "rv_id" in table.columns or "rv_index" in table.columns:
         table["_fit_key"] = table.apply(result_checkpoint_key, axis=1)
         table.drop_duplicates(subset="_fit_key", keep="last", inplace=True)
         table.drop(columns="_fit_key", inplace=True)
@@ -750,9 +755,9 @@ class AsyncCheckpointWriter:
 
 def truth_self_lensing_system(ts):
     logger.debug(
-        "Building truth SelfLensingSystem for realistic_idx=%s realistic_id=%s",
-        ts.get("realistic_idx", getattr(ts, "name", None)),
-        ts.get("realistic_id", None),
+        "Building truth SelfLensingSystem for rv_index=%s rv_id=%s",
+        ts.get("rv_index", getattr(ts, "name", None)),
+        ts.get("rv_id", None),
     )
     sls = SelfLensingSystem(
         a=ts["a"] * units.au,
@@ -765,9 +770,9 @@ def truth_self_lensing_system(ts):
         Teff=ts["Teff"] * units.K,
     )
     logger.debug(
-        "Built truth SelfLensingSystem for realistic_idx=%s realistic_id=%s",
-        ts.get("realistic_idx", getattr(ts, "name", None)),
-        ts.get("realistic_id", None),
+        "Built truth SelfLensingSystem for rv_index=%s rv_id=%s",
+        ts.get("rv_index", getattr(ts, "name", None)),
+        ts.get("rv_id", None),
     )
     return sls
 
@@ -777,14 +782,14 @@ def lightcurve_fit_window(curve, ts):
     tau_eff = float(ts["tau_eff"])
     if not numpy.isfinite(tau_eff) or tau_eff <= 0:
         raise ValueError(
-            f"Cannot clip light curve for realistic_id={ts.get('realistic_id', None)} "
+            f"Cannot clip light curve for rv_id={ts.get('rv_id', None)} "
             f"because tau_eff={tau_eff!r}"
         )
 
     lc_times = numpy.asarray(curve["lc_times"], dtype=float)
     logger.debug(
-        "Cutting light curve fit window for realistic_id=%s: total photometric points=%d",
-        ts.get("realistic_id", None),
+        "Cutting light curve fit window for rv_id=%s: total photometric points=%d",
+        ts.get("rv_id", None),
         len(lc_times),
     )
     mask = (lc_times >= peak_time - tau_eff) & (lc_times <= peak_time + tau_eff)
@@ -794,13 +799,13 @@ def lightcurve_fit_window(curve, ts):
     # If lc_err is all NaNs, calculate from data
     if numpy.all(~numpy.isfinite(lc_err)):
         logger.debug(
-            "lc_err is all NaNs for realistic_id=%s, calculating from data",
-            ts.get("realistic_id", None),
+            "lc_err is all NaNs for rv_id=%s, calculating from data",
+            ts.get("rv_id", None),
         )
         lc_err = numpy.full_like(lc, numpy.std(lc[numpy.isfinite(lc)]))
         logger.debug(
-            "Calculated lc_err for realistic_id=%s: %s",
-            ts.get("realistic_id", None),
+            "Calculated lc_err for rv_id=%s: %s",
+            ts.get("rv_id", None),
             lc_err,
         )
 
@@ -808,19 +813,19 @@ def lightcurve_fit_window(curve, ts):
     mask &= lc_err > 0
 
     logger.debug(
-        "Mask for realistic_id=%s: %s (True count=%d)",
-        ts.get("realistic_id", None),
+        "Mask for rv_id=%s: %s (True count=%d)",
+        ts.get("rv_id", None),
         mask,
         numpy.sum(mask),
     )
     logger.debug(
-        "lc_err for realistic_id=%s: %s",
-        ts.get("realistic_id", None),
+        "lc_err for rv_id=%s: %s",
+        ts.get("rv_id", None),
         lc_err,
     )
     if not numpy.any(mask):
         raise ValueError(
-            f"Light-curve fit window is empty for realistic_id={ts.get('realistic_id', None)} "
+            f"Light-curve fit window is empty for rv_id={ts.get('rv_id', None)} "
             f"peak_time={peak_time!r} tau_eff={tau_eff!r} lc_times range={lc_times[0]} to {lc_times[-1]}"
         )
 
@@ -828,13 +833,13 @@ def lightcurve_fit_window(curve, ts):
     lc = lc[mask]
     lc_err = lc_err[mask]
     logger.debug(
-        "After quality filtering for realistic_id=%s: %d photometric points remain",
-        ts.get("realistic_id", None),
+        "After quality filtering for rv_id=%s: %d photometric points remain",
+        ts.get("rv_id", None),
         len(lc_times),
     )
     logger.debug(
-        "Masked lc_err for realistic_id=%s: %s",
-        ts.get("realistic_id", None),
+        "Masked lc_err for rv_id=%s: %s",
+        ts.get("rv_id", None),
         lc_err,
     )
     bin_edges = numpy.linspace(
@@ -886,7 +891,7 @@ def short_id(value, length=8):
 
 def fitted_timeseries_row(i, ts, truth_sls, sls):
     new_ts = pandas.Series(ts).copy()
-    new_ts["realistic_idx"] = i
+    new_ts["rv_index"] = i
     new_ts["b_max"] = truth_sls.b_max.value
     new_ts["fitted_a"] = sls.a.value
     new_ts["fitted_b"] = sls.b.value
@@ -920,10 +925,10 @@ def add_rv_only_columns(ts, rvfit_ts):
 
 def fit_photometry_prefit(i, ts, curve):
     fit_lc = lightcurve_fit_window(curve, ts)
-    mcmc_desc = f"MCMC prefit {short_id(ts.get('realistic_id', None))}"
+    mcmc_desc = f"MCMC prefit {short_id(ts.get('rv_id', None))}"
     logger.info(
-        "Starting photometry-only prefit for realistic_id=%s with %d binned LC samples",
-        ts.get("realistic_id", None),
+        "Starting photometry-only prefit for rv_id=%s with %d binned LC samples",
+        ts.get("rv_id", None),
         len(fit_lc["lc"]),
     )
     sls, prefit_sampler, walker_state = unpack_fit_result(
@@ -953,8 +958,8 @@ def fit_photometry_prefit(i, ts, curve):
         )
     )
     logger.info(
-        "Finished photometry-only prefit for realistic_id=%s walker_state=%s",
-        ts.get("realistic_id", None),
+        "Finished photometry-only prefit for rv_id=%s walker_state=%s",
+        ts.get("rv_id", None),
         walker_state is not None,
     )
     prefit_ts = fitted_timeseries_row(i, ts, truth_self_lensing_system(ts), sls)
@@ -974,24 +979,24 @@ def run_fit(a):
         fit_use_lc = FIT_USE_LC
     elif len(a) == 4:
         i, ts, curve, initial_walker_state = a
-        mcmc_desc = f"MCMC joint {short_id(ts.get('realistic_id', None))}"
+        mcmc_desc = f"MCMC joint {short_id(ts.get('rv_id', None))}"
         fit_use_lc = FIT_USE_LC
     elif len(a) == 3:
         i, ts, curve = a
         initial_walker_state = None
-        mcmc_desc = f"MCMC joint {short_id(ts.get('realistic_id', None))}"
+        mcmc_desc = f"MCMC joint {short_id(ts.get('rv_id', None))}"
         fit_use_lc = FIT_USE_LC
     else:
         i, ts = a
-        curve = load_realistic_timeseries_curve(ts)
+        curve = load_rv_timeseries_curve(ts)
         initial_walker_state = None
-        mcmc_desc = f"MCMC joint {short_id(ts.get('realistic_id', None))}"
+        mcmc_desc = f"MCMC joint {short_id(ts.get('rv_id', None))}"
         fit_use_lc = FIT_USE_LC
     logger.info(
-        "Starting fit for row index=%s realistic_id=%s path=%s",
+        "Starting fit for row index=%s rv_id=%s path=%s",
         i,
-        ts.get("realistic_id", None),
-        ts.get("realistic_path", None),
+        ts.get("rv_id", None),
+        ts.get("rv_path", None),
     )
     truth_sls = truth_self_lensing_system(ts)
     fit_lc = lightcurve_fit_window(curve, ts) if fit_use_lc else None
@@ -1005,9 +1010,9 @@ def run_fit(a):
     if initial_walker_state is not None:
         initial_walker_state = numpy.array(initial_walker_state, copy=True)
     logger.info(
-        "Running MCMC fit for row index=%s realistic_id=%s",
+        "Running MCMC fit for row index=%s rv_id=%s",
         i,
-        ts.get("realistic_id", None),
+        ts.get("rv_id", None),
     )
     fit_start = time.perf_counter()
     sls, sampler, walker_state = unpack_fit_result(
@@ -1045,9 +1050,9 @@ def run_fit(a):
         )
     )
     logger.info(
-        "MCMC fit returned for row index=%s realistic_id=%s in %.2f s",
+        "MCMC fit returned for row index=%s rv_id=%s in %.2f s",
         i,
-        ts.get("realistic_id", None),
+        ts.get("rv_id", None),
         time.perf_counter() - fit_start,
     )
     return i, ts, truth_sls, sls, sampler, walker_state, curve
@@ -1060,7 +1065,7 @@ def run_rv_only_fit(i, ts, curve):
             ts,
             curve,
             None,
-            f"MCMC RV-only {short_id(ts.get('realistic_id', None))}",
+            f"MCMC RV-only {short_id(ts.get('rv_id', None))}",
             False,
         )
     )
@@ -1172,7 +1177,7 @@ def batched_fit_inputs(rows, curves, include_lc):
     lc = []
     lc_err = []
     for _, ts in rows:
-        curve = curves[str(ts["realistic_id"])]
+        curve = curves[str(ts["rv_id"])]
         rv_times.append(curve["rv_times"])
         rv.append(curve["rv"])
         rv_err.append(curve["rv_err"])
@@ -1262,7 +1267,7 @@ def run_joint_batch(
         nwalkers=FIT_NWALKERS,
         burn=FIT_BURN,
         progress=FIT_MCMC_PROGRESS,
-        progress_desc=f"MCMC batched joint {short_id(rows[0][1].get('pristine_id', None))}",
+        progress_desc=f"MCMC batched joint {short_id(rows[0][1].get('system_id', None))}",
         progress_chunk_size=FIT_PROGRESS_CHUNK_SIZE,
         lensing_method=FIT_LENSING_METHOD,
         center_lc_model=True,
@@ -1356,7 +1361,7 @@ def run_rv_only_batch(rows, curves):
         nwalkers=FIT_NWALKERS,
         burn=FIT_BURN,
         progress=FIT_MCMC_PROGRESS,
-        progress_desc=f"MCMC batched RV-only {short_id(rows[0][1].get('pristine_id', None))}",
+        progress_desc=f"MCMC batched RV-only {short_id(rows[0][1].get('system_id', None))}",
         progress_chunk_size=FIT_PROGRESS_CHUNK_SIZE,
         lensing_method=FIT_LENSING_METHOD,
         center_lc_model=True,
@@ -1448,7 +1453,7 @@ def use_process_materializer():
 
 
 @dataclass
-class PendingRealisticFileResult:
+class PendingRVFileResult:
     rows: list
     rows_by_key: dict
     results: list
@@ -1461,7 +1466,7 @@ class PendingRealisticFileResult:
     materialize_executor: object
 
 
-def finish_realistic_file_result(pending_result):
+def finish_rv_file_result(pending_result):
     if pending_result.pending_joint_materialization is not None:
         store_materialized_results(
             pending_result.results,
@@ -1491,31 +1496,55 @@ def finish_realistic_file_result(pending_result):
     return [(pending_result.rows_by_key[key], None, None) for key in updated_keys]
 
 
-def fit_realistic_file(rows, defer_final_materialization=False):
+def saved_prefit_walker_state(ts):
+    """Load the stage-1 photometry walker state for a joint fit.
+
+    All RV variants in a grouped FITS file share ``system_id``, so one saved
+    prefit state seeds the complete joint batch without duplicating the
+    photometry-only MCMC work.
+    """
+    if not PREFIT_RESULTS_PATH.exists():
+        raise FileNotFoundError(
+            f"Photometry-prefit table is missing at {PREFIT_RESULTS_PATH}. "
+            "Run src/1_prefit_and_schedule.py before script 3."
+        )
+    prefits = pandas.read_pickle(PREFIT_RESULTS_PATH)
+    key = str(ts.get("system_id", ts.get("simulation_id")))
+    matches = prefits[prefits["simulation_id"].astype(str) == key]
+    if len(matches) != 1:
+        raise KeyError(f"Expected one photometry prefit for system_id={key}, found {len(matches)}")
+    path = Path(matches.iloc[0]["prefit_posterior_path"])
+    with numpy.load(path) as payload:
+        if "final_walker_coords" not in payload:
+            raise KeyError(
+                f"Prefit posterior {path} has no final_walker_coords. "
+                "Re-run script 1 to create a joint-fit initial state."
+            )
+        return numpy.asarray(payload["final_walker_coords"], dtype=float)
+
+
+def fit_rv_file(rows, defer_final_materialization=False):
     rows = list(rows)
     if not rows:
         return []
 
-    path = rows[0][1]["realistic_path"]
-    logger.info("Fitting %d realistic rows from %s", len(rows), path)
-    logger.info("Loading grouped realistic curves from %s", path)
-    curves = load_realistic_timeseries_curves(rows)
-    logger.info("Loaded %d grouped realistic curves from %s", len(curves), path)
+    path = rows[0][1]["rv_path"]
+    logger.info("Fitting %d rv rows from %s", len(rows), path)
+    logger.info("Loading grouped rv curves from %s", path)
+    curves = load_rv_timeseries_curves(rows)
+    logger.info("Loaded %d grouped rv curves from %s", len(curves), path)
     rows_by_key = {result_checkpoint_key(ts): pandas.Series(ts).copy() for _, ts in rows}
-    rows_needing_prefit = [
-        (i, ts) for i, ts in rows if row_needs_prefit(ts) or row_needs_joint_fit(ts)
-    ]
     rows_needing_joint = [(i, ts) for i, ts in rows if row_needs_joint_fit(ts)]
     rows_needing_rv_only = [(i, ts) for i, ts in rows if row_needs_rv_only_fit(ts)]
     logger.info(
-        "Grouped fit stage needs for %s: prefit=%d joint=%d rv_only=%d",
+        "Grouped fit stage needs for %s: joint=%d rv_only=%d",
         path,
-        len(rows_needing_prefit),
         len(rows_needing_joint),
         len(rows_needing_rv_only),
     )
     initial_walker_state = None
-    prefit_sampler_state = None
+    # Kept as explicit ``None`` arguments for the existing materialization
+    # helpers; script 3 no longer writes or embeds prefit state itself.
     prefit_sampler_state_path = None
     prefit_ts = None
     sampler_writer = shared_sampler_writer()
@@ -1523,25 +1552,8 @@ def fit_realistic_file(rows, defer_final_materialization=False):
     if sampler_writer is None:
         sampler_writer = SamplerStateWriter()
         close_sampler_writer = True
-    if FIT_USE_LC and rows_needing_prefit:
-        prefit_i, prefit_ts = rows_needing_prefit[0]
-        prefit_curve = curves[str(prefit_ts["realistic_id"])]
-        logger.info(
-            "Prefitting photometry once for %d-row realistic group from %s using row index=%s",
-            len(rows),
-            path,
-            prefit_i,
-        )
-        prefit_ts, initial_walker_state, prefit_sampler_state = fit_photometry_prefit(
-            prefit_i, prefit_ts, prefit_curve
-        )
-        prefit_sampler_state_path = sampler_writer.submit_prefit(
-            prefit_ts,
-            prefit_sampler_state,
-        )
-        for key, row in list(rows_by_key.items()):
-            if row_needs_prefit(row):
-                rows_by_key[key] = add_prefit_columns(row, prefit_ts)
+    if rows_needing_joint:
+        initial_walker_state = saved_prefit_walker_state(rows_needing_joint[0][1])
     results = []
     materialize_executor = None
     if (
@@ -1554,7 +1566,7 @@ def fit_realistic_file(rows, defer_final_materialization=False):
         batches = list(batched_row_chunks(rows_needing_joint))
         if len(batches) > 1:
             logger.info(
-                "Splitting %d realistic rows into %d batched joint chunks of up to %d",
+                "Splitting %d rv rows into %d batched joint chunks of up to %d",
                 len(rows_needing_joint),
                 len(batches),
                 FIT_BATCH_SIZE,
@@ -1602,7 +1614,7 @@ def fit_realistic_file(rows, defer_final_materialization=False):
             pending_joint_materialization = None
     elif rows_needing_joint:
         file_progress_desc = (
-            f"RV joint fits {short_id(rows[0][1].get('pristine_id', Path(path).stem))}"
+            f"RV joint fits {short_id(rows[0][1].get('system_id', Path(path).stem))}"
         )
         row_iterator = tqdm(
             rows_needing_joint,
@@ -1615,15 +1627,15 @@ def fit_realistic_file(rows, defer_final_materialization=False):
         with ThreadPoolExecutor(max_workers=1) as row_executor:
             for row_number, (i, ts) in enumerate(row_iterator, start=1):
                 logger.info(
-                    "Starting joint fit %d/%d for realistic_id=%s",
+                    "Starting joint fit %d/%d for rv_id=%s",
                     row_number,
                     len(rows_needing_joint),
-                    ts.get("realistic_id", None),
+                    ts.get("rv_id", None),
                 )
-                curve = curves[str(ts["realistic_id"])]
+                curve = curves[str(ts["rv_id"])]
                 mcmc_desc = (
                     f"MCMC joint {row_number}/{len(rows_needing_joint)} "
-                    f"{short_id(ts.get('realistic_id', None))}"
+                    f"{short_id(ts.get('rv_id', None))}"
                 )
                 fit_result = run_fit((i, ts, curve, initial_walker_state, mcmc_desc))
                 finished_fit = finish_pending_fit(pending_fit)
@@ -1653,7 +1665,7 @@ def fit_realistic_file(rows, defer_final_materialization=False):
             batches = list(batched_row_chunks(current_rv_only_rows))
             if len(batches) > 1:
                 logger.info(
-                    "Splitting %d realistic rows into %d batched RV-only chunks of up to %d",
+                    "Splitting %d rv rows into %d batched RV-only chunks of up to %d",
                     len(rows_needing_rv_only),
                     len(batches),
                     FIT_BATCH_SIZE,
@@ -1714,7 +1726,7 @@ def fit_realistic_file(rows, defer_final_materialization=False):
                 )
                 pending_joint_materialization = None
             file_progress_desc = (
-                f"RV-only fits {short_id(rows[0][1].get('pristine_id', Path(path).stem))}"
+                f"RV-only fits {short_id(rows[0][1].get('system_id', Path(path).stem))}"
             )
             for row_number, (i, ts) in enumerate(
                 tqdm(
@@ -1729,17 +1741,17 @@ def fit_realistic_file(rows, defer_final_materialization=False):
                 key = result_checkpoint_key(ts)
                 row = rows_by_key.get(key, ts)
                 logger.info(
-                    "Starting RV-only fit %d/%d for realistic_id=%s",
+                    "Starting RV-only fit %d/%d for rv_id=%s",
                     row_number,
                     len(rows_needing_rv_only),
-                    row.get("realistic_id", None),
+                    row.get("rv_id", None),
                 )
-                curve = curves[str(row["realistic_id"])]
+                curve = curves[str(row["rv_id"])]
                 rv_fit_result = run_rv_only_fit(i, row, curve)
                 rv_only_result = materialize_rv_only_fit_result(rv_fit_result, row)
                 rv_only_results.append(rv_only_result)
                 rows_by_key[result_checkpoint_key(rv_only_result[0])] = rv_only_result[0]
-    pending_result = PendingRealisticFileResult(
+    pending_result = PendingRVFileResult(
         rows=rows,
         rows_by_key=rows_by_key,
         results=results,
@@ -1754,34 +1766,34 @@ def fit_realistic_file(rows, defer_final_materialization=False):
     if defer_final_materialization:
         logger.info("Deferring final materialization for %s", path)
         return pending_result
-    return finish_realistic_file_result(pending_result)
+    return finish_rv_file_result(pending_result)
 
 
-def grouped_realistic_rows(table):
+def grouped_rv_rows(table):
     groups = []
-    for _, group in table.groupby("realistic_path", sort=True):
+    for _, group in table.groupby("rv_path", sort=True):
         groups.append(list(group.iterrows()))
     logger.debug(
-        "Grouped %d realistic rows into %d FITS-file jobs", len(table), len(groups)
+        "Grouped %d rv rows into %d FITS-file jobs", len(table), len(groups)
     )
     return groups
 
 
-def sample_realistic_path_groups(table, sample_size):
+def sample_rv_path_groups(table, sample_size):
     if table.empty:
         return table.copy()
 
-    paths = pandas.Series(table["realistic_path"].drop_duplicates())
+    paths = pandas.Series(table["rv_path"].drop_duplicates())
     group_sample_size = min(int(sample_size), len(paths))
     logger.info(
-        "Sampling %d/%d realistic FITS-file groups for standalone fitting",
+        "Sampling %d/%d rv FITS-file groups for standalone fitting",
         group_sample_size,
         len(paths),
     )
     sampled_paths = set(paths.sample(group_sample_size))
-    sampled = table[table["realistic_path"].isin(sampled_paths)].copy()
+    sampled = table[table["rv_path"].isin(sampled_paths)].copy()
     logger.info(
-        "Sampled %d realistic rows across %d FITS-file groups for fitting",
+        "Sampled %d rv rows across %d FITS-file groups for fitting",
         len(sampled),
         group_sample_size,
     )
@@ -1836,7 +1848,7 @@ def record_group_results(
 if __name__ == "__main__":
     args = parse_args()
     configure_logging()
-    logger.info("Starting realistic timeseries fitting script")
+    logger.info("Starting rv timeseries fitting script")
     if args.clear_results:
         clear_existing_results()
     fit_sample_size_label = FIT_SAMPLE_SIZE if FIT_SAMPLE_SIZE is not None else "all"
@@ -1901,30 +1913,30 @@ if __name__ == "__main__":
             "SLRV_REQUIRE_GPU is set, but JAX does not see a GPU. "
             f"Available devices: [{jax_device_summary()}]"
         )
-    logger.info("Loading realistic metadata")
-    rts = load_realistic_timeseries()
-    logger.info("Loaded %d realistic metadata rows", len(rts))
+    logger.info("Loading rv metadata")
+    rts = load_rv_timeseries()
+    logger.info("Loaded %d rv metadata rows", len(rts))
     if FIT_BATCH_FILE:
-        # SLURM array tasks pass an explicit manifest of realistic_id values.
+        # SLURM array tasks pass an explicit manifest of rv_id values.
         # In that mode we must fit exactly those rows; FIT_SAMPLE_SIZE is only
         # for standalone exploratory runs.
-        logger.info("Filtering realistic rows to batch manifest %s", FIT_BATCH_FILE)
+        logger.info("Filtering rv rows to batch manifest %s", FIT_BATCH_FILE)
         rts = filter_to_batch(rts, FIT_BATCH_FILE)
-        logger.info("Filtered realistic rows down to %d batch rows", len(rts))
+        logger.info("Filtered rv rows down to %d batch rows", len(rts))
 
     logger.info("Loading existing fitted results from %s", TIMESERIES_TABLE_PATH)
     existing_results = load_fitted_timeseries()
     logger.info(
-        "Loaded %d realistic rows and %d existing fitted rows",
+        "Loaded %d rv rows and %d existing fitted rows",
         len(rts),
         len(existing_results),
     )
 
     rts = rows_requiring_fits(rts, existing_results)
-    logger.info("Filtered realistic rows down to %d rows with missing fit stages", len(rts))
+    logger.info("Filtered rv rows down to %d rows with missing fit stages", len(rts))
 
     if len(rts) == 0:
-        logger.info("No realistic rows left with missing fit stages; exiting")
+        logger.info("No rv rows left with missing fit stages; exiting")
         raise SystemExit
 
     if FIT_BATCH_FILE:
@@ -1932,9 +1944,9 @@ if __name__ == "__main__":
     elif FIT_SAMPLE_SIZE is None:
         logger.info("Using all %d incomplete rows for standalone fitting", len(rts))
     else:
-        rts = sample_realistic_path_groups(rts, FIT_SAMPLE_SIZE)
+        rts = sample_rv_path_groups(rts, FIT_SAMPLE_SIZE)
 
-    jobs = grouped_realistic_rows(rts)
+    jobs = grouped_rv_rows(rts)
     logger.info(
         "Grouped %d rows into %d FITS-file jobs",
         len(rts),
@@ -1958,17 +1970,17 @@ if __name__ == "__main__":
     try:
         if FIT_MAX_WORKERS == 1:
             logger.info(
-                "Starting serial realistic fit loop with deferred file materialization"
+                "Starting serial rv fit loop with deferred file materialization"
             )
-            for job in tqdm(jobs, total=len(jobs), desc="Realistic simulation fits"):
-                current_file_result = fit_realistic_file(
+            for job in tqdm(jobs, total=len(jobs), desc="RV simulation fits"):
+                current_file_result = fit_rv_file(
                     job,
                     defer_final_materialization=True,
                 )
                 if pending_file_result is not None:
                     finishing_file_result = pending_file_result
                     pending_file_result = None
-                    group_results = finish_realistic_file_result(finishing_file_result)
+                    group_results = finish_rv_file_result(finishing_file_result)
                     (
                         new_result_count,
                         last_checkpoint_result_count,
@@ -1983,7 +1995,7 @@ if __name__ == "__main__":
             if pending_file_result is not None:
                 finishing_file_result = pending_file_result
                 pending_file_result = None
-                group_results = finish_realistic_file_result(finishing_file_result)
+                group_results = finish_rv_file_result(finishing_file_result)
                 (
                     new_result_count,
                     last_checkpoint_result_count,
@@ -1996,10 +2008,10 @@ if __name__ == "__main__":
                 )
         else:
             for group_results in process_map_iter(
-                fit_realistic_file,
+                fit_rv_file,
                 jobs,
                 total=len(jobs),
-                desc="Realistic simulation fits",
+                desc="RV simulation fits",
                 max_workers=FIT_MAX_WORKERS,
             ):
                 (
@@ -2020,7 +2032,7 @@ if __name__ == "__main__":
         if pending_file_result is not None:
             finishing_file_result = pending_file_result
             pending_file_result = None
-            group_results = finish_realistic_file_result(finishing_file_result)
+            group_results = finish_rv_file_result(finishing_file_result)
             (
                 new_result_count,
                 last_checkpoint_result_count,

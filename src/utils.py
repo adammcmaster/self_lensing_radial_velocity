@@ -38,8 +38,8 @@ def configure_logging():
         "__main__",
         "__mp_main__",
         "utils",
-        "pristine",
-        "realistic",
+        "photometry",
+        "rv",
         "spectrograph",
         "fitting",
     ):

@@ -19,7 +19,7 @@ class PrefitImprovementStageTest(unittest.TestCase):
     def test_prefit_error_rows_include_rv_no_peak_time_stage(self):
         results = pandas.DataFrame(
             {
-                "pristine_id": ["a", "b"],
+                "system_id": ["a", "b"],
                 "n_rv": [3, 10],
                 "Macc": [5.0, 10.0],
                 "a": [1.0, 2.0],
@@ -52,7 +52,7 @@ class PrefitImprovementStageTest(unittest.TestCase):
     def test_prefit_class_rows_include_rv_no_peak_time_stage(self):
         results = pandas.DataFrame(
             {
-                "pristine_id": ["a", "b"],
+                "system_id": ["a", "b"],
                 "n_rv": [3, 10],
                 "Macc": [4.0, 8.0],
                 "prefit_fitted_Macc": [2.5, 6.0],

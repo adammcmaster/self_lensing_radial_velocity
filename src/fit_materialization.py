@@ -1,4 +1,4 @@
-"""Materialization helpers for realistic fit results.
+"""Materialization helpers for rv fit results.
 
 This module is intentionally independent of JAX so it can run in a background
 process without creating a competing GPU context.
@@ -30,7 +30,7 @@ def truth_self_lensing_system(ts):
 
 def fitted_timeseries_row(i, ts, truth_sls, sls):
     new_ts = pandas.Series(ts).copy()
-    new_ts["realistic_idx"] = i
+    new_ts["rv_index"] = i
     new_ts["b_max"] = truth_sls.b_max.value
     new_ts["fitted_a"] = sls.a.value
     new_ts["fitted_b"] = sls.b.value

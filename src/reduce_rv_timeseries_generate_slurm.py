@@ -1,5 +1,5 @@
 """
-Reduce SLURM realistic-generation metadata shards into realistic/metadata.csv.
+Reduce SLURM rv-generation metadata shards into rv/metadata.csv.
 """
 
 import argparse
@@ -10,13 +10,13 @@ from pathlib import Path
 import pandas
 from tqdm import tqdm
 
-from realistic import (
-    REALISTIC_METADATA_PATH,
+from rv_timeseries import (
+    RV_TIMESERIES_METADATA_PATH,
     _normalise_metadata_table,
     _read_metadata_cache,
     _write_metadata_cache,
-    load_realistic_timeseries,
-    update_realistic_metadata,
+    load_rv_timeseries,
+    update_rv_metadata,
 )
 from utils import DATA_PATH
 
@@ -34,7 +34,7 @@ def positive_int(value):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Merge SLURM realistic-generation metadata shards."
+        description="Merge SLURM rv-generation metadata shards."
     )
     parser.add_argument(
         "submit_dirs",
@@ -54,7 +54,7 @@ def parse_args():
     parser.add_argument(
         "--from-fits",
         action="store_true",
-        help="Rebuild/update metadata by scanning realistic FITS files too.",
+        help="Rebuild/update metadata by scanning rv FITS files too.",
     )
     parser.add_argument(
         "--workers",
@@ -136,7 +136,7 @@ def read_metadata_shards(paths, workers=DEFAULT_WORKERS):
     return pandas.concat(tables, ignore_index=True, sort=False), skipped
 
 
-def update_realistic_metadata_with_progress(shard_rows):
+def update_rv_metadata_with_progress(shard_rows):
     with tqdm(total=4, desc="Reducing metadata") as progress:
         progress.set_postfix_str("reading cache")
         cached = _normalise_metadata_table(_read_metadata_cache())
@@ -169,11 +169,11 @@ def main():
     shard_rows, skipped = read_metadata_shards(shard_paths, workers=args.workers)
 
     if args.from_fits:
-        current = load_realistic_timeseries()
+        current = load_rv_timeseries()
     else:
         current = (
-            pandas.read_csv(REALISTIC_METADATA_PATH)
-            if REALISTIC_METADATA_PATH.exists()
+            pandas.read_csv(RV_TIMESERIES_METADATA_PATH)
+            if RV_TIMESERIES_METADATA_PATH.exists()
             else pandas.DataFrame()
         )
 
@@ -182,7 +182,7 @@ def main():
     print(f"Metadata shard read workers: {args.workers}")
     print(f"Metadata shard rows loaded: {len(shard_rows)}")
     print(f"Existing metadata rows loaded: {len(current)}")
-    print(f"Metadata path: {REALISTIC_METADATA_PATH}")
+    print(f"Metadata path: {RV_TIMESERIES_METADATA_PATH}")
     if skipped:
         print(f"Skipped unreadable metadata shards: {len(skipped)}")
         for path, error in skipped[:10]:
@@ -196,13 +196,13 @@ def main():
 
     if shard_rows.empty:
         table = (
-            load_realistic_timeseries()
+            load_rv_timeseries()
             if args.from_fits
-            else update_realistic_metadata([])
+            else update_rv_metadata([])
         )
     else:
-        table = update_realistic_metadata_with_progress(shard_rows)
-    print(f"Wrote realistic metadata with {len(table)} rows.")
+        table = update_rv_metadata_with_progress(shard_rows)
+    print(f"Wrote rv metadata with {len(table)} rows.")
 
 
 if __name__ == "__main__":

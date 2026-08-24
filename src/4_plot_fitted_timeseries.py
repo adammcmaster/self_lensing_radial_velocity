@@ -1,5 +1,5 @@
 """
-Generate fit diagnostic plots for already-fitted realistic simulations.
+Generate fit diagnostic plots for already-fitted rv simulations.
 """
 
 import argparse
@@ -49,7 +49,7 @@ def parse_args():
     parser.add_argument(
         "simulation_ids",
         nargs="*",
-        help="Explicit simulation IDs to plot. Defaults to realistic_id values.",
+        help="Explicit simulation IDs to plot. Defaults to rv_id values.",
     )
     parser.add_argument(
         "--all",
@@ -68,7 +68,7 @@ def parse_args():
     )
     parser.add_argument(
         "--id-column",
-        default="realistic_id",
+        default="rv_id",
         help="Column in the fitted results table to match for explicit IDs.",
     )
     parser.add_argument(
@@ -114,7 +114,7 @@ def load_plotting_stack():
     global LightcurveGenerator
     global RVGenerator
     global SelfLensingSystem
-    global load_realistic_timeseries_curve
+    global load_rv_timeseries_curve
 
     import corner
     import numpy
@@ -132,7 +132,7 @@ def load_plotting_stack():
     from selflensing.generators import LightcurveGenerator, RVGenerator
     from selflensing.models import SelfLensingSystem
 
-    from realistic import load_realistic_timeseries_curve
+    from rv_timeseries import load_rv_timeseries_curve
 
     logging.getLogger().addFilter(
         lambda record: record.getMessage() != "Too few points to create valid contours"
@@ -150,9 +150,9 @@ def load_fitted_results(path):
 
 
 def deduplicate_fitted_results(table):
-    if "realistic_id" not in table.columns:
+    if "rv_id" not in table.columns:
         return table.copy()
-    deduped = table.drop_duplicates(subset="realistic_id", keep="last").copy()
+    deduped = table.drop_duplicates(subset="rv_id", keep="last").copy()
     removed = len(table) - len(deduped)
     if removed:
         logger.info("Dropped %d older duplicate fitted row(s)", removed)
@@ -302,9 +302,9 @@ def align_lc_model_to_data(model_lc, lc_data):
 
 def plot_fit(row):
     logger.debug(
-        "Plotting fit for realistic_idx=%s realistic_id=%s",
-        row.get("realistic_idx"),
-        row.get("realistic_id"),
+        "Plotting fit for rv_index=%s rv_id=%s",
+        row.get("rv_index"),
+        row.get("rv_id"),
     )
     truth_sls = truth_self_lensing_system(row)
     sls = SelfLensingSystem(
@@ -464,7 +464,7 @@ def plot_fit(row):
         f"$e$={scalar_value(row['e']):.2f}\n"
         f"$\\varphi$={scalar_value(row['periapsis_phase']):.2f} rad\n"
         f"Baseline={scalar_value(row['baseline']):.2f} d\n"
-        f"Cadence={scalar_value(row['cadence']):.2f} d"
+        f"Nobs={scalar_value(row['nobs']):.2f} d"
     )
     fit_text = (
         "Fit\n"
@@ -506,9 +506,9 @@ def plot_fit(row):
 
 def plot_prefit(row):
     logger.debug(
-        "Plotting photometry prefit for pristine_id=%s realistic_id=%s",
-        row.get("pristine_id"),
-        row.get("realistic_id"),
+        "Plotting photometry prefit for system_id=%s rv_id=%s",
+        row.get("system_id"),
+        row.get("rv_id"),
     )
     truth_sls = truth_self_lensing_system(row)
     prefit_sls = self_lensing_system_from_fit_values(row, prefit_parameter_values(row))
@@ -674,25 +674,25 @@ def figure_shard_keys(ts):
 
 
 def target_id_for_row(ts):
-    return safe_path_token(ts.get("realistic_id", ts.get("realistic_idx", "unknown")))
+    return safe_path_token(ts.get("rv_id", ts.get("rv_index", "unknown")))
 
 
 def observational_token_for_row(ts):
     return "_".join(
         (
             format_filename_token("baseline", ts["baseline"], "d"),
-            format_filename_token("cadence", ts["cadence"], "d"),
+            format_filename_token("nobs", ts["nobs"], "d"),
             format_filename_token("rv", ts["RV accuracy"], "ms"),
         )
     )
 
 
-def realistic_plot_dir_name(ts):
+def rv_plot_dir_name(ts):
     return "_".join((observational_token_for_row(ts), target_id_for_row(ts)))
 
 
 def original_id_for_row(ts):
-    return safe_path_token(ts.get("pristine_id", "unknown"))
+    return safe_path_token(ts.get("system_id", "unknown"))
 
 
 def original_plot_dir_for_row(ts):
@@ -701,9 +701,9 @@ def original_plot_dir_for_row(ts):
 
 
 def target_plot_dir_for_row(ts):
-    pristine_id = safe_path_token(ts.get("pristine_id", "unknown"))
+    system_id = safe_path_token(ts.get("system_id", "unknown"))
     a_key, b_key, macc_key = figure_shard_keys(ts)
-    return FIG_PATH / a_key / b_key / macc_key / pristine_id / realistic_plot_dir_name(ts)
+    return FIG_PATH / a_key / b_key / macc_key / system_id / rv_plot_dir_name(ts)
 
 
 def prefit_plot_path_for_row(ts):
@@ -731,32 +731,32 @@ def plot_path_for_row(ts, plot_type):
 def default_sampler_state_path(ts):
     from fitting import SAMPLER_STATE_PATH
 
-    if "realistic_id" in ts and not pandas.isna(ts["realistic_id"]):
-        token = safe_path_token(ts["realistic_id"])
-    elif "realistic_idx" in ts and not pandas.isna(ts["realistic_idx"]):
-        token = f"idx_{safe_path_token(ts['realistic_idx'])}"
+    if "rv_id" in ts and not pandas.isna(ts["rv_id"]):
+        token = safe_path_token(ts["rv_id"])
+    elif "rv_index" in ts and not pandas.isna(ts["rv_index"]):
+        token = f"idx_{safe_path_token(ts['rv_index'])}"
     else:
         token = f"row_{safe_path_token(getattr(ts, 'name', None))}"
-    pristine_id = safe_path_token(ts.get("pristine_id", "unknown"))
+    system_id = safe_path_token(ts.get("system_id", "unknown"))
     a_key, b_key, macc_key = figure_shard_keys(ts)
-    return SAMPLER_STATE_PATH / a_key / b_key / macc_key / pristine_id / f"{token}.npz"
+    return SAMPLER_STATE_PATH / a_key / b_key / macc_key / system_id / f"{token}.npz"
 
 
 def default_prefit_sampler_state_path(ts):
     from fitting import SAMPLER_STATE_PATH
 
-    pristine_id = safe_path_token(ts.get("pristine_id", "unknown"))
+    system_id = safe_path_token(ts.get("system_id", "unknown"))
     a_key, b_key, macc_key = figure_shard_keys(ts)
-    return SAMPLER_STATE_PATH / a_key / b_key / macc_key / pristine_id / "_prefit.npz"
+    return SAMPLER_STATE_PATH / a_key / b_key / macc_key / system_id / "_prefit.npz"
 
 
 def legacy_sampler_state_path(ts):
     from fitting import SAMPLER_STATE_PATH
 
-    if "realistic_id" in ts and not pandas.isna(ts["realistic_id"]):
-        token = safe_path_token(ts["realistic_id"])
-    elif "realistic_idx" in ts and not pandas.isna(ts["realistic_idx"]):
-        token = f"idx_{safe_path_token(ts['realistic_idx'])}"
+    if "rv_id" in ts and not pandas.isna(ts["rv_id"]):
+        token = safe_path_token(ts["rv_id"])
+    elif "rv_index" in ts and not pandas.isna(ts["rv_index"]):
+        token = f"idx_{safe_path_token(ts['rv_index'])}"
     else:
         token = f"row_{safe_path_token(getattr(ts, 'name', None))}"
     return SAMPLER_STATE_PATH / f"{token}.npz"
@@ -771,7 +771,7 @@ def sampler_state_path_for_row(ts):
         if path.exists():
             return path
     raise FileNotFoundError(
-        f"No sampler state found for realistic_id={ts.get('realistic_id', None)}"
+        f"No sampler state found for rv_id={ts.get('rv_id', None)}"
     )
 
 
@@ -870,7 +870,7 @@ def prefit_parameter_values(row):
     state = load_sampler_state(row)
     if "prefit_chain" not in state:
         raise FileNotFoundError(
-            f"No prefit fit columns or prefit sampler chain found for pristine_id={row.get('pristine_id', None)}"
+            f"No prefit fit columns or prefit sampler chain found for system_id={row.get('system_id', None)}"
         )
     parameter_indices = sampler_param_indices(
         state.get("prefit_parameter_names", state["parameter_names"])
@@ -897,9 +897,9 @@ def self_lensing_system_from_fit_values(row, values):
 
 def plot_label(ts):
     return (
-        f"realistic_id={ts.get('realistic_id')} | "
+        f"rv_id={ts.get('rv_id')} | "
         f"baseline={float(ts['baseline']):g} d | "
-        f"cadence={float(ts['cadence']):g} d | "
+        f"nobs={float(ts['nobs']):g} d | "
         f"RV accuracy={float(ts['RV accuracy']):g} m/s"
     )
 
@@ -911,7 +911,7 @@ def add_plot_title(fig, ts):
 
 def add_prefit_plot_title(fig, ts):
     fig.suptitle(
-        f"Photometry Prefit\npristine_id={ts.get('pristine_id')}",
+        f"Photometry Prefit\nsystem_id={ts.get('system_id')}",
         fontsize=10,
     )
     fig.subplots_adjust(top=0.9)
@@ -1151,7 +1151,7 @@ def save_corner_png(ts):
 
 
 def save_prefit_png(ts):
-    curve = load_realistic_timeseries_curve(ts)
+    curve = load_rv_timeseries_curve(ts)
     out_path = prefit_plot_path_for_row(ts)
     out_path.parent.mkdir(exist_ok=True, parents=True)
     logger.debug("Writing photometry prefit diagnostic plot to %s", out_path)
@@ -1217,7 +1217,7 @@ def plot_ts_with_curve(ts, curve):
 
 def save_plot_png(ts, curve):
     if curve is None:
-        curve = load_realistic_timeseries_curve(ts)
+        curve = load_rv_timeseries_curve(ts)
     out_path = plot_path_for_row(ts, "fit")
     out_path.parent.mkdir(exist_ok=True, parents=True)
     logger.debug("Writing fit diagnostic plot to %s", out_path)
@@ -1254,7 +1254,7 @@ def init_plot_worker():
 
 
 def plot_row_worker(ts):
-    curve = load_realistic_timeseries_curve(ts)
+    curve = load_rv_timeseries_curve(ts)
     return save_plot_png(ts, curve)
 
 
@@ -1266,22 +1266,22 @@ def requested_plot_row_worker(args):
 def plot_group(rows):
     results = []
     for _, row in rows.iterrows():
-        curve = load_realistic_timeseries_curve(row)
+        curve = load_rv_timeseries_curve(row)
         results.append((row, curve))
     return save_plot_pngs(results)
 
 
 def row_groups(rows):
-    if "realistic_path" not in rows.columns:
+    if "rv_path" not in rows.columns:
         return [rows]
-    return [group for _, group in rows.groupby("realistic_path", sort=True)]
+    return [group for _, group in rows.groupby("rv_path", sort=True)]
 
 
 def rows_for_unique_prefits(rows):
-    if "pristine_id" in rows.columns:
-        return rows.drop_duplicates(subset="pristine_id", keep="last").copy()
-    if "realistic_path" in rows.columns:
-        return rows.drop_duplicates(subset="realistic_path", keep="last").copy()
+    if "system_id" in rows.columns:
+        return rows.drop_duplicates(subset="system_id", keep="last").copy()
+    if "rv_path" in rows.columns:
+        return rows.drop_duplicates(subset="rv_path", keep="last").copy()
     return rows.head(1).copy()
 
 

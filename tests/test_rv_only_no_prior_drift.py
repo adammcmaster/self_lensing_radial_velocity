@@ -27,7 +27,7 @@ from selflensing.models import DEFAULT_LIMITS
 
 
 def load_rv_no_prior_script():
-    path = SRC_PATH / "3.1_fit_realistic_rv_only_no_prior.py"
+    path = SRC_PATH / "3.1_fit_rv_only_no_prior.py"
     spec = importlib.util.spec_from_file_location("rv_no_prior_script", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -140,14 +140,14 @@ class RVOnlyNoPriorDriftTest(unittest.TestCase):
         script = load_rv_no_prior_script()
         base = script.pandas.DataFrame(
             [
-                {"realistic_id": "a", "fitted_Macc": 7.0, "existing": "keep"},
-                {"realistic_id": "b", "fitted_Macc": 8.0, "existing": "also_keep"},
+                {"rv_id": "a", "fitted_Macc": 7.0, "existing": "keep"},
+                {"rv_id": "b", "fitted_Macc": 8.0, "existing": "also_keep"},
             ]
         )
         new_rows = [
             script.pandas.Series(
                 {
-                    "realistic_id": "a",
+                    "rv_id": "a",
                     "fitted_Macc": 99.0,
                     "rvnoprior_fitted_Macc": 6.5,
                 }
@@ -156,7 +156,7 @@ class RVOnlyNoPriorDriftTest(unittest.TestCase):
 
         merged = script.merge_rv_no_prior_results(base, new_rows)
 
-        self.assertEqual(list(merged["realistic_id"]), ["a", "b"])
+        self.assertEqual(list(merged["rv_id"]), ["a", "b"])
         self.assertEqual(merged.loc[0, "fitted_Macc"], 7.0)
         self.assertEqual(merged.loc[1, "fitted_Macc"], 8.0)
         self.assertEqual(merged.loc[1, "existing"], "also_keep")

@@ -12,29 +12,29 @@ from astropy.io import fits
 from astropy.table import Table
 from tqdm import tqdm
 
-from pristine import load_pristine_timeseries
+from photometry import load_photometry_timeseries
 from utils import DATA_PATH
 
 logger = logging.getLogger(__name__)
 
 
 PARAMS = {
-    "cadences": [1, 30, 300],
-    "campaign_baselines": 365 * numpy.array([1, 3, 5]),
+    "nobs": tuple(range(3, 11)),
+    "campaign_baselines": numpy.array([5 * 365.25]),
     "rv_accuracies": [10**n for n in (-1, 0, 1, 2, 3)],
 }
 PARAM_GRID = tuple(
     (
-        int(cadence),
+        int(nobs),
         float(rv_accuracy),
         int(baseline),
     )
     for baseline in PARAMS["campaign_baselines"]
-    for cadence in PARAMS["cadences"]
+    for nobs in PARAMS["nobs"]
     for rv_accuracy in PARAMS["rv_accuracies"]
 )
-PARAM_CADENCES = numpy.fromiter(
-    (cadence for cadence, _, _ in PARAM_GRID),
+PARAM_NOBS = numpy.fromiter(
+    (nobs for nobs, _, _ in PARAM_GRID),
     dtype=int,
     count=len(PARAM_GRID),
 )
@@ -49,30 +49,29 @@ PARAM_BASELINES = numpy.fromiter(
     count=len(PARAM_GRID),
 )
 PARAM_ID_SUFFIXES = tuple(
-    f"|{cadence}|{rv_accuracy:.17g}|{baseline}".encode("utf-8")
-    for cadence, rv_accuracy, baseline in PARAM_GRID
+    f"|{nobs}|{rv_accuracy:.17g}|{baseline}".encode("utf-8")
+    for nobs, rv_accuracy, baseline in PARAM_GRID
 )
 
-REALISTIC_PATH = (DATA_PATH / "realistic").resolve()
-REALISTIC_PATH.mkdir(exist_ok=True, parents=True)
-REALISTIC_METADATA_PATH = REALISTIC_PATH / "metadata.csv"
-REALISTIC_METADATA_PICKLE_PATH = REALISTIC_METADATA_PATH.with_suffix(".pkl")
-REALISTIC_ID_NAMESPACE = uuid.UUID("1d34c442-474c-5d23-83ff-c121e5ed4a73")
-REALISTIC_ID_NAMESPACE_BYTES = REALISTIC_ID_NAMESPACE.bytes
-REALISTIC_METADATA_MAX_WORKERS = int(
-    os.environ.get("SLRV_REALISTIC_METADATA_MAX_WORKERS", min(8, os.cpu_count() or 1))
+RV_TIMESERIES_PATH = (DATA_PATH / "rv").resolve()
+RV_TIMESERIES_METADATA_PATH = RV_TIMESERIES_PATH / "metadata.csv"
+RV_TIMESERIES_METADATA_PICKLE_PATH = RV_TIMESERIES_METADATA_PATH.with_suffix(".pkl")
+RV_TIMESERIES_ID_NAMESPACE = uuid.UUID("1d34c442-474c-5d23-83ff-c121e5ed4a73")
+RV_TIMESERIES_ID_NAMESPACE_BYTES = RV_TIMESERIES_ID_NAMESPACE.bytes
+RV_TIMESERIES_METADATA_MAX_WORKERS = int(
+    os.environ.get("SLRV_RV_TIMESERIES_METADATA_MAX_WORKERS", min(8, os.cpu_count() or 1))
 )
-REALISTIC_METADATA_COLUMNS = (
-    "realistic_id",
-    "realistic_path",
-    "pristine_id",
+RV_TIMESERIES_METADATA_COLUMNS = (
+    "rv_id",
+    "rv_path",
+    "system_id",
     "RV accuracy",
-    "cadence",
+    "nobs",
     "baseline",
 )
 
-PRISTINE_SHARED_COLUMNS = (
-    "pristine_rv_path",
+PHOTOMETRY_SHARED_COLUMNS = (
+    "source_rv_path",
     "photometry_path",
     "a",
     "e",
@@ -89,93 +88,93 @@ PRISTINE_SHARED_COLUMNS = (
 )
 
 METADATA_COLUMNS = (
-    REALISTIC_METADATA_COLUMNS[:3]
-    + PRISTINE_SHARED_COLUMNS
-    + REALISTIC_METADATA_COLUMNS[3:]
+    RV_TIMESERIES_METADATA_COLUMNS[:3]
+    + PHOTOMETRY_SHARED_COLUMNS
+    + RV_TIMESERIES_METADATA_COLUMNS[3:]
 )
 
 
-def realistic_paths(path=REALISTIC_PATH):
+def rv_paths(path=RV_TIMESERIES_PATH):
     paths = sorted(Path(path).glob("*.fits.gz"))
-    logger.debug("Found %d realistic timeseries paths in %s", len(paths), path)
+    logger.debug("Found %d rv timeseries paths in %s", len(paths), path)
     return paths
 
 
-def _realistic_hdu_name(index):
+def _rv_hdu_name(index):
     return f"TS{index:05d}"
 
 
-def realistic_key_from_values(pristine_id, cadence, rv_accuracy, baseline):
+def rv_key_from_values(system_id, nobs, rv_accuracy, baseline):
     return (
-        str(pristine_id),
-        int(cadence),
+        str(system_id),
+        int(nobs),
         f"{float(rv_accuracy):.17g}",
         int(baseline),
     )
 
 
 def _uuid5_from_name_bytes(name):
-    digest = sha1(REALISTIC_ID_NAMESPACE_BYTES + name).digest()
+    digest = sha1(RV_TIMESERIES_ID_NAMESPACE_BYTES + name).digest()
     return str(uuid.UUID(bytes=digest[:16], version=5))
 
 
-def realistic_id_from_values(pristine_id, cadence, rv_accuracy, baseline):
-    key = realistic_key_from_values(pristine_id, cadence, rv_accuracy, baseline)
+def rv_id_from_values(system_id, nobs, rv_accuracy, baseline):
+    key = rv_key_from_values(system_id, nobs, rv_accuracy, baseline)
     return _uuid5_from_name_bytes("|".join(map(str, key)).encode("utf-8"))
 
 
-def realistic_key(row):
-    return realistic_key_from_values(
-        row["pristine_id"],
-        row["cadence"],
+def rv_key(row):
+    return rv_key_from_values(
+        row["system_id"],
+        row.get("nobs", row.get("nobs")),
         row["RV accuracy"],
         row["baseline"],
     )
 
 
-def realistic_id_from_params(pristine, cadence, rv_accuracy, baseline):
-    return realistic_id_from_values(
-        pristine["simulation_id"],
-        cadence,
+def rv_id_from_params(photometry, nobs, rv_accuracy, baseline):
+    return rv_id_from_values(
+        photometry["simulation_id"],
+        nobs,
         rv_accuracy,
         baseline,
     )
 
 
-def realistic_path_from_params(pristine, cadence, rv_accuracy, baseline):
-    path = realistic_path_from_pristine(pristine)
+def rv_path_from_params(photometry, nobs, rv_accuracy, baseline):
+    path = rv_path_from_photometry(photometry)
     return path
 
 
-def realistic_path_from_pristine(pristine):
-    path = REALISTIC_PATH / f"{pristine['simulation_id']}.fits.gz"
+def rv_path_from_photometry(photometry):
+    path = RV_TIMESERIES_PATH / f"{photometry['simulation_id']}.fits.gz"
     return path
 
 
-def pristine_id_from_realistic_path(path):
+def system_id_from_rv_path(path):
     return Path(path).name.removesuffix(".fits.gz")
 
 
-def existing_realistic_keys(table=None):
+def existing_rv_keys(table=None):
     if table is None:
-        table = load_realistic_timeseries()
+        table = load_rv_timeseries()
     if table.empty:
-        logger.debug("No existing realistic keys because metadata table is empty")
+        logger.debug("No existing rv keys because metadata table is empty")
         return set()
-    keys = {realistic_key(row) for _, row in table.iterrows()}
-    logger.debug("Loaded %d existing realistic keys", len(keys))
+    keys = {rv_key(row) for _, row in table.iterrows()}
+    logger.debug("Loaded %d existing rv keys", len(keys))
     return keys
 
 
 def _empty_metadata_table():
-    return pandas.DataFrame(columns=REALISTIC_METADATA_COLUMNS)
+    return pandas.DataFrame(columns=RV_TIMESERIES_METADATA_COLUMNS)
 
 
 def _empty_expanded_metadata_table():
     return pandas.DataFrame(columns=METADATA_COLUMNS)
 
 
-def _metadata_pickle_path(path=REALISTIC_METADATA_PATH):
+def _metadata_pickle_path(path=RV_TIMESERIES_METADATA_PATH):
     return Path(path).with_suffix(".pkl")
 
 
@@ -185,124 +184,141 @@ def _metadata_pickle_is_fresh(csv_path, pickle_path):
     )
 
 
-def _metadata_csv_has_storage_schema(path=REALISTIC_METADATA_PATH):
+def _metadata_csv_has_storage_schema(path=RV_TIMESERIES_METADATA_PATH):
     path = Path(path)
     if not path.exists():
         return True
     return list(pandas.read_csv(path, nrows=0).columns) == list(
-        REALISTIC_METADATA_COLUMNS
+        RV_TIMESERIES_METADATA_COLUMNS
     )
 
 
 def _metadata_table_has_storage_schema(table):
-    return list(table.columns) == list(REALISTIC_METADATA_COLUMNS)
+    return list(table.columns) == list(RV_TIMESERIES_METADATA_COLUMNS)
 
 
-def _write_metadata_pickle(table, path=REALISTIC_METADATA_PATH, normalise=True):
+def _write_metadata_pickle(table, path=RV_TIMESERIES_METADATA_PATH, normalise=True):
     if normalise:
         table = _normalise_metadata_table(table)
     pickle_path = _metadata_pickle_path(path)
     pickle_path.parent.mkdir(exist_ok=True, parents=True)
-    logger.debug("Writing %d realistic metadata rows to %s", len(table), pickle_path)
+    logger.debug("Writing %d rv metadata rows to %s", len(table), pickle_path)
     table.to_pickle(pickle_path)
 
 
-def _read_metadata_cache(path=REALISTIC_METADATA_PATH):
+def _read_metadata_cache(path=RV_TIMESERIES_METADATA_PATH):
     path = Path(path)
     if not path.exists():
-        logger.debug("Realistic metadata cache does not exist at %s", path)
+        logger.debug("RV metadata cache does not exist at %s", path)
         return _empty_metadata_table()
 
     pickle_path = _metadata_pickle_path(path)
     if _metadata_pickle_is_fresh(path, pickle_path):
         table = pandas.read_pickle(pickle_path)
-        logger.debug("Read %d realistic metadata rows from %s", len(table), pickle_path)
+        logger.debug("Read %d rv metadata rows from %s", len(table), pickle_path)
         return table
 
     table = pandas.read_csv(path)
-    logger.debug("Read %d realistic metadata rows from %s", len(table), path)
+    logger.debug("Read %d rv metadata rows from %s", len(table), path)
     _write_metadata_pickle(table, path)
     return table
 
 
-def _write_metadata_cache(table, path=REALISTIC_METADATA_PATH, normalise=True):
+def _write_metadata_cache(table, path=RV_TIMESERIES_METADATA_PATH, normalise=True):
     path = Path(path)
     if normalise:
         table = _normalise_metadata_table(table)
     else:
-        table = table.reindex(columns=REALISTIC_METADATA_COLUMNS)
+        table = table.reindex(columns=RV_TIMESERIES_METADATA_COLUMNS)
     path.parent.mkdir(exist_ok=True, parents=True)
-    logger.debug("Writing %d realistic metadata rows to %s", len(table), path)
+    logger.debug("Writing %d rv metadata rows to %s", len(table), path)
     table.to_csv(path, index=False)
     _write_metadata_pickle(table, path, normalise=False)
 
 
 def _normalise_metadata_table(table):
     if table.empty:
-        logger.debug("Normalising empty realistic metadata table")
+        logger.debug("Normalising empty rv metadata table")
         return _empty_metadata_table()
 
     before = len(table)
-    table = table.reindex(columns=REALISTIC_METADATA_COLUMNS)
-    paths = table["realistic_path"].dropna().unique()
+    table = table.reindex(columns=RV_TIMESERIES_METADATA_COLUMNS)
+    paths = table["rv_path"].dropna().unique()
     path_map = {path: str(Path(path).resolve()) for path in paths}
-    table["realistic_path"] = table["realistic_path"].map(path_map)
-    if table["realistic_id"].duplicated().any():
-        table.drop_duplicates(subset="realistic_id", keep="last", inplace=True)
+    table["rv_path"] = table["rv_path"].map(path_map)
+    if table["rv_id"].duplicated().any():
+        table.drop_duplicates(subset="rv_id", keep="last", inplace=True)
     table.sort_values(
-        ["pristine_id", "cadence", "RV accuracy", "baseline"], inplace=True
+        ["system_id", "nobs", "RV accuracy", "baseline"], inplace=True
     )
     table.reset_index(drop=True, inplace=True)
     logger.debug(
-        "Normalised realistic metadata table from %d to %d rows", before, len(table)
+        "Normalised rv metadata table from %d to %d rows", before, len(table)
     )
     return table
 
 
-def _expanded_metadata_from_pristine(realistic, pristine):
-    if realistic.empty:
+def _expanded_metadata_from_photometry(rv, photometry):
+    if rv.empty:
         return _empty_expanded_metadata_table()
 
-    pristine = pristine.rename(
+    photometry = photometry.rename(
         columns={
-            "simulation_id": "pristine_id",
-            "rv_path": "pristine_rv_path",
+            "simulation_id": "system_id",
+            "rv_path": "source_rv_path",
         }
     )
-    pristine_columns = ("pristine_id",) + PRISTINE_SHARED_COLUMNS
-    pristine = pristine.reindex(columns=pristine_columns)
-    table = realistic.merge(
-        pristine,
-        on="pristine_id",
+    photometry_columns = ("system_id",) + PHOTOMETRY_SHARED_COLUMNS
+    photometry = photometry.reindex(columns=photometry_columns)
+    table = rv.merge(
+        photometry,
+        on="system_id",
         how="left",
         validate="many_to_one",
     )
     table = table.reindex(columns=METADATA_COLUMNS)
-    missing_pristine = table["a"].isna() if "a" in table else []
-    if numpy.any(missing_pristine):
+    missing_photometry = table["a"].isna() if "a" in table else []
+    if numpy.any(missing_photometry):
+        # Scheduled RV simulations no longer require dense photometry RV files.
+        # Their immutable truth metadata lives with the photometry-prefit table.
+        from fitting import PREFIT_RESULTS_PATH
+
+        if PREFIT_RESULTS_PATH.exists():
+            prefits = pandas.read_pickle(PREFIT_RESULTS_PATH).rename(
+                columns={"simulation_id": "system_id"}
+            )
+            prefit_columns = ("system_id",) + tuple(
+                column for column in PHOTOMETRY_SHARED_COLUMNS if column in prefits
+            )
+            replacement = rv.merge(
+                prefits.reindex(columns=prefit_columns), on="system_id", how="left"
+            ).reindex(columns=METADATA_COLUMNS)
+            table.loc[missing_photometry, :] = replacement.loc[missing_photometry, :]
+            missing_photometry = table["a"].isna()
+    if numpy.any(missing_photometry):
         missing_ids = sorted(
-            table.loc[missing_pristine, "pristine_id"].dropna().unique()
+            table.loc[missing_photometry, "system_id"].dropna().unique()
         )
         raise KeyError(
-            "Could not expand realistic metadata because pristine metadata is missing "
-            f"for pristine_id values: {missing_ids[:10]}"
+            "Could not expand rv metadata because photometry metadata is missing "
+            f"for system_id values: {missing_ids[:10]}"
         )
     return table
 
 
 def _expand_metadata_table(table, normalise=True):
-    realistic = _normalise_metadata_table(table) if normalise else table
-    if realistic.empty:
+    rv = _normalise_metadata_table(table) if normalise else table
+    if rv.empty:
         return _empty_expanded_metadata_table()
-    pristine = load_pristine_timeseries()
-    return _expanded_metadata_from_pristine(realistic, pristine)
+    photometry = load_photometry_timeseries()
+    return _expanded_metadata_from_photometry(rv, photometry)
 
 
-def _expand_metadata_table_with_pristine(table, pristine, normalise=True):
-    realistic = _normalise_metadata_table(table) if normalise else table
-    if realistic.empty:
+def _expand_metadata_table_with_photometry(table, photometry, normalise=True):
+    rv = _normalise_metadata_table(table) if normalise else table
+    if rv.empty:
         return _empty_expanded_metadata_table()
-    return _expanded_metadata_from_pristine(realistic, pristine)
+    return _expanded_metadata_from_photometry(rv, photometry)
 
 
 def _to_float(value):
@@ -325,168 +341,168 @@ def _representative_error(value):
 
 def _metadata_from_header(header, path):
     return {
-        "realistic_id": header["REAL_ID"],
-        "realistic_path": str(path.resolve()),
-        "pristine_id": header["PRIS_ID"],
+        "rv_id": header["RV_ID"],
+        "rv_path": str(path.resolve()),
+        "system_id": header["SYS_ID"],
         "RV accuracy": header["RV_ACC"],
-        "cadence": header["CADENCE"],
+        "nobs": header.get("NOBS", header.get("NOBS")),
         "baseline": header["BASELINE"],
     }
 
 
-def metadata_rows_from_realistic_path(path):
+def metadata_rows_from_rv_path(path):
     path = Path(path)
-    logger.debug("Loading realistic metadata rows from %s", path)
+    logger.debug("Loading rv metadata rows from %s", path)
     with fits.open(path) as hdul:
         rows = [
             _metadata_from_header(hdu.header, path)
             for hdu in hdul[1:]
-            if "REAL_ID" in hdu.header
+            if "RV_ID" in hdu.header
         ]
-    logger.debug("Loaded %d realistic metadata rows from %s", len(rows), path)
+    logger.debug("Loaded %d rv metadata rows from %s", len(rows), path)
     return rows
 
 
-def metadata_rows_from_realistic_paths(paths):
+def metadata_rows_from_rv_paths(paths):
     paths = list(paths)
     if not paths:
         return []
-    if REALISTIC_METADATA_MAX_WORKERS == 1 or len(paths) == 1:
+    if RV_TIMESERIES_METADATA_MAX_WORKERS == 1 or len(paths) == 1:
         return [
-            row for path in paths for row in metadata_rows_from_realistic_path(path)
+            row for path in paths for row in metadata_rows_from_rv_path(path)
         ]
 
-    max_workers = min(REALISTIC_METADATA_MAX_WORKERS, len(paths))
+    max_workers = min(RV_TIMESERIES_METADATA_MAX_WORKERS, len(paths))
     logger.debug(
-        "Loading realistic metadata from %d FITS files with %d threads",
+        "Loading rv metadata from %d FITS files with %d threads",
         len(paths),
         max_workers,
     )
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         grouped_rows = tqdm(
-            executor.map(metadata_rows_from_realistic_path, paths),
+            executor.map(metadata_rows_from_rv_path, paths),
             total=len(paths),
-            desc="Reading realistic metadata",
+            desc="Reading rv metadata",
         )
         return [row for rows in grouped_rows for row in rows]
 
 
-def metadata_rows_from_params_for_pristine(pristine):
+def metadata_rows_from_params_for_photometry(photometry):
     rows = []
-    for cadence, rv_accuracy, baseline in PARAM_GRID:
+    for nobs, rv_accuracy, baseline in PARAM_GRID:
         rows.append(
             metadata_row_from_params(
-                realistic_id=realistic_id_from_params(
-                    pristine,
-                    cadence,
+                rv_id=rv_id_from_params(
+                    photometry,
+                    nobs,
                     rv_accuracy,
                     baseline,
                 ),
-                realistic_path=realistic_path_from_pristine(pristine),
-                pristine=pristine,
+                rv_path=rv_path_from_photometry(photometry),
+                photometry=photometry,
                 rv_accuracy=rv_accuracy,
-                cadence=cadence,
+                nobs=nobs,
                 baseline=baseline,
             )
         )
     return rows
 
 
-def metadata_table_from_params_for_paths(paths, pristine):
+def metadata_table_from_params_for_paths(paths, photometry):
     paths = list(paths)
     if not paths:
         return _empty_metadata_table()
 
     start_time = perf_counter()
-    pristine_ids = set(pristine["simulation_id"].astype(str))
+    system_ids = set(photometry["simulation_id"].astype(str))
     missing_ids = sorted(
-        pristine_id_from_realistic_path(path)
+        system_id_from_rv_path(path)
         for path in paths
-        if pristine_id_from_realistic_path(path) not in pristine_ids
+        if system_id_from_rv_path(path) not in system_ids
     )
     if missing_ids:
         raise KeyError(
-            "Cannot derive realistic metadata because pristine metadata is missing "
+            "Cannot derive rv metadata because photometry metadata is missing "
             f"for simulation_id values: {missing_ids[:10]}"
         )
 
     n_per_path = len(PARAM_GRID)
     total_rows = len(paths) * n_per_path
     logger.debug(
-        "Building %d deterministic realistic metadata rows for %d paths",
+        "Building %d deterministic rv metadata rows for %d paths",
         total_rows,
         len(paths),
     )
     data = {
-        "realistic_id": [],
-        "realistic_path": [],
-        "pristine_id": [],
+        "rv_id": [],
+        "rv_path": [],
+        "system_id": [],
         "RV accuracy": numpy.tile(PARAM_RV_ACCURACIES, len(paths)),
-        "cadence": numpy.tile(PARAM_CADENCES, len(paths)),
+        "nobs": numpy.tile(PARAM_NOBS, len(paths)),
         "baseline": numpy.tile(PARAM_BASELINES, len(paths)),
     }
 
     for path in paths:
-        pristine_id = pristine_id_from_realistic_path(path)
+        system_id = system_id_from_rv_path(path)
         path = Path(path).resolve()
-        pristine_id_bytes = str(pristine_id).encode("utf-8")
-        data["realistic_id"].extend(
-            _uuid5_from_name_bytes(pristine_id_bytes + suffix)
+        system_id_bytes = str(system_id).encode("utf-8")
+        data["rv_id"].extend(
+            _uuid5_from_name_bytes(system_id_bytes + suffix)
             for suffix in PARAM_ID_SUFFIXES
         )
-        data["realistic_path"].extend([str(path)] * n_per_path)
-        data["pristine_id"].extend([pristine_id] * n_per_path)
+        data["rv_path"].extend([str(path)] * n_per_path)
+        data["system_id"].extend([system_id] * n_per_path)
 
-    table = pandas.DataFrame(data, columns=REALISTIC_METADATA_COLUMNS)
+    table = pandas.DataFrame(data, columns=RV_TIMESERIES_METADATA_COLUMNS)
     logger.debug(
-        "Built %d deterministic realistic metadata rows in %.1f s",
+        "Built %d deterministic rv metadata rows in %.1f s",
         len(table),
         perf_counter() - start_time,
     )
     return table
 
 
-def metadata_rows_from_params_for_paths(paths, pristine):
-    return metadata_table_from_params_for_paths(paths, pristine).to_dict("records")
+def metadata_rows_from_params_for_paths(paths, photometry):
+    return metadata_table_from_params_for_paths(paths, photometry).to_dict("records")
 
 
 def metadata_row_from_params(
-    realistic_id,
-    realistic_path,
-    pristine,
+    rv_id,
+    rv_path,
+    photometry,
     rv_accuracy,
-    cadence,
+    nobs,
     baseline,
 ):
     return {
-        "realistic_id": realistic_id,
-        "realistic_path": str(Path(realistic_path).resolve()),
-        "pristine_id": pristine["simulation_id"],
-        "pristine_rv_path": pristine["rv_path"],
-        "photometry_path": pristine["photometry_path"],
-        "a": pristine["a"],
-        "e": pristine["e"],
-        "periapsis_phase": pristine["periapsis_phase"],
-        "Macc": pristine["Macc"],
-        "Porb": pristine["Porb"],
-        "tau_eff": pristine["tau_eff"],
-        "Mcomp": pristine["Mcomp"],
-        "Rcomp": pristine["Rcomp"],
-        "Teff": pristine["Teff"],
-        "b": pristine["b"],
-        "i": pristine["i"],
-        "peak_time": pristine["peak_time"],
+        "rv_id": rv_id,
+        "rv_path": str(Path(rv_path).resolve()),
+        "system_id": photometry["simulation_id"],
+        "source_rv_path": photometry.get("rv_path", ""),
+        "photometry_path": photometry["photometry_path"],
+        "a": photometry["a"],
+        "e": photometry["e"],
+        "periapsis_phase": photometry["periapsis_phase"],
+        "Macc": photometry["Macc"],
+        "Porb": photometry["Porb"],
+        "tau_eff": photometry["tau_eff"],
+        "Mcomp": photometry["Mcomp"],
+        "Rcomp": photometry["Rcomp"],
+        "Teff": photometry["Teff"],
+        "b": photometry.get("b", numpy.nan),
+        "i": photometry["i"],
+        "peak_time": photometry["peak_time"],
         "RV accuracy": rv_accuracy,
-        "cadence": cadence,
+        "nobs": nobs,
         "baseline": baseline,
     }
 
 
 def _metadata_header(row, rv_err, lc_err):
     return {
-        "REAL_ID": row["realistic_id"],
-        "PRIS_ID": row["pristine_id"],
-        "PRIS_RV": row["pristine_rv_path"],
+        "RV_ID": row["rv_id"],
+        "SYS_ID": row["system_id"],
+        "SRC_RV": row["source_rv_path"],
         "PHOTPATH": row["photometry_path"],
         "A": float(row["a"]),
         "E": float(row["e"]),
@@ -501,7 +517,7 @@ def _metadata_header(row, rv_err, lc_err):
         "I": float(row["i"]),
         "PEAK_T": float(row["peak_time"]),
         "RV_ACC": float(row["RV accuracy"]),
-        "CADENCE": float(row["cadence"]),
+        "NOBS": int(row["nobs"]),
         "BASELINE": float(row["baseline"]),
         "RV_ERR": _representative_error(rv_err),
         "LC_ERR": _representative_error(lc_err),
@@ -540,9 +556,9 @@ def _curve_table(row, rv_times, rv, rv_err, lc_times, lc, lc_err):
     return table
 
 
-def _realistic_hdu_index(hdul, realistic_id):
+def _rv_hdu_index(hdul, rv_id):
     for i, hdu in enumerate(hdul[1:], start=1):
-        if hdu.header.get("REAL_ID") == realistic_id:
+        if hdu.header.get("RV_ID") == rv_id:
             return i
     return None
 
@@ -561,7 +577,7 @@ def _curve_from_hdu(hdu):
     }
 
 
-def write_realistic_timeseries_file(curves, path):
+def write_rv_timeseries_file(curves, path):
     path = Path(path)
     if not curves:
         return
@@ -571,15 +587,15 @@ def write_realistic_timeseries_file(curves, path):
         with fits.open(path) as hdul:
             hdus = fits.HDUList(hdul)
             existing_ids = {
-                hdu.header.get("REAL_ID") for hdu in hdus[1:] if "REAL_ID" in hdu.header
+                hdu.header.get("RV_ID") for hdu in hdus[1:] if "RV_ID" in hdu.header
             }
             next_index = len(hdus)
             for curve in curves:
                 row = curve["row"]
-                if row["realistic_id"] in existing_ids:
+                if row["rv_id"] in existing_ids:
                     logger.debug(
-                        "Skipping existing realistic timeseries %s in %s",
-                        row["realistic_id"],
+                        "Skipping existing rv timeseries %s in %s",
+                        row["rv_id"],
                         path,
                     )
                     continue
@@ -593,9 +609,9 @@ def write_realistic_timeseries_file(curves, path):
                     curve["lc_err"],
                 )
                 hdu = fits.table_to_hdu(table)
-                hdu.name = _realistic_hdu_name(next_index)
+                hdu.name = _rv_hdu_name(next_index)
                 next_index += 1
-                existing_ids.add(row["realistic_id"])
+                existing_ids.add(row["rv_id"])
                 hdus.append(hdu)
             hdus.writeto(path, overwrite=True)
         return
@@ -612,75 +628,75 @@ def write_realistic_timeseries_file(curves, path):
             curve["lc_err"],
         )
         hdu = fits.table_to_hdu(table)
-        hdu.name = _realistic_hdu_name(index)
+        hdu.name = _rv_hdu_name(index)
         hdus.append(hdu)
     hdus.writeto(path)
 
 
-def load_realistic_timeseries_curve(row_or_path):
+def load_rv_timeseries_curve(row_or_path):
     if isinstance(row_or_path, (pandas.Series, dict)):
-        path = row_or_path["realistic_path"]
-        realistic_id = row_or_path.get("realistic_id")
+        path = row_or_path["rv_path"]
+        rv_id = row_or_path.get("rv_id")
     else:
         path = row_or_path
-        realistic_id = None
+        rv_id = None
 
-    logger.debug("Loading realistic timeseries curve from %s", path)
+    logger.debug("Loading rv timeseries curve from %s", path)
     with fits.open(path) as hdul:
         hdu_index = None
-        if realistic_id is not None:
-            hdu_index = _realistic_hdu_index(hdul, realistic_id)
+        if rv_id is not None:
+            hdu_index = _rv_hdu_index(hdul, rv_id)
         elif len(hdul) == 2:
             hdu_index = 1
         if hdu_index is None:
-            raise KeyError(f"Could not find realistic_id={realistic_id} in {path}")
+            raise KeyError(f"Could not find rv_id={rv_id} in {path}")
 
         curve = _curve_from_hdu(hdul[hdu_index])
         logger.debug(
-            "Loaded realistic curve with %d RV samples and %d LC samples",
+            "Loaded rv curve with %d RV samples and %d LC samples",
             len(curve["rv"]),
             len(curve["lc"]),
         )
         return curve
 
 
-def load_realistic_timeseries_curves(rows):
+def load_rv_timeseries_curves(rows):
     rows = list(rows)
     if not rows:
         return {}
 
-    paths = {str(row["realistic_path"]) for _, row in rows}
+    paths = {str(row["rv_path"]) for _, row in rows}
     if len(paths) != 1:
         raise ValueError(
-            f"Expected rows from one realistic FITS file, got {len(paths)} paths"
+            f"Expected rows from one rv FITS file, got {len(paths)} paths"
         )
 
     path = next(iter(paths))
-    realistic_ids = {str(row["realistic_id"]) for _, row in rows}
+    rv_ids = {str(row["rv_id"]) for _, row in rows}
     logger.debug(
-        "Loading %d realistic curves from grouped FITS file %s",
-        len(realistic_ids),
+        "Loading %d rv curves from grouped FITS file %s",
+        len(rv_ids),
         path,
     )
     with fits.open(path) as hdul:
         curves = {}
         for hdu in hdul[1:]:
-            realistic_id = hdu.header.get("REAL_ID")
-            if realistic_id in realistic_ids:
-                curves[realistic_id] = _curve_from_hdu(hdu)
+            rv_id = hdu.header.get("RV_ID")
+            if rv_id in rv_ids:
+                curves[rv_id] = _curve_from_hdu(hdu)
 
-    missing_ids = realistic_ids - set(curves)
+    missing_ids = rv_ids - set(curves)
     if missing_ids:
-        raise KeyError(f"Could not find realistic_ids={sorted(missing_ids)} in {path}")
+        raise KeyError(f"Could not find rv_ids={sorted(missing_ids)} in {path}")
     return curves
 
 
-def update_realistic_metadata(rows):
+def update_rv_metadata(rows):
     if not rows:
-        logger.debug("No new realistic metadata rows supplied; reloading metadata")
-        return load_realistic_timeseries()
+        logger.debug("No new rv metadata rows supplied; reloading metadata")
+        return load_rv_timeseries()
 
-    logger.debug("Updating realistic metadata with %d new rows", len(rows))
+    logger.debug("Updating rv metadata with %d new rows", len(rows))
     cached = _normalise_metadata_table(_read_metadata_cache())
     new_table = pandas.DataFrame(rows)
     if cached.empty:
@@ -693,12 +709,12 @@ def update_realistic_metadata(rows):
     return _expand_metadata_table(table, normalise=False)
 
 
-def load_realistic_timeseries():
-    realistic_path_set = {str(path) for path in realistic_paths()}
+def load_rv_timeseries():
+    rv_path_set = {str(path) for path in rv_paths()}
     logger.debug(
-        "Loading realistic metadata for %d FITS files", len(realistic_path_set)
+        "Loading rv metadata for %d FITS files", len(rv_path_set)
     )
-    pristine = load_pristine_timeseries()
+    photometry = load_photometry_timeseries()
     raw_cached = _read_metadata_cache()
     cache_needs_rewrite = not _metadata_csv_has_storage_schema() or (
         not raw_cached.empty and not _metadata_table_has_storage_schema(raw_cached)
@@ -709,19 +725,19 @@ def load_realistic_timeseries():
         cached = _normalise_metadata_table(raw_cached)
     cached_len = len(cached)
     if not cached.empty:
-        cached = cached[cached["realistic_path"].isin(realistic_path_set)].copy()
+        cached = cached[cached["rv_path"].isin(rv_path_set)].copy()
     removed_stale_rows = len(cached) != cached_len
 
-    cached_paths = set(cached["realistic_path"]) if not cached.empty else set()
-    missing_paths = sorted(realistic_path_set - cached_paths)
-    logger.debug("Realistic metadata cache is missing %d paths", len(missing_paths))
+    cached_paths = set(cached["rv_path"]) if not cached.empty else set()
+    missing_paths = sorted(rv_path_set - cached_paths)
+    logger.debug("RV metadata cache is missing %d paths", len(missing_paths))
 
     if missing_paths:
         logger.debug(
-            "Deriving realistic metadata rows for %d paths from deterministic IDs",
+            "Deriving rv metadata rows for %d paths from deterministic IDs",
             len(missing_paths),
         )
-        new_table = metadata_table_from_params_for_paths(missing_paths, pristine)
+        new_table = metadata_table_from_params_for_paths(missing_paths, photometry)
         if cached.empty:
             table = new_table
         else:
@@ -731,7 +747,7 @@ def load_realistic_timeseries():
                 len(new_table),
             )
             table = pandas.concat([cached, new_table], ignore_index=True)
-        logger.debug("Normalising %d realistic metadata rows", len(table))
+        logger.debug("Normalising %d rv metadata rows", len(table))
         table = _normalise_metadata_table(table)
     else:
         table = cached
@@ -739,6 +755,6 @@ def load_realistic_timeseries():
     if missing_paths or removed_stale_rows or cache_needs_rewrite:
         _write_metadata_cache(table, normalise=False)
 
-    expanded = _expand_metadata_table_with_pristine(table, pristine, normalise=False)
-    logger.debug("Returning %d realistic metadata rows", len(expanded))
+    expanded = _expand_metadata_table_with_photometry(table, photometry, normalise=False)
+    logger.debug("Returning %d rv metadata rows", len(expanded))
     return expanded
