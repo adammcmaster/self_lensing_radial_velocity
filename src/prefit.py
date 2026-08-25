@@ -29,13 +29,16 @@ SCHEDULE_CREDIBILITY = float(os.environ.get("SLRV_SCHEDULE_CREDIBILITY", 0.9))
 FIT_NSTEPS = int(os.environ.get("SLRV_PREFIT_NSTEPS", os.environ.get("SLRV_FIT_NSTEPS", 1000)))
 FIT_NWALKERS = int(os.environ.get("SLRV_PREFIT_NWALKERS", os.environ.get("SLRV_FIT_NWALKERS", 128)))
 FIT_BURN = int(os.environ.get("SLRV_PREFIT_BURN", os.environ.get("SLRV_FIT_BURN", 200)))
-FIT_LC_BINS = int(os.environ.get("SLRV_PREFIT_LC_BINS", 100))
+PREFIT_LC_BIN_WIDTH_DAYS = 1.0 / 24.0
 FIT_DEVICE = os.environ.get("SLRV_PREFIT_DEVICE", os.environ.get("SLRV_FIT_DEVICE", "gpu:0"))
 FIT_LENSING_METHOD = os.environ.get("SLRV_PREFIT_LENSING_METHOD")
 FIT_MCMC_PROGRESS = os.environ.get("SLRV_PREFIT_MCMC_PROGRESS", "0").lower() in (
     "1", "true", "yes", "on"
 )
-PREFIT_BATCH_SIZE = int(os.environ.get("SLRV_PREFIT_BATCH_SIZE", 50))
+# Full-campaign hourly photometry substantially increases the likelihood tensor
+# size.  Keep the default conservative for GPU memory; callers can raise it
+# after profiling their accelerator.
+PREFIT_BATCH_SIZE = int(os.environ.get("SLRV_PREFIT_BATCH_SIZE", 4))
 
 PREFIT_PARAMETER_NAMES = ("a", "i", "Macc", "e", "periapsis_phase")
 PREFIT_RESULT_COLUMNS = tuple(f"prefit_fitted_{name}" for name in (
@@ -79,31 +82,54 @@ def load_lightcurve(row):
     if times.ndim == 2:
         times = times.sum(axis=1)
     normalisation = numpy.median(flux)
-    return {"times": times, "flux": flux / normalisation - 1.0, "err": flux_err / normalisation}
+    normalised_flux = flux / normalisation - 1.0
+    normalised_err = flux_err / normalisation
+    if not numpy.any(numpy.isfinite(normalised_err) & (normalised_err > 0)):
+        estimated_err = numpy.nanstd(normalised_flux[numpy.isfinite(normalised_flux)])
+        if not numpy.isfinite(estimated_err) or estimated_err <= 0:
+            raise ValueError("Photometry curve has no usable flux uncertainties")
+        normalised_err = numpy.full_like(normalised_flux, estimated_err)
+    return {"times": times, "flux": normalised_flux, "err": normalised_err}
 
 
-def lightcurve_fit_window(curve, peak_time, tau_eff):
+def bin_full_lightcurve_hourly(curve):
+    """Inverse-variance bin the complete photometry curve into hourly bins.
+
+    The bin grid is anchored to absolute Julian-date hour boundaries, so
+    simulations with the common survey cadence produce identically shaped
+    arrays for the batched prefit likelihood.  No phase-dependent clipping is
+    applied: the prefit sees the entire observed photometry campaign.
+    """
     mask = (
         numpy.isfinite(curve["times"])
         & numpy.isfinite(curve["flux"])
         & numpy.isfinite(curve["err"])
         & (curve["err"] > 0)
-        & (curve["times"] >= peak_time - tau_eff)
-        & (curve["times"] <= peak_time + tau_eff)
     )
     if not numpy.any(mask):
-        raise ValueError("Photometry prefit window contains no valid samples")
+        raise ValueError("Photometry prefit contains no valid samples")
     times, flux, err = (curve[key][mask] for key in ("times", "flux", "err"))
-    edges = numpy.linspace(peak_time - tau_eff, peak_time + tau_eff, FIT_LC_BINS + 1)
-    bins = numpy.clip(numpy.searchsorted(edges, times, side="right") - 1, 0, FIT_LC_BINS - 1)
+    first_bin = int(numpy.floor(numpy.min(times) / PREFIT_LC_BIN_WIDTH_DAYS))
+    last_bin = int(numpy.floor(numpy.max(times) / PREFIT_LC_BIN_WIDTH_DAYS))
+    bins = numpy.floor(times / PREFIT_LC_BIN_WIDTH_DAYS).astype(int) - first_bin
     output = []
-    for index in range(FIT_LC_BINS):
+    for index in range(last_bin - first_bin + 1):
         current = bins == index
         if not numpy.any(current):
             continue
         weights = 1.0 / err[current] ** 2
-        output.append((numpy.average(times[current], weights=weights), numpy.average(flux[current], weights=weights), numpy.sqrt(1.0 / weights.sum())))
-    return {"times": numpy.asarray([value[0] for value in output]), "flux": numpy.asarray([value[1] for value in output]), "err": numpy.asarray([value[2] for value in output])}
+        output.append(
+            (
+                numpy.average(times[current], weights=weights),
+                numpy.average(flux[current], weights=weights),
+                numpy.sqrt(1.0 / weights.sum()),
+            )
+        )
+    return {
+        "times": numpy.asarray([value[0] for value in output]),
+        "flux": numpy.asarray([value[1] for value in output]),
+        "err": numpy.asarray([value[2] for value in output]),
+    }
 
 
 def _posterior_path(simulation_id):
@@ -143,7 +169,7 @@ def _prefit_result_row(row, sls, campaign_start, offset_years, posterior_path):
 
 
 def fit_photometry_row(row):
-    curve = lightcurve_fit_window(load_lightcurve(row), row["peak_time"], row["tau_eff"])
+    curve = bin_full_lightcurve_hourly(load_lightcurve(row))
     result = self_lensing_system_from_fit_blackjax(
         lc_times=Time(curve["times"], format="jd"),
         observed_lc=curve["flux"] * units.dimensionless_unscaled,
@@ -187,7 +213,7 @@ def fit_photometry_row(row):
 def _padded_lightcurve_inputs(rows):
     """Pad independently binned photometry curves for a batched likelihood."""
     curves = [
-        lightcurve_fit_window(load_lightcurve(row), row["peak_time"], row["tau_eff"])
+        bin_full_lightcurve_hourly(load_lightcurve(row))
         for row in rows
     ]
     width = max(len(curve["times"]) for curve in curves)
@@ -222,41 +248,117 @@ def _save_prefit_result(row, sls, sampler, walker_coords):
     return _prefit_result_row(row, sls, campaign_start, offset_years, posterior_path)
 
 
+def _fit_values(sls):
+    return {
+        "a": float(sls.a.value),
+        "i": float(sls.i.value),
+        "Macc": float(sls.Macc.value),
+        "e": float(sls.e.value),
+        "periapsis_phase": float(sls.periapsis_phase.value),
+        "porb": float(sls.porb.value),
+    }
+
+
+def _prefit_result_from_values(row, values, posterior_path):
+    output = dict(row)
+    campaign_start, offset_years = _campaign_start(row)
+    output.update(
+        {
+            "campaign_start": campaign_start,
+            "campaign_start_offset_years": offset_years,
+            "prefit_posterior_path": str(posterior_path),
+            **{f"prefit_fitted_{name}": value for name, value in values.items()},
+        }
+    )
+    return output
+
+
+def _prefit_batch_payload(rows, systems, samplers, walker_coords):
+    """Copy a completed GPU batch into a picklable CPU-sidecar payload."""
+    payload = []
+    for index, (row, system, sampler) in enumerate(zip(rows, systems, samplers)):
+        chain = numpy.asarray(sampler.get_chain(), dtype=float)
+        payload.append(
+            {
+                "row": dict(row),
+                "fit_values": _fit_values(system),
+                "chain": chain,
+                "flat_chain": numpy.asarray(
+                    sampler.get_chain(flat=True, discard=FIT_BURN), dtype=float
+                ),
+                "final_walker_coords": numpy.asarray(walker_coords[index], dtype=float),
+            }
+        )
+    return payload
+
+
+def materialize_prefit_batch(payload):
+    """CPU-sidecar task: persist posterior samples and create RV schedules."""
+    prefits = []
+    for item in payload:
+        row = item["row"]
+        posterior_path = _posterior_path(row["simulation_id"])
+        posterior_path.parent.mkdir(parents=True, exist_ok=True)
+        numpy.savez_compressed(
+            posterior_path,
+            chain=item["chain"],
+            flat_chain=item["flat_chain"],
+            final_walker_coords=item["final_walker_coords"],
+            parameter_names=numpy.asarray(PREFIT_PARAMETER_NAMES),
+        )
+        prefits.append(_prefit_result_from_values(row, item["fit_values"], posterior_path))
+    schedules = [schedule for row in prefits for schedule in schedule_rows(row)]
+    return prefits, schedules
+
+
+def initialise_prefit_sidecar():
+    """Ensure schedule calculations in a spawned sidecar use CPU, not the GPU."""
+    os.environ["JAX_PLATFORMS"] = "cpu"
+    os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
+
+
+def fit_photometry_batch(rows):
+    """Run one GPU MCMC batch and return a CPU-materialisation payload."""
+    if not rows:
+        return []
+    lc_times, observed_lc, observed_lc_err, lc_mask = _padded_lightcurve_inputs(rows)
+    systems, samplers, walker_state = self_lensing_systems_from_batched_fit_blackjax(
+        lc_times=Time(lc_times, format="jd"),
+        observed_lc=observed_lc * units.dimensionless_unscaled,
+        observed_lc_err=observed_lc_err * units.dimensionless_unscaled,
+        lc_mask=lc_mask,
+        peak_time=Time([row["peak_time"] for row in rows], format="jd"),
+        Mcomp=numpy.asarray([row["Mcomp"] for row in rows]) * units.M_sun,
+        Rcomp=numpy.asarray([row["Rcomp"] for row in rows]) * units.R_sun,
+        Teff=numpy.asarray([row["Teff"] for row in rows]) * units.K,
+        false_alarm_probability=0.5,
+        nsteps=FIT_NSTEPS,
+        nwalkers=FIT_NWALKERS,
+        burn=FIT_BURN,
+        progress=FIT_MCMC_PROGRESS,
+        lensing_method=FIT_LENSING_METHOD,
+        center_lc_model=True,
+        device=FIT_DEVICE,
+        prefer_gpu=True,
+        proposal_scale_fraction=0.02,
+        return_sampler=True,
+        return_walker_state=True,
+    )
+    return _prefit_batch_payload(
+        rows, systems, samplers, numpy.asarray(walker_state.coords, dtype=float)
+    )
+
+
 def fit_photometry_rows(rows):
     """Fit photometry prefits in GPU batches and save one posterior per system."""
     if not rows:
         return []
     results = []
     for start in range(0, len(rows), PREFIT_BATCH_SIZE):
-        batch = rows[start : start + PREFIT_BATCH_SIZE]
-        lc_times, observed_lc, observed_lc_err, lc_mask = _padded_lightcurve_inputs(batch)
-        systems, samplers, walker_state = self_lensing_systems_from_batched_fit_blackjax(
-            lc_times=Time(lc_times, format="jd"),
-            observed_lc=observed_lc * units.dimensionless_unscaled,
-            observed_lc_err=observed_lc_err * units.dimensionless_unscaled,
-            lc_mask=lc_mask,
-            peak_time=Time([row["peak_time"] for row in batch], format="jd"),
-            Mcomp=numpy.asarray([row["Mcomp"] for row in batch]) * units.M_sun,
-            Rcomp=numpy.asarray([row["Rcomp"] for row in batch]) * units.R_sun,
-            Teff=numpy.asarray([row["Teff"] for row in batch]) * units.K,
-            false_alarm_probability=0.5,
-            nsteps=FIT_NSTEPS,
-            nwalkers=FIT_NWALKERS,
-            burn=FIT_BURN,
-            progress=FIT_MCMC_PROGRESS,
-            lensing_method=FIT_LENSING_METHOD,
-            center_lc_model=True,
-            device=FIT_DEVICE,
-            prefer_gpu=True,
-            proposal_scale_fraction=0.02,
-            return_sampler=True,
-            return_walker_state=True,
+        prefits, _ = materialize_prefit_batch(
+            fit_photometry_batch(rows[start : start + PREFIT_BATCH_SIZE])
         )
-        walker_coords = numpy.asarray(walker_state.coords, dtype=float)
-        results.extend(
-            _save_prefit_result(row, system, sampler, walker_coords[index])
-            for index, (row, system, sampler) in enumerate(zip(batch, systems, samplers))
-        )
+        results.extend(prefits)
     return results
 
 
@@ -310,11 +412,25 @@ def load_table(path):
     return pandas.read_pickle(path) if Path(path).exists() else pandas.DataFrame()
 
 
-def save_prefits_and_schedules(prefits):
+def save_prefits_and_schedules(prefits, schedules=None):
+    """Atomically checkpoint new prefit summaries and their RV schedules."""
     existing = load_table(PREFIT_RESULTS_PATH)
     combined = pandas.concat([existing, pandas.DataFrame(prefits)], ignore_index=True)
     combined.drop_duplicates("simulation_id", keep="last", inplace=True)
     save_table(combined, PREFIT_RESULTS_PATH)
-    schedules = [schedule for _, row in combined.iterrows() for schedule in schedule_rows(row)]
-    save_table(pandas.DataFrame(schedules), SCHEDULE_TABLE_PATH)
+    if schedules is None:
+        schedules = [
+            schedule for _, row in combined.iterrows() for schedule in schedule_rows(row)
+        ]
+    existing_schedules = load_table(SCHEDULE_TABLE_PATH)
+    combined_schedules = pandas.concat(
+        [existing_schedules, pandas.DataFrame(schedules)], ignore_index=True
+    )
+    if not combined_schedules.empty:
+        combined_schedules.drop_duplicates(
+            ["simulation_id", "nobs", "RV accuracy", "baseline"],
+            keep="last",
+            inplace=True,
+        )
+    save_table(combined_schedules, SCHEDULE_TABLE_PATH)
     return combined

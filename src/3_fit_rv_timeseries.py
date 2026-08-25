@@ -106,6 +106,7 @@ from fit_materialization import (
     materialize_joint_batch_result as materialize_joint_batch_result_in_process,
     materialize_rv_only_batch_result as materialize_rv_only_batch_result_in_process,
 )
+from prefit import bin_full_lightcurve_hourly
 from rv_timeseries import (
     load_rv_timeseries,
     load_rv_timeseries_curve,
@@ -166,13 +167,12 @@ CHECKPOINT_RESULTS = os.environ.get("SLRV_FIT_CHECKPOINT_RESULTS", "1").lower() 
     "yes",
     "on",
 )
-FIT_CHECKPOINT_INTERVAL = int(os.environ.get("SLRV_FIT_CHECKPOINT_INTERVAL", 45))
+FIT_CHECKPOINT_INTERVAL = int(os.environ.get("SLRV_FIT_CHECKPOINT_INTERVAL", 4))
 MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "spawn")
 FIT_NSTEPS = int(os.environ.get("SLRV_FIT_NSTEPS", 1000))
 FIT_NWALKERS = int(os.environ.get("SLRV_FIT_NWALKERS", 128))
 FIT_BURN = int(os.environ.get("SLRV_FIT_BURN", 200))
 FIT_PROGRESS_CHUNK_SIZE = int(os.environ.get("SLRV_FIT_PROGRESS_CHUNK_SIZE", 100))
-FIT_LC_BINS = 100
 FIT_E_MIN = os.environ.get("SLRV_FIT_E_MIN")
 FIT_E_MAX = os.environ.get("SLRV_FIT_E_MAX")
 FIT_USE_LC = os.environ.get("SLRV_FIT_USE_LC", "1").lower() in (
@@ -222,7 +222,9 @@ FIT_MATERIALIZE_IN_PROCESS = os.environ.get(
 FIT_SAMPLER_WRITE_MAX_WORKERS = int(
     os.environ.get("SLRV_FIT_SAMPLER_WRITE_MAX_WORKERS", 16)
 )
-FIT_BATCH_SIZE = optional_positive_int(os.environ.get("SLRV_FIT_BATCH_SIZE", 50))
+# Joint fits carry the full hourly-binned photometry curve for every row.
+# Four systems per GPU batch is a safe default on the shared accelerators.
+FIT_BATCH_SIZE = optional_positive_int(os.environ.get("SLRV_FIT_BATCH_SIZE", 4))
 FIT_PROPOSAL_SCALE_FRACTION = float(
     os.environ.get("SLRV_FIT_PROPOSAL_SCALE_FRACTION", 0.005)
 )
@@ -775,95 +777,26 @@ def truth_self_lensing_system(ts):
     return sls
 
 
-def lightcurve_fit_window(curve, ts):
-    peak_time = float(ts["peak_time"])
-    tau_eff = float(ts["tau_eff"])
-    if not numpy.isfinite(tau_eff) or tau_eff <= 0:
-        raise ValueError(
-            f"Cannot clip light curve for rv_id={ts.get('rv_id', None)} "
-            f"because tau_eff={tau_eff!r}"
-        )
-
+def binned_full_lightcurve(curve, ts):
+    """Prepare the entire photometry curve for a joint fit in hourly bins."""
     lc_times = numpy.asarray(curve["lc_times"], dtype=float)
-    logger.debug(
-        "Cutting light curve fit window for rv_id=%s: total photometric points=%d",
-        ts.get("rv_id", None),
-        len(lc_times),
-    )
-    mask = (lc_times >= peak_time - tau_eff) & (lc_times <= peak_time + tau_eff)
     lc = numpy.asarray(curve["lc"], dtype=float)
     lc_err = numpy.asarray(curve["lc_err"], dtype=float)
-
-    # If lc_err is all NaNs, calculate from data
     if numpy.all(~numpy.isfinite(lc_err)):
-        logger.debug(
-            "lc_err is all NaNs for rv_id=%s, calculating from data",
-            ts.get("rv_id", None),
-        )
         lc_err = numpy.full_like(lc, numpy.std(lc[numpy.isfinite(lc)]))
-        logger.debug(
-            "Calculated lc_err for rv_id=%s: %s",
-            ts.get("rv_id", None),
-            lc_err,
-        )
-
-    mask &= numpy.isfinite(lc_times) & numpy.isfinite(lc) & numpy.isfinite(lc_err)
-    mask &= lc_err > 0
-
-    logger.debug(
-        "Mask for rv_id=%s: %s (True count=%d)",
-        ts.get("rv_id", None),
-        mask,
-        numpy.sum(mask),
+    binned = bin_full_lightcurve_hourly(
+        {"times": lc_times, "flux": lc, "err": lc_err}
     )
     logger.debug(
-        "lc_err for rv_id=%s: %s",
-        ts.get("rv_id", None),
-        lc_err,
-    )
-    if not numpy.any(mask):
-        raise ValueError(
-            f"Light-curve fit window is empty for rv_id={ts.get('rv_id', None)} "
-            f"peak_time={peak_time!r} tau_eff={tau_eff!r} lc_times range={lc_times[0]} to {lc_times[-1]}"
-        )
-
-    lc_times = lc_times[mask]
-    lc = lc[mask]
-    lc_err = lc_err[mask]
-    logger.debug(
-        "After quality filtering for rv_id=%s: %d photometric points remain",
+        "Binned full light curve for rv_id=%s from %d to %d hourly samples",
         ts.get("rv_id", None),
         len(lc_times),
+        len(binned["times"]),
     )
-    logger.debug(
-        "Masked lc_err for rv_id=%s: %s",
-        ts.get("rv_id", None),
-        lc_err,
-    )
-    bin_edges = numpy.linspace(
-        peak_time - tau_eff, peak_time + tau_eff, FIT_LC_BINS + 1
-    )
-    bin_indices = numpy.searchsorted(bin_edges, lc_times, side="right") - 1
-    bin_indices = numpy.clip(bin_indices, 0, FIT_LC_BINS - 1)
-
-    binned_lc_times = []
-    binned_lc = []
-    binned_lc_err = []
-    for bin_index in range(FIT_LC_BINS):
-        bin_mask = bin_indices == bin_index
-        if not numpy.any(bin_mask):
-            continue
-
-        weights = 1.0 / numpy.square(lc_err[bin_mask])
-        weight_sum = numpy.sum(weights)
-        binned_lc_times.append(numpy.average(lc_times[bin_mask], weights=weights))
-        binned_lc.append(numpy.average(lc[bin_mask], weights=weights))
-        binned_lc_err.append(numpy.sqrt(1.0 / weight_sum))
-
     return {
-        "lc_times": numpy.asarray(binned_lc_times, dtype=float),
-        "lc": numpy.asarray(binned_lc, dtype=float),
-        "lc_err": numpy.asarray(binned_lc_err, dtype=float),
+        "lc_times": binned["times"],
+        "lc": binned["flux"],
+        "lc_err": binned["err"],
     }
 
 
@@ -922,7 +855,7 @@ def add_rv_only_columns(ts, rvfit_ts):
 
 
 def fit_photometry_prefit(i, ts, curve):
-    fit_lc = lightcurve_fit_window(curve, ts)
+    fit_lc = binned_full_lightcurve(curve, ts)
     mcmc_desc = f"MCMC prefit {short_id(ts.get('rv_id', None))}"
     logger.info(
         "Starting photometry-only prefit for rv_id=%s with %d binned LC samples",
@@ -997,7 +930,7 @@ def run_fit(a):
         ts.get("rv_path", None),
     )
     truth_sls = truth_self_lensing_system(ts)
-    fit_lc = lightcurve_fit_window(curve, ts) if fit_use_lc else None
+    fit_lc = binned_full_lightcurve(curve, ts) if fit_use_lc else None
     logger.info(
         "Fit inputs row index=%s: %d RV samples, %d LC samples%s",
         i,
@@ -1180,7 +1113,7 @@ def batched_fit_inputs(rows, curves, include_lc):
         rv.append(curve["rv"])
         rv_err.append(curve["rv_err"])
         if include_lc:
-            fit_lc = lightcurve_fit_window(curve, ts)
+            fit_lc = binned_full_lightcurve(curve, ts)
             lc_times.append(fit_lc["lc_times"])
             lc.append(fit_lc["lc"])
             lc_err.append(fit_lc["lc_err"])
@@ -1195,13 +1128,9 @@ def batched_fit_inputs(rows, curves, include_lc):
         "rv_mask": rv_mask,
     }
     if include_lc:
-        lc_times, lc_mask = padded_series(
-            lc_times,
-            fill_from_first=True,
-            length=FIT_LC_BINS,
-        )
-        lc, _ = padded_series(lc, length=FIT_LC_BINS)
-        lc_err, _ = padded_series(lc_err, fill_value=1.0, length=FIT_LC_BINS)
+        lc_times, lc_mask = padded_series(lc_times, fill_from_first=True)
+        lc, _ = padded_series(lc)
+        lc_err, _ = padded_series(lc_err, fill_value=1.0)
         inputs.update(
             {
                 "lc_times": lc_times,

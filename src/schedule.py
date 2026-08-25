@@ -96,9 +96,11 @@ def _delta_for_significance(parameter_rows, epoch, target_change, max_delta, cre
     reached = conservative_change >= target_change
     index = int(numpy.asarray(jnp.argmax(reached)))
     if not bool(numpy.asarray(jnp.any(reached))):
-        raise ValueError(
-            "A 5-sigma RV change cannot be reached before the campaign boundary."
-        )
+        # Some posterior draws predict an RV amplitude too small to achieve
+        # the requested significance within the available observing window.
+        # Keep the informative targeted triplet, at the largest permissible
+        # separation, rather than aborting all schedules for that system.
+        return float(max_delta)
     if index == 0:
         return 0.0
 
@@ -183,6 +185,12 @@ def _schedule(parameter_rows, t0, porb, baseline, campaign_start, nobs, sigma_rv
         remaining = _even_times_outside_triplet(
             campaign_start, baseline, nobs - 3, anchor, delta
         )
+    if remaining.shape[0] != nobs - 3:
+        # A maximal offset can put targeted visits at both campaign edges,
+        # leaving no excluded interval in which to place the remaining visits.
+        # In that degenerate case retain the triplet and distribute the rest
+        # across the usable window.
+        remaining = _even_times(campaign_start, useful_duration, nobs - 3)
     return numpy.sort(numpy.concatenate((remaining, [anchor - delta, anchor, anchor + delta])))
 
 

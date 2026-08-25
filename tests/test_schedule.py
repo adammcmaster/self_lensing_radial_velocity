@@ -83,6 +83,21 @@ class RVScheduleTest(unittest.TestCase):
         self.assertEqual(times.shape, (5,))
         self.assertTrue(numpy.any(numpy.isclose(times, 100.0)))
 
+    def test_unreachable_significance_uses_largest_in_campaign_offset(self):
+        times = schedule.schedule_rv_observations(
+            t0=100.0,
+            porb=100.0,
+            baseline=150.0,
+            campaign_start=50.0,
+            nobs=5,
+            sigma_rv=1e9,
+            estimated_parameters=PARAMETERS,
+        )
+
+        self.assertEqual(times.shape, (5,))
+        self.assertTrue(numpy.all((times >= 50.0) & (times <= 200.0)))
+        self.assertTrue(numpy.any(numpy.isclose(times, 100.0)))
+
 
 if __name__ == "__main__":
     unittest.main()

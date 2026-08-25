@@ -12,6 +12,7 @@ from jax import numpy as jax_numpy
 import numpy
 import pandas
 from astropy import units
+from tqdm import tqdm
 
 from fitting import PREFIT_RESULTS_PATH, SCHEDULE_TABLE_PATH
 from prefit import load_lightcurve, load_table
@@ -96,8 +97,12 @@ def main():
     if prefits.empty or schedules.empty:
         raise RuntimeError("Run src/1_prefit_and_schedule.py before RV generation")
     existing = existing_rv_keys()
-    rows = []
-    for _, prefit_row in prefits.iterrows():
+    for _, prefit_row in tqdm(
+        prefits.iterrows(),
+        total=len(prefits),
+        desc="RV timeseries systems",
+        unit="system",
+    ):
         system_schedules = schedules[schedules["simulation_id"].astype(str) == str(prefit_row["simulation_id"])]
         schedule_rows = []
         for _, schedule_row in system_schedules.iterrows():
@@ -109,8 +114,10 @@ def main():
             curves.extend(make_curves(prefit_row, schedule_rows[start : start + RV_GENERATION_BATCH_SIZE]))
         if curves:
             write_rv_timeseries_file(curves, curves[0]["row"]["rv_path"])
-            rows.extend(curve["row"] for curve in curves)
-    update_rv_metadata(rows)
+            # Metadata is the resume index for stage 2.  Write it immediately
+            # after its FITS file so an interruption only repeats the active
+            # system, never the completed ones.
+            update_rv_metadata([curve["row"] for curve in curves])
 
 
 if __name__ == "__main__":

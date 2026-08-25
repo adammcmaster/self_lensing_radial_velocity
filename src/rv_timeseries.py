@@ -613,7 +613,7 @@ def write_rv_timeseries_file(curves, path):
                 next_index += 1
                 existing_ids.add(row["rv_id"])
                 hdus.append(hdu)
-            hdus.writeto(path, overwrite=True)
+            _write_fits_atomically(hdus, path)
         return
 
     hdus = fits.HDUList([fits.PrimaryHDU()])
@@ -630,7 +630,19 @@ def write_rv_timeseries_file(curves, path):
         hdu = fits.table_to_hdu(table)
         hdu.name = _rv_hdu_name(index)
         hdus.append(hdu)
-    hdus.writeto(path)
+    _write_fits_atomically(hdus, path)
+
+
+def _write_fits_atomically(hdus, path):
+    """Replace an RV FITS file only after the complete new file is written."""
+    path = Path(path)
+    temporary_path = path.with_name(f".{path.stem}.new{path.suffix}")
+    try:
+        hdus.writeto(temporary_path, overwrite=True)
+        os.replace(temporary_path, path)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
 
 
 def load_rv_timeseries_curve(row_or_path):
