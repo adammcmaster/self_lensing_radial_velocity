@@ -98,6 +98,22 @@ class RVScheduleTest(unittest.TestCase):
         self.assertTrue(numpy.all((times >= 50.0) & (times <= 200.0)))
         self.assertTrue(numpy.any(numpy.isclose(times, 100.0)))
 
+    def test_posterior_context_matches_individual_schedules(self):
+        samples = numpy.repeat(PARAMETERS[numpy.newaxis, :], 8, axis=0)
+        periods = numpy.linspace(95.0, 105.0, len(samples))
+        context = schedule.schedule_rv_observation_context_from_posterior(
+            100.0, periods, 160.0, 50.0, 100.0, samples, credibility=0.75
+        )
+        for nobs in range(3, 11):
+            direct = schedule.schedule_rv_observations_from_posterior(
+                100.0, periods, 160.0, 50.0, nobs, 100.0, samples,
+                credibility=0.75,
+            )
+            assert_allclose(
+                schedule.schedule_rv_observations_from_context(context, nobs),
+                direct,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

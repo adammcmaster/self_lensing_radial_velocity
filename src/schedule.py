@@ -153,9 +153,7 @@ def _even_times_outside_triplet(start, duration, count, anchor, delta):
     )
 
 
-def _schedule(parameter_rows, t0, porb, baseline, campaign_start, nobs, sigma_rv, credibility):
-    if nobs < 1:
-        raise ValueError("nobs must be at least one")
+def _schedule_context(parameter_rows, t0, porb, baseline, campaign_start, sigma_rv, credibility):
     if porb <= 0 or baseline <= 0:
         raise ValueError("porb and baseline must be positive")
     if sigma_rv <= 0:
@@ -166,15 +164,48 @@ def _schedule(parameter_rows, t0, porb, baseline, campaign_start, nobs, sigma_rv
     campaign_end = campaign_start + baseline
     useful_duration = min(porb, baseline)
     anchor = _peak_epoch_in_campaign(t0, porb, campaign_start, campaign_end)
-    if anchor is None or nobs < 3:
-        return _even_times(campaign_start, useful_duration, nobs)
+    if anchor is None:
+        return {
+            "campaign_start": campaign_start,
+            "baseline": baseline,
+            "useful_duration": useful_duration,
+            "anchor": None,
+            "delta": None,
+        }
 
     max_delta = min(anchor - campaign_start, campaign_end - anchor, 0.5 * porb)
     if max_delta <= 0:
-        return _even_times(campaign_start, useful_duration, nobs)
+        return {
+            "campaign_start": campaign_start,
+            "baseline": baseline,
+            "useful_duration": useful_duration,
+            "anchor": None,
+            "delta": None,
+        }
     delta = _delta_for_significance(
         parameter_rows, anchor, 5.0 * sigma_rv, max_delta, credibility
     )
+    return {
+        "campaign_start": campaign_start,
+        "baseline": baseline,
+        "useful_duration": useful_duration,
+        "anchor": anchor,
+        "delta": delta,
+    }
+
+
+def schedule_rv_observations_from_context(context, nobs):
+    """Expand a precomputed scheduling context for one observation count."""
+    nobs = int(nobs)
+    if nobs < 1:
+        raise ValueError("nobs must be at least one")
+    campaign_start = context["campaign_start"]
+    baseline = context["baseline"]
+    useful_duration = context["useful_duration"]
+    anchor = context["anchor"]
+    delta = context["delta"]
+    if anchor is None or nobs < 3:
+        return _even_times(campaign_start, useful_duration, nobs)
     remaining = _even_times_outside_triplet(
         campaign_start, useful_duration, nobs - 3, anchor, delta
     )
@@ -192,6 +223,13 @@ def _schedule(parameter_rows, t0, porb, baseline, campaign_start, nobs, sigma_rv
         # across the usable window.
         remaining = _even_times(campaign_start, useful_duration, nobs - 3)
     return numpy.sort(numpy.concatenate((remaining, [anchor - delta, anchor, anchor + delta])))
+
+
+def _schedule(parameter_rows, t0, porb, baseline, campaign_start, nobs, sigma_rv, credibility):
+    context = _schedule_context(
+        parameter_rows, t0, porb, baseline, campaign_start, sigma_rv, credibility
+    )
+    return schedule_rv_observations_from_context(context, nobs)
 
 
 def schedule_rv_observations(
@@ -269,6 +307,39 @@ def schedule_rv_observations_from_posterior(
         _value_in_days(baseline),
         _value_in_days(campaign_start),
         int(nobs),
+        _value_in_m_per_s(sigma_rv),
+        float(credibility),
+    )
+
+
+def schedule_rv_observation_context_from_posterior(
+    t0,
+    porb_samples,
+    baseline,
+    campaign_start,
+    sigma_rv,
+    posterior_parameter_samples,
+    *,
+    credibility=0.9,
+):
+    """Compute the posterior-informed targeted-triplet context once.
+
+    The result can be expanded efficiently for multiple ``nobs`` values with
+    :func:`schedule_rv_observations_from_context`.
+    """
+    rows = _parameter_rows(posterior_parameter_samples)
+    period_samples = jnp.asarray(porb_samples)
+    if period_samples.ndim != 1 or period_samples.shape[0] != rows.shape[0]:
+        raise ValueError("porb_samples must contain one period for each posterior row")
+    if not bool(numpy.asarray(jnp.all(period_samples > 0))):
+        raise ValueError("porb_samples must be positive")
+    rows = _set_period(rows, period_samples)
+    return _schedule_context(
+        rows,
+        _value_in_days(t0),
+        float(numpy.median(numpy.asarray(period_samples))),
+        _value_in_days(baseline),
+        _value_in_days(campaign_start),
         _value_in_m_per_s(sigma_rv),
         float(credibility),
     )

@@ -21,6 +21,9 @@ REQUIRE_GPU = os.environ.get("SLRV_REQUIRE_GPU", "1").lower() in (
 )
 PREFIT_SIDECAR_WORKERS = int(os.environ.get("SLRV_PREFIT_SIDECAR_WORKERS", 1))
 PREFIT_MAX_PENDING_BATCHES = int(os.environ.get("SLRV_PREFIT_MAX_PENDING_BATCHES", 2))
+# A deterministic subset is useful for repeatable performance and convergence
+# benchmarks.  It is deliberately opt-in so production runs retain all rows.
+PREFIT_SAMPLE_SIZE = int(os.environ.get("SLRV_PREFIT_SAMPLE_SIZE", 0))
 
 
 def main():
@@ -30,6 +33,11 @@ def main():
     from prefit import (
         PREFIT_RESULTS_PATH,
         PREFIT_BATCH_SIZE,
+        PREFIT_POSTERIOR_SAMPLE_COUNT,
+        FIT_BURN,
+        FIT_NSTEPS,
+        FIT_NWALKERS,
+        FIT_SAMPLER,
         SCHEDULE_TABLE_PATH,
         NOBS_VALUES,
         RV_ACCURACIES,
@@ -43,12 +51,20 @@ def main():
     configure_logging()
     if REQUIRE_GPU and not any(device.platform == "gpu" for device in jax.devices()):
         raise RuntimeError("Stage 1 requires a JAX GPU; set SLRV_REQUIRE_GPU=0 for debugging.")
+    print(
+        "Stage-1 prefit settings: "
+        f"sampler={FIT_SAMPLER}, batch_size={PREFIT_BATCH_SIZE}, "
+        f"nwalkers={FIT_NWALKERS}, nsteps={FIT_NSTEPS}, burn={FIT_BURN}, "
+        f"retained_posterior_samples={PREFIT_POSTERIOR_SAMPLE_COUNT}, "
+        f"sidecar_workers={PREFIT_SIDECAR_WORKERS}",
+        flush=True,
+    )
     paths = photometry_simulation_paths(PHOTOMETRY_SIMULATION_PATH)
     if not paths:
         raise FileNotFoundError(
             "No photometry FITS files found in "
-            f"{PHOTOMETRY_SIMULATION_PATH}. Ensure Searchlight's DATA_PATH "
-            "contains simulations/1.0/lensing with the input *.fits.gz files."
+            f"{PHOTOMETRY_SIMULATION_PATH}. Run src/0_generate_photometry.py "
+            "to create the local simulations/2.0/lensing input library."
         )
     rows = photometry_rows(paths)
     existing = load_table(PREFIT_RESULTS_PATH)
@@ -71,22 +87,18 @@ def main():
         else set()
     )
     rows = rows[~rows["simulation_id"].astype(str).isin(completed)]
+    if PREFIT_SAMPLE_SIZE < 0:
+        raise ValueError("SLRV_PREFIT_SAMPLE_SIZE must be zero or positive")
+    if PREFIT_SAMPLE_SIZE:
+        rows = rows.iloc[:PREFIT_SAMPLE_SIZE].copy()
     pending_rows = [row for _, row in rows.iterrows()]
     batch_starts = range(0, len(pending_rows), PREFIT_BATCH_SIZE)
     if PREFIT_SIDECAR_WORKERS < 1 or PREFIT_MAX_PENDING_BATCHES < 1:
         raise ValueError("Prefit sidecar worker and pending-batch counts must be positive")
-    completed_count = 0
-
     def checkpoint(future):
-        nonlocal completed_count
         batch_prefits, batch_schedules = future.result()
         # Only this main process writes the shared checkpoint tables.
         save_prefits_and_schedules(batch_prefits, batch_schedules)
-        completed_count += len(batch_prefits)
-        print(
-            f"Checkpointed {completed_count} of {len(pending_rows)} photometry prefits",
-            flush=True,
-        )
 
     with ProcessPoolExecutor(
         max_workers=PREFIT_SIDECAR_WORKERS,

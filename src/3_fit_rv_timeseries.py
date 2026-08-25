@@ -797,7 +797,15 @@ def binned_full_lightcurve(curve, ts):
         "lc_times": binned["times"],
         "lc": binned["flux"],
         "lc_err": binned["err"],
+        "lc_mask": binned["mask"],
     }
+
+
+def valid_binned_full_lightcurve(curve, ts):
+    """Drop empty hourly bins for the legacy unbatched likelihood API."""
+    binned = binned_full_lightcurve(curve, ts)
+    mask = binned.pop("lc_mask")
+    return {key: values[mask] for key, values in binned.items()}
 
 
 def unpack_fit_result(result):
@@ -855,7 +863,7 @@ def add_rv_only_columns(ts, rvfit_ts):
 
 
 def fit_photometry_prefit(i, ts, curve):
-    fit_lc = binned_full_lightcurve(curve, ts)
+    fit_lc = valid_binned_full_lightcurve(curve, ts)
     mcmc_desc = f"MCMC prefit {short_id(ts.get('rv_id', None))}"
     logger.info(
         "Starting photometry-only prefit for rv_id=%s with %d binned LC samples",
@@ -930,7 +938,7 @@ def run_fit(a):
         ts.get("rv_path", None),
     )
     truth_sls = truth_self_lensing_system(ts)
-    fit_lc = binned_full_lightcurve(curve, ts) if fit_use_lc else None
+    fit_lc = valid_binned_full_lightcurve(curve, ts) if fit_use_lc else None
     logger.info(
         "Fit inputs row index=%s: %d RV samples, %d LC samples%s",
         i,
@@ -1107,6 +1115,7 @@ def batched_fit_inputs(rows, curves, include_lc):
     lc_times = []
     lc = []
     lc_err = []
+    lc_valid_mask = []
     for _, ts in rows:
         curve = curves[str(ts["rv_id"])]
         rv_times.append(curve["rv_times"])
@@ -1117,6 +1126,7 @@ def batched_fit_inputs(rows, curves, include_lc):
             lc_times.append(fit_lc["lc_times"])
             lc.append(fit_lc["lc"])
             lc_err.append(fit_lc["lc_err"])
+            lc_valid_mask.append(fit_lc["lc_mask"])
 
     rv_times, rv_mask = padded_series(rv_times, fill_from_first=True)
     rv, _ = padded_series(rv)
@@ -1131,6 +1141,8 @@ def batched_fit_inputs(rows, curves, include_lc):
         lc_times, lc_mask = padded_series(lc_times, fill_from_first=True)
         lc, _ = padded_series(lc)
         lc_err, _ = padded_series(lc_err, fill_value=1.0)
+        for index, values in enumerate(lc_valid_mask):
+            lc_mask[index, : len(values)] = values
         inputs.update(
             {
                 "lc_times": lc_times,
