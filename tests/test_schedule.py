@@ -114,6 +114,27 @@ class RVScheduleTest(unittest.TestCase):
                 direct,
             )
 
+    def test_mode_aware_schedule_distinguishes_separated_posterior_clouds(self):
+        first = numpy.repeat(PARAMETERS[numpy.newaxis, :], 16, axis=0)
+        second = first.copy()
+        first[:, 0] = 1.0
+        first[:, 2] = 10.0
+        second[:, 0] = 12.0
+        second[:, 2] = 30.0
+        samples = numpy.concatenate((first, second))
+        periods = numpy.concatenate((numpy.full(16, 100.0), numpy.full(16, 1000.0)))
+        labels = schedule.posterior_mode_labels(samples)
+        self.assertGreaterEqual(numpy.unique(labels).size, 2)
+        context = schedule.schedule_rv_observation_context_from_posterior(
+            100.0, periods, 1600.0, 50.0, 10.0, samples
+        )
+        self.assertIn("mode_rv_design", context)
+        times = schedule.schedule_rv_observations_from_context(context, 6)
+        self.assertEqual(times.shape, (6,))
+        self.assertEqual(numpy.unique(times).size, 6)
+        self.assertTrue(numpy.all((times >= 50.0) & (times <= 1650.0)))
+        self.assertGreater(numpy.max(numpy.diff(times)), 100.0)
+
 
 if __name__ == "__main__":
     unittest.main()
