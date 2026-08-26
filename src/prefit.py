@@ -36,13 +36,17 @@ PREFIT_POSTERIOR_SAMPLE_COUNT = int(
 )
 SCHEDULE_CREDIBILITY = float(os.environ.get("SLRV_SCHEDULE_CREDIBILITY", 0.9))
 
-# Production stage-1 settings: these were benchmarked as the best safe
-# throughput configuration for the hourly full-campaign photometry likelihood.
-# Keep them independent of the much more expensive joint-fit settings.
+# Production stage-1 settings.  Keep them independent of the much more
+# expensive joint-fit settings.
 FIT_NSTEPS = int(os.environ.get("SLRV_PREFIT_NSTEPS", 1000))
 FIT_NWALKERS = int(os.environ.get("SLRV_PREFIT_NWALKERS", 128))
 FIT_BURN = int(os.environ.get("SLRV_PREFIT_BURN", 200))
-PREFIT_LC_BIN_WIDTH_DAYS = 1.0 / 24.0
+# The likelihood treats each binned datum as a point measurement at the bin
+# centre.  Keep enough resolution for each event, while allowing long events
+# to use less GPU memory.
+PREFIT_NATIVE_CADENCE_DAYS = 600.0 / 86400.0
+PREFIT_SHORT_CROSSING_TIME_DAYS = 1.0 / 24.0
+PREFIT_LONG_CROSSING_TIME_DAYS = 1.0
 FIT_DEVICE = os.environ.get("SLRV_PREFIT_DEVICE", os.environ.get("SLRV_FIT_DEVICE", "gpu:0"))
 FIT_LENSING_METHOD = os.environ.get("SLRV_PREFIT_LENSING_METHOD")
 # The original full-prior proposal (2% of every parameter range) accepted
@@ -55,8 +59,9 @@ FIT_SAMPLER = os.environ.get("SLRV_PREFIT_SAMPLER", "blackjax").lower()
 FIT_MCMC_PROGRESS = os.environ.get("SLRV_PREFIT_MCMC_PROGRESS", "0").lower() in (
     "1", "true", "yes", "on"
 )
-# Benchmarking on physics1 showed that eight systems fit comfortably and is
-# the fastest tested batch size for the full-campaign hourly likelihood.
+# An hourly curve was previously benchmarked safely at eight systems.  The
+# adaptive batching below uses one system for the six-times-larger native
+# cadence curves, and up to this value for the longer crossing-time groups.
 PREFIT_BATCH_SIZE = int(os.environ.get("SLRV_PREFIT_BATCH_SIZE", 8))
 PREFIT_OBSERVABLE_SEEDING = os.environ.get(
     "SLRV_PREFIT_OBSERVABLE_SEEDING", "1"
@@ -235,10 +240,41 @@ def load_lightcurve(row):
     return {"times": times, "flux": normalised_flux, "err": normalised_err}
 
 
-def bin_full_lightcurve_hourly(curve):
-    """Inverse-variance bin the complete photometry curve into hourly bins.
+def prefit_bin_width_days(crossing_time_days):
+    """Choose the point-model-safe cadence for an event crossing time."""
+    crossing_time_days = float(crossing_time_days)
+    if not numpy.isfinite(crossing_time_days) or crossing_time_days <= 0:
+        raise ValueError("Crossing time must be finite and positive")
+    if crossing_time_days < PREFIT_SHORT_CROSSING_TIME_DAYS:
+        return PREFIT_NATIVE_CADENCE_DAYS
+    if crossing_time_days <= PREFIT_LONG_CROSSING_TIME_DAYS:
+        return 1.0 / 24.0
+    return 6.0 / 24.0
 
-    The bin grid is anchored to absolute Julian-date hour boundaries, so
+
+def prefit_batch_size(crossing_time_days):
+    """Return a memory-safe number of systems for one compiled GPU batch."""
+    return 1 if prefit_bin_width_days(crossing_time_days) == PREFIT_NATIVE_CADENCE_DAYS else PREFIT_BATCH_SIZE
+
+
+def photometry_prefit_batches(rows):
+    """Group rows with equal bin widths before forming GPU MCMC batches."""
+    grouped = {}
+    for row in rows:
+        width = prefit_bin_width_days(row["tau_eff"])
+        grouped.setdefault(width, []).append(row)
+    batches = []
+    for width in sorted(grouped):
+        group = grouped[width]
+        batch_size = prefit_batch_size(group[0]["tau_eff"])
+        batches.extend(group[start : start + batch_size] for start in range(0, len(group), batch_size))
+    return batches
+
+
+def bin_full_lightcurve_hourly(curve, *, bin_width_days):
+    """Inverse-variance bin the complete photometry curve at ``bin_width_days``.
+
+    The bin grid is anchored to absolute Julian-date cadence boundaries, so
     simulations with the common survey cadence produce identically shaped
     arrays for the batched prefit likelihood.  No phase-dependent clipping is
     applied: the prefit sees the entire observed photometry campaign.
@@ -254,11 +290,14 @@ def bin_full_lightcurve_hourly(curve):
     if not numpy.any(valid) or len(finite_times) == 0:
         raise ValueError("Photometry prefit contains no valid samples")
     times, flux, err = (curve[key][valid] for key in ("times", "flux", "err"))
-    first_bin = int(numpy.floor(numpy.min(finite_times) / PREFIT_LC_BIN_WIDTH_DAYS))
-    last_bin = int(numpy.floor(numpy.max(finite_times) / PREFIT_LC_BIN_WIDTH_DAYS))
-    bins = numpy.floor(times / PREFIT_LC_BIN_WIDTH_DAYS).astype(int) - first_bin
+    bin_width_days = float(bin_width_days)
+    if not numpy.isfinite(bin_width_days) or bin_width_days <= 0:
+        raise ValueError("Light-curve bin width must be finite and positive")
+    first_bin = int(numpy.floor(numpy.min(finite_times) / bin_width_days))
+    last_bin = int(numpy.floor(numpy.max(finite_times) / bin_width_days))
+    bins = numpy.floor(times / bin_width_days).astype(int) - first_bin
     count = last_bin - first_bin + 1
-    output_times = (first_bin + numpy.arange(count) + 0.5) * PREFIT_LC_BIN_WIDTH_DAYS
+    output_times = (first_bin + numpy.arange(count) + 0.5) * bin_width_days
     output_flux = numpy.zeros(count, dtype=float)
     output_err = numpy.ones(count, dtype=float)
     output_mask = numpy.zeros(count, dtype=bool)
@@ -316,7 +355,9 @@ def _prefit_result_row(row, sls, campaign_start, offset_years, posterior_path):
 
 
 def fit_photometry_row(row):
-    curve = bin_full_lightcurve_hourly(load_lightcurve(row))
+    curve = bin_full_lightcurve_hourly(
+        load_lightcurve(row), bin_width_days=prefit_bin_width_days(row["tau_eff"])
+    )
     curve = {key: values[curve["mask"]] for key, values in curve.items() if key != "mask"}
     result = self_lensing_system_from_fit_blackjax(
         lc_times=Time(curve["times"], format="jd"),
@@ -367,7 +408,9 @@ def fit_photometry_row(row):
 def _padded_lightcurve_inputs(rows):
     """Pad independently binned photometry curves for a batched likelihood."""
     curves = [
-        bin_full_lightcurve_hourly(load_lightcurve(row))
+        bin_full_lightcurve_hourly(
+            load_lightcurve(row), bin_width_days=prefit_bin_width_days(row["tau_eff"])
+        )
         for row in rows
     ]
     width = max(len(curve["times"]) for curve in curves)
@@ -528,6 +571,9 @@ def fit_photometry_batch(rows):
     """Run one GPU MCMC batch and return a CPU-materialisation payload."""
     if not rows:
         return []
+    widths = {prefit_bin_width_days(row["tau_eff"]) for row in rows}
+    if len(widths) != 1:
+        raise ValueError("Photometry prefit batches must contain one bin width")
     lc_times, observed_lc, observed_lc_err, lc_mask = _padded_lightcurve_inputs(rows)
     if FIT_SAMPLER != "blackjax":
         raise ValueError(
@@ -577,9 +623,9 @@ def fit_photometry_rows(rows):
     if not rows:
         return []
     results = []
-    for start in range(0, len(rows), PREFIT_BATCH_SIZE):
+    for batch in photometry_prefit_batches(rows):
         prefits, _ = materialize_prefit_batch(
-            fit_photometry_batch(rows[start : start + PREFIT_BATCH_SIZE])
+            fit_photometry_batch(batch)
         )
         results.extend(prefits)
     return results

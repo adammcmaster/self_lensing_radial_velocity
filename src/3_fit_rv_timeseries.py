@@ -106,7 +106,7 @@ from fit_materialization import (
     materialize_joint_batch_result as materialize_joint_batch_result_in_process,
     materialize_rv_only_batch_result as materialize_rv_only_batch_result_in_process,
 )
-from prefit import bin_full_lightcurve_hourly
+from prefit import bin_full_lightcurve_hourly, prefit_bin_width_days
 from rv_timeseries import (
     load_rv_timeseries,
     load_rv_timeseries_curve,
@@ -778,17 +778,18 @@ def truth_self_lensing_system(ts):
 
 
 def binned_full_lightcurve(curve, ts):
-    """Prepare the entire photometry curve for a joint fit in hourly bins."""
+    """Prepare the full photometry curve at its crossing-time-safe cadence."""
     lc_times = numpy.asarray(curve["lc_times"], dtype=float)
     lc = numpy.asarray(curve["lc"], dtype=float)
     lc_err = numpy.asarray(curve["lc_err"], dtype=float)
     if numpy.all(~numpy.isfinite(lc_err)):
         lc_err = numpy.full_like(lc, numpy.std(lc[numpy.isfinite(lc)]))
     binned = bin_full_lightcurve_hourly(
-        {"times": lc_times, "flux": lc, "err": lc_err}
+        {"times": lc_times, "flux": lc, "err": lc_err},
+        bin_width_days=prefit_bin_width_days(ts["tau_eff"]),
     )
     logger.debug(
-        "Binned full light curve for rv_id=%s from %d to %d hourly samples",
+        "Binned full light curve for rv_id=%s from %d to %d samples",
         ts.get("rv_id", None),
         len(lc_times),
         len(binned["times"]),

@@ -1,6 +1,7 @@
 """Fit photometry and build posterior-informed RV observing schedules."""
 
 import os
+from collections import Counter
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 import multiprocessing
 
@@ -42,6 +43,8 @@ def main():
         NOBS_VALUES,
         RV_ACCURACIES,
         fit_photometry_batch,
+        photometry_prefit_batches,
+        prefit_bin_width_days,
         load_table,
         photometry_rows,
         save_prefits_and_schedules,
@@ -53,7 +56,7 @@ def main():
         raise RuntimeError("Stage 1 requires a JAX GPU; set SLRV_REQUIRE_GPU=0 for debugging.")
     print(
         "Stage-1 prefit settings: "
-        f"sampler={FIT_SAMPLER}, batch_size={PREFIT_BATCH_SIZE}, "
+        f"sampler={FIT_SAMPLER}, max_batch_size={PREFIT_BATCH_SIZE}, "
         f"nwalkers={FIT_NWALKERS}, nsteps={FIT_NSTEPS}, burn={FIT_BURN}, "
         f"retained_posterior_samples={PREFIT_POSTERIOR_SAMPLE_COUNT}, "
         f"sidecar_workers={PREFIT_SIDECAR_WORKERS}",
@@ -92,7 +95,18 @@ def main():
     if PREFIT_SAMPLE_SIZE:
         rows = rows.iloc[:PREFIT_SAMPLE_SIZE].copy()
     pending_rows = [row for _, row in rows.iterrows()]
-    batch_starts = range(0, len(pending_rows), PREFIT_BATCH_SIZE)
+    batches = photometry_prefit_batches(pending_rows)
+    batch_summary = Counter(
+        24.0 * prefit_bin_width_days(batch[0]["tau_eff"])
+        for batch in batches
+    )
+    print(
+        "Photometry prefit batches by bin width: "
+        + ", ".join(
+            f"{width:g} h={count}" for width, count in sorted(batch_summary.items())
+        ),
+        flush=True,
+    )
     if PREFIT_SIDECAR_WORKERS < 1 or PREFIT_MAX_PENDING_BATCHES < 1:
         raise ValueError("Prefit sidecar worker and pending-batch counts must be positive")
     def checkpoint(future):
@@ -106,15 +120,13 @@ def main():
         initializer=initialise,
     ) as sidecar:
         pending = set()
-        for start in tqdm(
-            batch_starts,
-            total=(len(pending_rows) + PREFIT_BATCH_SIZE - 1) // PREFIT_BATCH_SIZE,
+        for batch in tqdm(
+            batches,
+            total=len(batches),
             desc="Photometry prefit batches",
             unit="batch",
         ):
-            payload = fit_photometry_batch(
-                pending_rows[start : start + PREFIT_BATCH_SIZE]
-            )
+            payload = fit_photometry_batch(batch)
             pending.add(sidecar.submit(materialize, payload))
             if len(pending) >= PREFIT_MAX_PENDING_BATCHES:
                 finished, pending = wait(pending, return_when=FIRST_COMPLETED)
