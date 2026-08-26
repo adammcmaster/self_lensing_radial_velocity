@@ -17,6 +17,26 @@ def _load(path, burn):
     with numpy.load(path) as data:
         chain = numpy.asarray(data["chain"], dtype=float)
         names = tuple(str(name) for name in data["parameter_names"])
+        log_prob = (
+            numpy.asarray(data["log_prob"], dtype=float)
+            if "log_prob" in data.files else None
+        )
+        snapshot_steps = (
+            numpy.asarray(data["chain_step_indices"], dtype=int)
+            if "chain_step_indices" in data.files else None
+        )
+        configured_nsteps = (
+            int(numpy.asarray(data["configured_nsteps"]).item())
+            if "configured_nsteps" in data.files else None
+        )
+        chain_start_step = (
+            int(numpy.asarray(data["chain_start_step"]).item())
+            if "chain_start_step" in data.files else 0
+        )
+        sparse = (
+            bool(numpy.asarray(data["chain_is_sparse"]).item())
+            if "chain_is_sparse" in data.files else len(chain) < 20
+        )
         warmup_acceptance = (
             numpy.asarray(data["warmup_acceptance"], dtype=float)
             if "warmup_acceptance" in data.files
@@ -29,10 +49,14 @@ def _load(path, burn):
         )
     if chain.ndim != 3:
         raise ValueError(f"{path} has an invalid chain shape {chain.shape}")
-    retained = chain[burn:]
-    if len(retained) < 4:
+    # Sparse production checkpoints already contain post-burn snapshots.  They
+    # cannot support trajectory diagnostics, but do remain useful for an
+    # explicit MAP and walker-spread report.
+    retained = chain if sparse or chain_start_step >= burn else chain[burn:]
+    if not sparse and len(retained) < 4:
         raise ValueError(f"{path} has fewer than four post-burn-in steps")
-    return retained, names, warmup_acceptance, proposal_scale
+    return (retained, names, log_prob, snapshot_steps, configured_nsteps, sparse,
+            warmup_acceptance, proposal_scale)
 
 
 def split_rhat(chain):
@@ -76,19 +100,41 @@ def acceptance_proxy(chain):
 
 
 def diagnostics(path, burn):
-    chain, names, warmup_acceptance, proposal_scale = _load(path, burn)
+    (chain, names, log_prob, snapshot_steps, configured_nsteps, sparse,
+     warmup_acceptance, proposal_scale) = _load(path, burn)
     flat = chain.reshape((-1, chain.shape[-1]))
-    rhat = split_rhat(chain)
-    ess = approximate_ess(chain)
+    if sparse:
+        rhat = numpy.full(len(names), numpy.nan)
+        ess = numpy.full(len(names), numpy.nan)
+        acceptance = numpy.nan
+        status = "sparse_snapshots: no reliable R-hat/ESS"
+    else:
+        rhat = split_rhat(chain)
+        ess = approximate_ess(chain)
+        acceptance = acceptance_proxy(chain)
+        status = "full_trajectory"
+    map_position = numpy.full(len(names), numpy.nan)
+    if log_prob is not None and log_prob.size == flat.shape[0]:
+        valid = numpy.isfinite(log_prob.reshape(-1)) & numpy.all(numpy.isfinite(flat), axis=1)
+        if numpy.any(valid):
+            map_position = flat[numpy.flatnonzero(valid)[numpy.argmax(log_prob.reshape(-1)[valid])]]
     output = pandas.DataFrame(
         {
             "parameter": names,
+            "diagnostic_status": status,
             "rhat": rhat,
             "ess_approx": ess,
-            "acceptance_proxy": acceptance_proxy(chain),
+            "acceptance_proxy": acceptance,
             "median": numpy.median(flat, axis=0),
             "low_16": numpy.percentile(flat, 16, axis=0),
             "high_84": numpy.percentile(flat, 84, axis=0),
+            "map": map_position,
+            "retained_snapshots": chain.shape[0],
+            "configured_nsteps": configured_nsteps,
+            "snapshot_steps": (
+                ",".join(map(str, snapshot_steps)) if snapshot_steps is not None else "unknown"
+            ),
+            "final_walker_std": numpy.std(chain[-1], axis=0),
         }
     )
     if warmup_acceptance.size:

@@ -325,9 +325,33 @@ def _prefit_batch_payload(rows, systems, samplers, walker_coords):
                 "proposal_scale": numpy.asarray(
                     getattr(sampler, "proposal_scale", []), dtype=float
                 ),
+                "chain_step_indices": _chain_step_indices(sampler),
+                "chain_start_step": numpy.asarray(
+                    getattr(sampler, "chain_start_step", 0), dtype=int
+                ),
+                "chain_is_sparse": numpy.asarray(
+                    sampler.get_chain().shape[0]
+                    != FIT_NSTEPS - int(getattr(sampler, "chain_start_step", 0)),
+                    dtype=bool,
+                ),
+                "configured_nsteps": numpy.asarray(FIT_NSTEPS, dtype=int),
+                "configured_burn": numpy.asarray(FIT_BURN, dtype=int),
             }
         )
     return payload
+
+
+def _chain_step_indices(sampler):
+    """Return the original MCMC step represented by every saved snapshot."""
+    count = sampler.get_chain().shape[0]
+    start = int(getattr(sampler, "chain_start_step", 0))
+    if count == FIT_NSTEPS:
+        return numpy.arange(1, FIT_NSTEPS + 1, dtype=int)
+    if start == FIT_BURN and count:
+        lengths = numpy.full(count, (FIT_NSTEPS - FIT_BURN) // count, dtype=int)
+        lengths[: (FIT_NSTEPS - FIT_BURN) % count] += 1
+        return FIT_BURN + numpy.cumsum(lengths)
+    return start + numpy.arange(1, count + 1, dtype=int)
 
 
 def materialize_prefit_batch(payload):
@@ -346,6 +370,11 @@ def materialize_prefit_batch(payload):
             final_walker_coords=item["final_walker_coords"],
             warmup_acceptance=item["warmup_acceptance"],
             proposal_scale=item["proposal_scale"],
+            chain_step_indices=item["chain_step_indices"],
+            chain_start_step=item["chain_start_step"],
+            chain_is_sparse=item["chain_is_sparse"],
+            configured_nsteps=item["configured_nsteps"],
+            configured_burn=item["configured_burn"],
             parameter_names=numpy.asarray(PREFIT_PARAMETER_NAMES),
             posterior_quality=PREFIT_POSTERIOR_QUALITY,
         )
