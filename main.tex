@@ -408,6 +408,16 @@ We generate baseline RV curves which contain one RV measurement per day for five
 
 As well as the varying instrumental noise, fixed Gaussian noise ($\sigma = 10$ m/s) is added in every configuration to represent stellar noise. For simplicity, we do not include proper motion or heliocentric motion, as these would be corrected before fitting real observations.
 
+\subsection{Targeted radial velocity scheduling} \label{sec:scheduling}
+
+\textbf{TODO: Describe the new scheduling procedure. Also update the previous section.}
+
+% We first do a photometry-only prefit to estimate orbital period and physical parameters.
+% The prefit results do not need to be precise
+% We first estimate the parameters from amplitude anf crossing time. This is used to seed walkers in the right regions of parameter space to make fitting more effective with fewer steps. We assume amplitude and crossing time have been accurately determined (doing this is a separate probelm out of scope for this work)
+% Need to mention walker initialisation (based on estimated parameter clusters) in brief; in next section? Or add a prefitting section? Or is THIS the prefitting section?
+% Mention that we do the prefit, detect multi-mode (degenerate) solutions, and account for that in scheduling. We use half of the available observations to deliberately distinguish modes based on their predicted RVs, then the rest of maximise phase coverage by minimising gaps.
+
 \subsection{Fitting of simulated observations} \label{sec:fitting}
 
 Each simulated pair of photometric light curves and RV curves is then fitted via MCMC using a random-walk Metropolis-Hastings sampler implemented with the BlackJAX package (128 walkers, and 200 burn-in steps). The photometry is clipped to the interval $t_0 \pm \tau_\mathrm{eff}$ (where $\tau_\mathrm{eff}$ is the effective Einstein crossing time defined in \cite{wiktorowicz_predicting_2021}) around the lensing peak and binned to 100 bins for computational efficiency. Before running the full joint fit (photometry and RV), a photometry-only pre-fit is run for each simulated light curve (1,000 steps) and the walker state from this is used as the initial walker state for the 45 joint fits (an additional 1,000 steps). An RV-only fit of 1,000 steps is also performed. The Metropolis-Hastings random-walk proposal scale is reduced based on the number of RV measurements, when RV data are present, or otherwise on the number of photometric points, to allow the walkers to efficiently explore the narrower posterior. For computational efficiency, fits are run as batched, vectorised fits on a GPU. We fit only the fundamental physical parameters of the system,
