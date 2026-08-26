@@ -19,6 +19,7 @@ from selflensing.fitting import (
     self_lensing_system_from_fit_blackjax,
     self_lensing_systems_from_batched_fit_blackjax,
 )
+from selflensing.models import DEFAULT_LIMITS, SelfLensingSystem
 from selflensing.lightcurves import PARAMETER_ORDER
 
 
@@ -44,8 +45,11 @@ FIT_BURN = int(os.environ.get("SLRV_PREFIT_BURN", 200))
 PREFIT_LC_BIN_WIDTH_DAYS = 1.0 / 24.0
 FIT_DEVICE = os.environ.get("SLRV_PREFIT_DEVICE", os.environ.get("SLRV_FIT_DEVICE", "gpu:0"))
 FIT_LENSING_METHOD = os.environ.get("SLRV_PREFIT_LENSING_METHOD")
+# The original full-prior proposal (2% of every parameter range) accepted
+# only 1--3% of moves.  These prefits begin near physically plausible modes,
+# so use a local-scale default instead.  It remains configurable for tuning.
 FIT_PROPOSAL_SCALE_FRACTION = float(
-    os.environ.get("SLRV_PREFIT_PROPOSAL_SCALE_FRACTION", "0.02")
+    os.environ.get("SLRV_PREFIT_PROPOSAL_SCALE_FRACTION", "0.002")
 )
 FIT_SAMPLER = os.environ.get("SLRV_PREFIT_SAMPLER", "blackjax").lower()
 FIT_MCMC_PROGRESS = os.environ.get("SLRV_PREFIT_MCMC_PROGRESS", "0").lower() in (
@@ -54,6 +58,15 @@ FIT_MCMC_PROGRESS = os.environ.get("SLRV_PREFIT_MCMC_PROGRESS", "0").lower() in 
 # Benchmarking on physics1 showed that eight systems fit comfortably and is
 # the fastest tested batch size for the full-campaign hourly likelihood.
 PREFIT_BATCH_SIZE = int(os.environ.get("SLRV_PREFIT_BATCH_SIZE", 8))
+PREFIT_OBSERVABLE_SEEDING = os.environ.get(
+    "SLRV_PREFIT_OBSERVABLE_SEEDING", "1"
+).lower() in ("1", "true", "yes", "on")
+PREFIT_SEED_LIBRARY_SIZE = int(os.environ.get("SLRV_PREFIT_SEED_LIBRARY_SIZE", 10_000))
+PREFIT_SEED_NEIGHBORS = int(os.environ.get("SLRV_PREFIT_SEED_NEIGHBORS", 256))
+PREFIT_SEED_MODE_COUNT = int(os.environ.get("SLRV_PREFIT_SEED_MODE_COUNT", 8))
+PREFIT_SEED_JITTER_FRACTION = float(
+    os.environ.get("SLRV_PREFIT_SEED_JITTER_FRACTION", "0.001")
+)
 
 PREFIT_PARAMETER_NAMES = ("a", "i", "Macc", "e", "periapsis_phase")
 # These chains are deliberately a short, high-throughput random-walk prefit.
@@ -62,6 +75,118 @@ PREFIT_POSTERIOR_QUALITY = "approximate_random_walk"
 PREFIT_RESULT_COLUMNS = tuple(f"prefit_fitted_{name}" for name in (
     "a", "i", "Macc", "e", "periapsis_phase", "porb",
 ))
+
+# The batched upstream adapter accepts ``tau_eff`` but looks up its unit in
+# ``param_units`` even though it is a derived (rather than fitted) parameter.
+# Register the public day unit locally until that adapter owns the definition.
+SelfLensingSystem.param_units.setdefault("tau_eff", units.day)
+
+
+def _seed_features(candidates):
+    """Coordinates for clustering observable-space candidates into modes."""
+    phase = candidates["periapsis_phase_rad"].to_numpy(dtype=float)
+    features = numpy.column_stack(
+        (
+            numpy.log(candidates["semi_major_axis_au"].to_numpy(dtype=float)),
+            candidates["inclination_rad"].to_numpy(dtype=float),
+            numpy.log(candidates["lens_mass_msun"].to_numpy(dtype=float)),
+            candidates["eccentricity"].to_numpy(dtype=float),
+            numpy.sin(phase),
+            numpy.cos(phase),
+        )
+    )
+    scale = numpy.maximum(numpy.std(features, axis=0), 1.0e-8)
+    return (features - numpy.mean(features, axis=0)) / scale
+
+
+def _observable_seed_modes(candidates, count):
+    """Return medoid candidates from distinct physically plausible regions."""
+    count = min(int(count), len(candidates))
+    if count < 1:
+        raise ValueError("Observable-space seeding found no candidate systems")
+    features = _seed_features(candidates)
+    # Farthest-point starts avoid collapsing all walkers onto the nearest kNN
+    # cloud; Lloyd iterations then identify dense parameter-space modes.
+    centres = [0]
+    minimum_distance = numpy.sum((features - features[0]) ** 2, axis=1)
+    for _ in range(1, count):
+        next_index = int(numpy.argmax(minimum_distance))
+        centres.append(next_index)
+        minimum_distance = numpy.minimum(
+            minimum_distance, numpy.sum((features - features[next_index]) ** 2, axis=1)
+        )
+    centres = features[numpy.asarray(centres)]
+    labels = numpy.zeros(len(features), dtype=int)
+    for _ in range(20):
+        distances = numpy.sum((features[:, None, :] - centres[None, :, :]) ** 2, axis=2)
+        labels = numpy.argmin(distances, axis=1)
+        next_centres = numpy.array(
+            [
+                features[labels == index].mean(axis=0)
+                if numpy.any(labels == index) else centres[index]
+                for index in range(count)
+            ]
+        )
+        if numpy.allclose(next_centres, centres):
+            break
+        centres = next_centres
+    medoids = []
+    for index in range(count):
+        members = numpy.flatnonzero(labels == index)
+        medoids.append(members[numpy.argmin(numpy.sum((features[members] - centres[index]) ** 2, axis=1))])
+    return candidates.iloc[medoids].reset_index(drop=True)
+
+
+def observable_seed_walker_positions(rows, *, random_seed=0):
+    """Build one multi-mode, local-jitter walker cloud for each prefit row.
+
+    The supplied amplitude and crossing-time metadata are treated as trusted
+    detection-stage observables for this study.  Individual neighbours are
+    clustered and retained as modes; they are intentionally never averaged.
+    """
+    from estimation import nearest_self_lensing_observable_space
+
+    if PREFIT_SEED_NEIGHBORS < 1 or PREFIT_SEED_MODE_COUNT < 1:
+        raise ValueError("Observable seed neighbour and mode counts must be positive")
+    rng = numpy.random.default_rng(random_seed)
+    jitter = PREFIT_SEED_JITTER_FRACTION * numpy.array(
+        [
+            DEFAULT_LIMITS["a"][1] - DEFAULT_LIMITS["a"][0],
+            DEFAULT_LIMITS["i"][1] - DEFAULT_LIMITS["i"][0],
+            DEFAULT_LIMITS["Macc"][1] - DEFAULT_LIMITS["Macc"][0],
+            DEFAULT_LIMITS["e"][1] - DEFAULT_LIMITS["e"][0],
+            DEFAULT_LIMITS["periapsis_phase"][1] - DEFAULT_LIMITS["periapsis_phase"][0],
+        ]
+    )
+    seeded = []
+    for row in rows:
+        amplitude = float(row["source_amp_sl"])
+        crossing_time = float(row["tau_eff"])
+        if not numpy.isfinite(amplitude) or amplitude <= 0 or not numpy.isfinite(crossing_time) or crossing_time <= 0:
+            raise ValueError(f"{row['simulation_id']} has no usable amplitude/crossing-time seed")
+        candidates = nearest_self_lensing_observable_space(
+            amplitude * 1.0e6,
+            crossing_time * 24.0,
+            n_neighbors=PREFIT_SEED_NEIGHBORS,
+            sample_size=PREFIT_SEED_LIBRARY_SIZE,
+            random_seed=random_seed,
+            companion_mass_msun=float(row["Mcomp"]),
+            companion_radius_rsun=float(row["Rcomp"]),
+            companion_teff_k=float(row["Teff"]),
+        )
+        modes = _observable_seed_modes(candidates, PREFIT_SEED_MODE_COUNT)
+        mode_positions = modes[
+            ["semi_major_axis_au", "inclination_rad", "lens_mass_msun", "eccentricity", "periapsis_phase_rad"]
+        ].to_numpy(dtype=float)
+        indices = numpy.arange(FIT_NWALKERS) % len(mode_positions)
+        positions = mode_positions[indices] + rng.normal(size=(FIT_NWALKERS, 5)) * jitter
+        positions[:, 0] = numpy.clip(positions[:, 0], *DEFAULT_LIMITS["a"])
+        positions[:, 1] = numpy.clip(positions[:, 1], *DEFAULT_LIMITS["i"])
+        positions[:, 2] = numpy.clip(positions[:, 2], *DEFAULT_LIMITS["Macc"])
+        positions[:, 3] = numpy.clip(positions[:, 3], *DEFAULT_LIMITS["e"])
+        positions[:, 4] = numpy.mod(positions[:, 4], 2.0 * numpy.pi)
+        seeded.append(positions)
+    return numpy.stack(seeded)
 
 
 def _metadata_from_photometry_path(path):
@@ -201,6 +326,7 @@ def fit_photometry_row(row):
         Mcomp=row["Mcomp"] * units.M_sun,
         Rcomp=row["Rcomp"] * units.R_sun,
         Teff=row["Teff"] * units.K,
+        tau_eff=row["tau_eff"] * units.day,
         false_alarm_probability=0.5,
         nsteps=FIT_NSTEPS,
         nwalkers=FIT_NWALKERS,
@@ -211,6 +337,10 @@ def fit_photometry_row(row):
         device=FIT_DEVICE,
         prefer_gpu=True,
         proposal_scale_fraction=FIT_PROPOSAL_SCALE_FRACTION,
+        initial_walker_state=(
+            observable_seed_walker_positions([row])[0]
+            if PREFIT_OBSERVABLE_SEEDING else None
+        ),
         return_sampler=True,
         return_walker_state=True,
     )
@@ -299,7 +429,7 @@ def _prefit_result_from_values(row, values, posterior_path):
     return output
 
 
-def _prefit_batch_payload(rows, systems, samplers, walker_coords):
+def _prefit_batch_payload(rows, systems, samplers, walker_coords, initial_walker_coords):
     """Copy a completed GPU batch into a picklable CPU-sidecar payload."""
     payload = []
     for index, (row, system, sampler) in enumerate(zip(rows, systems, samplers)):
@@ -319,6 +449,10 @@ def _prefit_batch_payload(rows, systems, samplers, walker_coords):
                     sampler.get_chain(flat=True, discard=FIT_BURN), dtype=float
                 ),
                 "final_walker_coords": numpy.asarray(walker_coords[index], dtype=float),
+                "initial_walker_coords": (
+                    numpy.asarray(initial_walker_coords[index], dtype=float)
+                    if initial_walker_coords is not None else numpy.empty((0, 5))
+                ),
                 "warmup_acceptance": numpy.asarray(
                     getattr(sampler, "warmup_acceptance", []), dtype=float
                 ),
@@ -368,6 +502,7 @@ def materialize_prefit_batch(payload):
             acceptance=item["acceptance"],
             flat_chain=item["flat_chain"],
             final_walker_coords=item["final_walker_coords"],
+            initial_walker_coords=item["initial_walker_coords"],
             warmup_acceptance=item["warmup_acceptance"],
             proposal_scale=item["proposal_scale"],
             chain_step_indices=item["chain_step_indices"],
@@ -399,6 +534,10 @@ def fit_photometry_batch(rows):
             "Stage-1 production prefits use only SLRV_PREFIT_SAMPLER=blackjax; "
             "the adaptive and MALA implementations are experimental."
         )
+    initial_walker_state = (
+        observable_seed_walker_positions(rows)
+        if PREFIT_OBSERVABLE_SEEDING else None
+    )
     systems, samplers, walker_state = self_lensing_systems_from_batched_fit_blackjax(
         lc_times=Time(lc_times, format="jd"),
         observed_lc=observed_lc * units.dimensionless_unscaled,
@@ -408,6 +547,7 @@ def fit_photometry_batch(rows):
         Mcomp=numpy.asarray([row["Mcomp"] for row in rows]) * units.M_sun,
         Rcomp=numpy.asarray([row["Rcomp"] for row in rows]) * units.R_sun,
         Teff=numpy.asarray([row["Teff"] for row in rows]) * units.K,
+        tau_eff=numpy.asarray([row["tau_eff"] for row in rows]) * units.day,
         false_alarm_probability=0.5,
         nsteps=FIT_NSTEPS,
         nwalkers=FIT_NWALKERS,
@@ -418,12 +558,17 @@ def fit_photometry_batch(rows):
         device=FIT_DEVICE,
         prefer_gpu=True,
         proposal_scale_fraction=FIT_PROPOSAL_SCALE_FRACTION,
+        initial_walker_state=initial_walker_state,
         return_sampler=True,
         return_walker_state=True,
         posterior_sample_count=PREFIT_POSTERIOR_SAMPLE_COUNT,
     )
     return _prefit_batch_payload(
-        rows, systems, samplers, numpy.asarray(walker_state.coords, dtype=float)
+        rows,
+        systems,
+        samplers,
+        numpy.asarray(walker_state.coords, dtype=float),
+        initial_walker_state,
     )
 
 
