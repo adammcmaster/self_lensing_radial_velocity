@@ -235,7 +235,7 @@ FIT_CPU_PREFETCH_FILES = max(
 )
 # Joint fits carry the full hourly-binned photometry curve for every row.
 # Four systems per GPU batch is a safe default on the shared accelerators.
-FIT_BATCH_SIZE = optional_positive_int(os.environ.get("SLRV_FIT_BATCH_SIZE", 40))
+FIT_BATCH_SIZE = optional_positive_int(os.environ.get("SLRV_FIT_BATCH_SIZE", 4))
 FIT_PROPOSAL_SCALE_FRACTION = float(
     os.environ.get("SLRV_FIT_PROPOSAL_SCALE_FRACTION", 0.005)
 )
