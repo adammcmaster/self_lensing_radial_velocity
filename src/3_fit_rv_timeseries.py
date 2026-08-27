@@ -11,8 +11,8 @@ import re
 import shutil
 import time
 import threading
-from concurrent.futures import ProcessPoolExecutor
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, ThreadPoolExecutor, wait
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -28,7 +28,13 @@ os.environ.setdefault(
 # JAX calls the NVIDIA backend "cuda".  Explicitly select it so inherited
 # cluster settings (for example ``JAX_PLATFORMS=rocm``) cannot select an
 # unavailable backend; SLRV_JAX_PLATFORMS remains the supported override.
-os.environ["JAX_PLATFORMS"] = os.environ.get("SLRV_JAX_PLATFORMS", "cuda")
+if os.environ.get("SLRV_FIT_CPU_SIDECAR") == "1":
+    # Spawned preparation workers must not create a CUDA context or compete
+    # with the parent process that owns the fitting GPU.
+    os.environ["JAX_PLATFORMS"] = "cpu"
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+else:
+    os.environ["JAX_PLATFORMS"] = os.environ.get("SLRV_JAX_PLATFORMS", "cuda")
 
 DEFAULT_JAX_COMPILATION_CACHE_DIR = (
     Path(__file__).resolve().parent.parent / "data" / "jax_compilation_cache"
@@ -222,9 +228,15 @@ FIT_MATERIALIZE_IN_PROCESS = os.environ.get(
 FIT_SAMPLER_WRITE_MAX_WORKERS = int(
     os.environ.get("SLRV_FIT_SAMPLER_WRITE_MAX_WORKERS", 16)
 )
+FIT_CPU_SIDECAR_MAX_WORKERS = max(
+    1, int(os.environ.get("SLRV_FIT_CPU_SIDECAR_MAX_WORKERS", 16))
+)
+FIT_CPU_PREFETCH_FILES = max(
+    1, int(os.environ.get("SLRV_FIT_CPU_PREFETCH_FILES", 16))
+)
 # Joint fits carry the full hourly-binned photometry curve for every row.
 # Four systems per GPU batch is a safe default on the shared accelerators.
-FIT_BATCH_SIZE = optional_positive_int(os.environ.get("SLRV_FIT_BATCH_SIZE", 4))
+FIT_BATCH_SIZE = optional_positive_int(os.environ.get("SLRV_FIT_BATCH_SIZE", 40))
 FIT_PROPOSAL_SCALE_FRACTION = float(
     os.environ.get("SLRV_FIT_PROPOSAL_SCALE_FRACTION", 0.005)
 )
@@ -1109,7 +1121,7 @@ def padded_series(series, fill_value=0.0, fill_from_first=False, length=None):
     return data, mask
 
 
-def batched_fit_inputs(rows, curves, include_lc):
+def batched_fit_inputs(rows, curves, include_lc, shared_binned_lightcurve=None):
     rv_times = []
     rv = []
     rv_err = []
@@ -1123,7 +1135,9 @@ def batched_fit_inputs(rows, curves, include_lc):
         rv.append(curve["rv"])
         rv_err.append(curve["rv_err"])
         if include_lc:
-            fit_lc = binned_full_lightcurve(curve, ts)
+            fit_lc = shared_binned_lightcurve
+            if fit_lc is None:
+                fit_lc = binned_full_lightcurve(curve, ts)
             lc_times.append(fit_lc["lc_times"])
             lc.append(fit_lc["lc"])
             lc_err.append(fit_lc["lc_err"])
@@ -1155,17 +1169,24 @@ def batched_fit_inputs(rows, curves, include_lc):
     return inputs
 
 
-def batched_joint_fit_inputs(rows, curves):
-    return batched_fit_inputs(rows, curves, include_lc=FIT_USE_LC)
+def batched_joint_fit_inputs(rows, curves, shared_binned_lightcurve=None):
+    return batched_fit_inputs(
+        rows,
+        curves,
+        include_lc=FIT_USE_LC,
+        shared_binned_lightcurve=shared_binned_lightcurve,
+    )
 
 
 def run_joint_batch(
     rows,
     curves,
     initial_walker_state,
+    inputs=None,
 ):
     start = time.perf_counter()
-    inputs = batched_joint_fit_inputs(rows, curves)
+    if inputs is None:
+        inputs = batched_joint_fit_inputs(rows, curves)
     row_table = pandas.DataFrame([ts for _, ts in rows])
     logger.info(
         "Running batched joint MCMC for %d rows: max_rv=%d%s",
@@ -1463,16 +1484,109 @@ def saved_prefit_walker_state(ts):
         return numpy.asarray(payload["final_walker_coords"], dtype=float)
 
 
-def fit_rv_file(rows, defer_final_materialization=False):
+@dataclass
+class PreparedRVFile:
+    """CPU-prepared inputs for all GPU fits stored in one RV FITS file."""
+
+    rows: list
+    curves: dict
+    initial_walker_state: object
+    joint_inputs: list
+
+
+def prepare_rv_file_for_gpu(rows):
+    """Load FITS data and construct padded GPU inputs in a CPU-only sidecar."""
+    rows = list(rows)
+    if not rows:
+        return PreparedRVFile([], {}, None, [])
+
+    path = rows[0][1]["rv_path"]
+    logger.info("CPU sidecar loading grouped RV curves from %s", path)
+    curves = load_rv_timeseries_curves(rows)
+    rows_needing_joint = [(i, ts) for i, ts in rows if row_needs_joint_fit(ts)]
+    initial_walker_state = None
+    joint_inputs = []
+    if rows_needing_joint:
+        initial_walker_state = saved_prefit_walker_state(rows_needing_joint[0][1])
+    if rows_needing_joint and can_use_batched_joint_fit():
+        shared_binned_lightcurve = None
+        if FIT_USE_LC:
+            shared_binned_lightcurve = binned_full_lightcurve(
+                curves[str(rows_needing_joint[0][1]["rv_id"])],
+                rows_needing_joint[0][1],
+            )
+        for batch_rows in batched_row_chunks(rows_needing_joint):
+            joint_inputs.append(
+                batched_joint_fit_inputs(
+                    batch_rows,
+                    curves,
+                    shared_binned_lightcurve=shared_binned_lightcurve,
+                )
+            )
+    logger.info(
+        "CPU sidecar prepared %d curves and %d joint GPU batches from %s",
+        len(curves),
+        len(joint_inputs),
+        path,
+    )
+    return PreparedRVFile(rows, curves, initial_walker_state, joint_inputs)
+
+
+@contextmanager
+def cpu_sidecar_pool():
+    """Run FITS/input preparation in spawned processes that cannot use CUDA."""
+    previous = os.environ.get("SLRV_FIT_CPU_SIDECAR")
+    os.environ["SLRV_FIT_CPU_SIDECAR"] = "1"
+    try:
+        with ProcessPoolExecutor(
+            max_workers=FIT_CPU_SIDECAR_MAX_WORKERS,
+            mp_context=multiprocessing.get_context("spawn"),
+        ) as executor:
+            yield executor
+    finally:
+        if previous is None:
+            del os.environ["SLRV_FIT_CPU_SIDECAR"]
+        else:
+            os.environ["SLRV_FIT_CPU_SIDECAR"] = previous
+
+
+def prefetched_rv_files(jobs):
+    """Yield prepared files while CPU sidecars prefetch later FITS files."""
+    jobs = iter(jobs)
+    with cpu_sidecar_pool() as executor:
+        pending = set()
+        for _ in range(FIT_CPU_PREFETCH_FILES):
+            try:
+                pending.add(executor.submit(prepare_rv_file_for_gpu, next(jobs)))
+            except StopIteration:
+                break
+        while pending:
+            completed, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for future in completed:
+                prepared = future.result()
+                try:
+                    pending.add(executor.submit(prepare_rv_file_for_gpu, next(jobs)))
+                except StopIteration:
+                    pass
+                yield prepared
+
+
+def fit_rv_file(rows, defer_final_materialization=False, prepared_file=None):
+    if prepared_file is not None:
+        rows = prepared_file.rows
     rows = list(rows)
     if not rows:
         return []
 
     path = rows[0][1]["rv_path"]
     logger.info("Fitting %d rv rows from %s", len(rows), path)
-    logger.info("Loading grouped rv curves from %s", path)
-    curves = load_rv_timeseries_curves(rows)
-    logger.info("Loaded %d grouped rv curves from %s", len(curves), path)
+    if prepared_file is None:
+        logger.info("Loading grouped rv curves from %s", path)
+        curves = load_rv_timeseries_curves(rows)
+        logger.info("Loaded %d grouped rv curves from %s", len(curves), path)
+    else:
+        curves = prepared_file.curves
+        logger.info("Using %d CPU-sidecar-prepared curves from %s", len(curves), path)
     rows_by_key = {result_checkpoint_key(ts): pandas.Series(ts).copy() for _, ts in rows}
     rows_needing_joint = [(i, ts) for i, ts in rows if row_needs_joint_fit(ts)]
     rows_needing_rv_only = [(i, ts) for i, ts in rows if row_needs_rv_only_fit(ts)]
@@ -1492,8 +1606,10 @@ def fit_rv_file(rows, defer_final_materialization=False):
     if sampler_writer is None:
         sampler_writer = SamplerStateWriter()
         close_sampler_writer = True
-    if rows_needing_joint:
+    if rows_needing_joint and prepared_file is None:
         initial_walker_state = saved_prefit_walker_state(rows_needing_joint[0][1])
+    elif rows_needing_joint:
+        initial_walker_state = prepared_file.initial_walker_state
     results = []
     materialize_executor = None
     if (
@@ -1504,6 +1620,14 @@ def fit_rv_file(rows, defer_final_materialization=False):
     pending_joint_materialization = None
     if rows_needing_joint and can_use_batched_joint_fit():
         batches = list(batched_row_chunks(rows_needing_joint))
+        prepared_joint_inputs = (
+            prepared_file.joint_inputs if prepared_file is not None else [None] * len(batches)
+        )
+        if len(prepared_joint_inputs) != len(batches):
+            raise ValueError(
+                f"Expected {len(batches)} prepared joint inputs for {path}, "
+                f"got {len(prepared_joint_inputs)}"
+            )
         if len(batches) > 1:
             logger.info(
                 "Splitting %d rv rows into %d batched joint chunks of up to %d",
@@ -1511,7 +1635,9 @@ def fit_rv_file(rows, defer_final_materialization=False):
                 len(batches),
                 FIT_BATCH_SIZE,
             )
-        for batch_number, batch_rows in enumerate(batches, start=1):
+        for batch_number, (batch_rows, inputs) in enumerate(
+            zip(batches, prepared_joint_inputs), start=1
+        ):
             if len(batches) > 1:
                 logger.info(
                     "Starting batched joint chunk %d/%d with %d rows from %s",
@@ -1524,6 +1650,7 @@ def fit_rv_file(rows, defer_final_materialization=False):
                 batch_rows,
                 curves,
                 initial_walker_state,
+                inputs=inputs,
             )
             store_materialized_results(
                 results,
@@ -1834,6 +1961,11 @@ if __name__ == "__main__":
         FIT_MATERIALIZE_IN_PROCESS,
     )
     logger.info(
+        "CPU sidecars: workers=%d prefetch_files=%d",
+        FIT_CPU_SIDECAR_MAX_WORKERS,
+        FIT_CPU_PREFETCH_FILES,
+    )
+    logger.info(
         "Sampler state saving: FIT_SAVE_SAMPLERS=%s SAMPLER_STATE_PATH=%s",
         FIT_SAVE_SAMPLERS,
         SAMPLER_STATE_PATH,
@@ -1910,12 +2042,17 @@ if __name__ == "__main__":
     try:
         if FIT_MAX_WORKERS == 1:
             logger.info(
-                "Starting serial rv fit loop with deferred file materialization"
+                "Starting GPU fit loop with CPU-sidecar FITS/input prefetch"
             )
-            for job in tqdm(jobs, total=len(jobs), desc="RV simulation fits"):
+            for prepared_file in tqdm(
+                prefetched_rv_files(jobs),
+                total=len(jobs),
+                desc="RV simulation fits",
+            ):
                 current_file_result = fit_rv_file(
-                    job,
+                    prepared_file.rows,
                     defer_final_materialization=True,
+                    prepared_file=prepared_file,
                 )
                 if pending_file_result is not None:
                     finishing_file_result = pending_file_result
