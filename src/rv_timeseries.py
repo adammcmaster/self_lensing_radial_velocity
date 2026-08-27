@@ -58,6 +58,7 @@ RV_TIMESERIES_METADATA_PATH = RV_TIMESERIES_PATH / "metadata.csv"
 RV_TIMESERIES_METADATA_PICKLE_PATH = RV_TIMESERIES_METADATA_PATH.with_suffix(".pkl")
 RV_TIMESERIES_ID_NAMESPACE = uuid.UUID("1d34c442-474c-5d23-83ff-c121e5ed4a73")
 RV_TIMESERIES_ID_NAMESPACE_BYTES = RV_TIMESERIES_ID_NAMESPACE.bytes
+PHOTOMETRY_HDU_NAME = "PHOTOMETRY"
 RV_TIMESERIES_METADATA_MAX_WORKERS = int(
     os.environ.get("SLRV_RV_TIMESERIES_METADATA_MAX_WORKERS", min(8, os.cpu_count() or 1))
 )
@@ -498,7 +499,7 @@ def metadata_row_from_params(
     }
 
 
-def _metadata_header(row, rv_err, lc_err):
+def _metadata_header(row, rv_err):
     return {
         "RV_ID": row["rv_id"],
         "SYS_ID": row["system_id"],
@@ -522,40 +523,69 @@ def _metadata_header(row, rv_err, lc_err):
         "NOBS": int(row["nobs"]),
         "BASELINE": float(row["baseline"]),
         "RV_ERR": _representative_error(rv_err),
-        "LC_ERR": _representative_error(lc_err),
     }
 
 
-def _curve_table(row, rv_times, rv, rv_err, lc_times, lc, lc_err):
-    n_rows = max(len(rv), len(lc))
+def _padded_table_column(values, length):
+    array = numpy.full(length, numpy.nan, dtype=float)
+    values = numpy.asarray(values, dtype=float)
+    array[: len(values)] = values
+    return array
 
-    def padded(values):
-        array = numpy.full(n_rows, numpy.nan, dtype=float)
-        values = numpy.asarray(values, dtype=float)
-        array[: len(values)] = values
-        return array
 
-    def error_values(error, length):
-        values = numpy.asarray(error, dtype=float)
-        if values.ndim == 0:
-            return numpy.full(length, float(values))
-        if len(values) != length:
-            raise ValueError(f"Expected {length} error values, got {len(values)}")
-        return values
+def _error_values(error, length):
+    values = numpy.asarray(error, dtype=float)
+    if values.ndim == 0:
+        return numpy.full(length, float(values))
+    if len(values) != length:
+        raise ValueError(f"Expected {length} error values, got {len(values)}")
+    return values
 
+
+def _rv_data_table(rv_times, rv, rv_err):
+    """Build the RV columns stored for one parameter set."""
+    n_rows = len(rv)
     table = Table()
-    table["rv_time"] = padded(rv_times)
+    table["rv_time"] = _padded_table_column(rv_times, n_rows)
     table["rv_time"].unit = "d"
-    table["rv"] = padded(rv)
+    table["rv"] = _padded_table_column(rv, n_rows)
     table["rv"].unit = "m / s"
-    table["rv_err"] = padded(error_values(rv_err, len(rv)))
+    table["rv_err"] = _padded_table_column(_error_values(rv_err, n_rows), n_rows)
     table["rv_err"].unit = "m / s"
-    table["lc_time"] = padded(lc_times)
-    table["lc_time"].unit = "d"
-    table["lc"] = padded(lc)
-    table["lc_err"] = padded(error_values(lc_err, len(lc)))
-    table.meta.update(_metadata_header(row, rv_err, lc_err))
     return table
+
+
+def _rv_curve_table(row, rv_times, rv, rv_err):
+    """Build the compact RV-only table stored for one parameter set."""
+    table = _rv_data_table(rv_times, rv, rv_err)
+    table.meta.update(_metadata_header(row, rv_err))
+    return table
+
+
+def _photometry_table(lc_times, lc, lc_err):
+    """Build the single photometry table shared by all RV variants in a file."""
+    n_rows = len(lc)
+    table = Table()
+    table["lc_time"] = _padded_table_column(lc_times, n_rows)
+    table["lc_time"].unit = "d"
+    table["lc"] = _padded_table_column(lc, n_rows)
+    table["lc_err"] = _padded_table_column(_error_values(lc_err, n_rows), n_rows)
+    return table
+
+
+def _shared_photometry_from_hdul(hdul):
+    for hdu in hdul[1:]:
+        if hdu.name == PHOTOMETRY_HDU_NAME and hdu.data is not None:
+            data = hdu.data
+            names = set(data.names or ())
+            if {"lc_time", "lc", "lc_err"} <= names:
+                lc_mask = numpy.isfinite(numpy.asarray(data["lc_time"], dtype=float))
+                return {
+                    "lc_times": numpy.asarray(data["lc_time"], dtype=float)[lc_mask],
+                    "lc": numpy.asarray(data["lc"], dtype=float)[lc_mask],
+                    "lc_err": numpy.asarray(data["lc_err"], dtype=float)[lc_mask],
+                }
+    raise ValueError("RV FITS file has no shared PHOTOMETRY extension")
 
 
 def _rv_hdu_index(hdul, rv_id):
@@ -565,18 +595,16 @@ def _rv_hdu_index(hdul, rv_id):
     return None
 
 
-def _curve_from_hdu(hdu):
+def _curve_from_hdu(hdu, shared_photometry):
     data = hdu.data
     rv_mask = numpy.isfinite(numpy.asarray(data["rv_time"], dtype=float))
-    lc_mask = numpy.isfinite(numpy.asarray(data["lc_time"], dtype=float))
-    return {
+    curve = {
         "rv_times": numpy.asarray(data["rv_time"], dtype=float)[rv_mask],
         "rv": numpy.asarray(data["rv"], dtype=float)[rv_mask],
         "rv_err": numpy.asarray(data["rv_err"], dtype=float)[rv_mask],
-        "lc_times": numpy.asarray(data["lc_time"], dtype=float)[lc_mask],
-        "lc": numpy.asarray(data["lc"], dtype=float)[lc_mask],
-        "lc_err": numpy.asarray(data["lc_err"], dtype=float)[lc_mask],
     }
+    curve.update(shared_photometry)
+    return curve
 
 
 def write_rv_timeseries_file(curves, path):
@@ -588,10 +616,11 @@ def write_rv_timeseries_file(curves, path):
     if path.exists():
         with fits.open(path) as hdul:
             hdus = fits.HDUList(hdul)
+            _shared_photometry_from_hdul(hdus)
             existing_ids = {
                 hdu.header.get("RV_ID") for hdu in hdus[1:] if "RV_ID" in hdu.header
             }
-            next_index = len(hdus)
+            next_index = len(existing_ids) + 1
             for curve in curves:
                 row = curve["row"]
                 if row["rv_id"] in existing_ids:
@@ -601,14 +630,11 @@ def write_rv_timeseries_file(curves, path):
                         path,
                     )
                     continue
-                table = _curve_table(
+                table = _rv_curve_table(
                     row,
                     curve["rv_times"],
                     curve["rv"],
                     curve["rv_err"],
-                    curve["lc_times"],
-                    curve["lc"],
-                    curve["lc_err"],
                 )
                 hdu = fits.table_to_hdu(table)
                 hdu.name = _rv_hdu_name(next_index)
@@ -618,16 +644,21 @@ def write_rv_timeseries_file(curves, path):
             _write_fits_atomically(hdus, path)
         return
 
-    hdus = fits.HDUList([fits.PrimaryHDU()])
+    photometry_hdu = fits.table_to_hdu(
+        _photometry_table(
+            curves[0]["lc_times"],
+            curves[0]["lc"],
+            curves[0]["lc_err"],
+        )
+    )
+    photometry_hdu.name = PHOTOMETRY_HDU_NAME
+    hdus = fits.HDUList([fits.PrimaryHDU(), photometry_hdu])
     for index, curve in enumerate(curves, start=1):
-        table = _curve_table(
+        table = _rv_curve_table(
             curve["row"],
             curve["rv_times"],
             curve["rv"],
             curve["rv_err"],
-            curve["lc_times"],
-            curve["lc"],
-            curve["lc_err"],
         )
         hdu = fits.table_to_hdu(table)
         hdu.name = _rv_hdu_name(index)
@@ -657,15 +688,22 @@ def load_rv_timeseries_curve(row_or_path):
 
     logger.debug("Loading rv timeseries curve from %s", path)
     with fits.open(path) as hdul:
+        shared_photometry = _shared_photometry_from_hdul(hdul)
         hdu_index = None
         if rv_id is not None:
             hdu_index = _rv_hdu_index(hdul, rv_id)
-        elif len(hdul) == 2:
-            hdu_index = 1
+        else:
+            rv_hdu_indices = [
+                index
+                for index, hdu in enumerate(hdul[1:], start=1)
+                if "RV_ID" in hdu.header
+            ]
+            if len(rv_hdu_indices) == 1:
+                hdu_index = rv_hdu_indices[0]
         if hdu_index is None:
             raise KeyError(f"Could not find rv_id={rv_id} in {path}")
 
-        curve = _curve_from_hdu(hdul[hdu_index])
+        curve = _curve_from_hdu(hdul[hdu_index], shared_photometry)
         logger.debug(
             "Loaded rv curve with %d RV samples and %d LC samples",
             len(curve["rv"]),
@@ -693,11 +731,12 @@ def load_rv_timeseries_curves(rows):
         path,
     )
     with fits.open(path) as hdul:
+        shared_photometry = _shared_photometry_from_hdul(hdul)
         curves = {}
         for hdu in hdul[1:]:
             rv_id = hdu.header.get("RV_ID")
             if rv_id in rv_ids:
-                curves[rv_id] = _curve_from_hdu(hdu)
+                curves[rv_id] = _curve_from_hdu(hdu, shared_photometry)
 
     missing_ids = rv_ids - set(curves)
     if missing_ids:

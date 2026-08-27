@@ -10,7 +10,6 @@ import argparse
 import re
 import shutil
 import time
-import threading
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -173,7 +172,7 @@ CHECKPOINT_RESULTS = os.environ.get("SLRV_FIT_CHECKPOINT_RESULTS", "1").lower() 
     "yes",
     "on",
 )
-FIT_CHECKPOINT_INTERVAL = int(os.environ.get("SLRV_FIT_CHECKPOINT_INTERVAL", 4))
+FIT_CHECKPOINT_INTERVAL = int(os.environ.get("SLRV_FIT_CHECKPOINT_INTERVAL", 400))
 MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "spawn")
 FIT_NSTEPS = int(os.environ.get("SLRV_FIT_NSTEPS", 1000))
 FIT_NWALKERS = int(os.environ.get("SLRV_FIT_NWALKERS", 128))
@@ -706,63 +705,71 @@ def save_results(results):
 
 
 class AsyncCheckpointWriter:
+    """Coalesce result snapshots and write them in one CPU-only sidecar."""
+
     def __init__(self, enabled=True):
         self.enabled = enabled
-        self.condition = threading.Condition()
         self.latest_results = None
-        self.stop_requested = False
-        self.error = None
-        self.thread = None
+        self.pending_future = None
+        self.executor = None
+        self.previous_sidecar_flag = None
         if self.enabled:
-            self.thread = threading.Thread(
-                target=self._run,
-                name="fit-checkpoint-writer",
-                daemon=True,
+            # Keep this environment flag in place for the executor's whole
+            # lifetime: spawned workers import this module before an
+            # initializer could select the CPU-only JAX platform.
+            self.previous_sidecar_flag = os.environ.get("SLRV_FIT_CPU_SIDECAR")
+            os.environ["SLRV_FIT_CPU_SIDECAR"] = "1"
+            self.executor = ProcessPoolExecutor(
+                max_workers=1,
+                mp_context=multiprocessing.get_context("spawn"),
             )
-            self.thread.start()
+
+    def _start_latest_write(self):
+        if self.pending_future is not None or self.latest_results is None:
+            return
+        results = self.latest_results
+        self.latest_results = None
+        self.pending_future = self.executor.submit(save_results, results)
+
+    def _collect_completed_write(self):
+        if self.pending_future is None or not self.pending_future.done():
+            return
+        future = self.pending_future
+        self.pending_future = None
+        future.result()
+        self._start_latest_write()
 
     def submit(self, results):
         if not self.enabled:
             return
-        with self.condition:
-            self.latest_results = list(results)
-            self.condition.notify()
+        self._collect_completed_write()
+        self.latest_results = list(results)
+        self._start_latest_write()
 
     def check_error(self):
-        if self.error is not None:
-            raise RuntimeError("Background checkpoint writer failed") from self.error
+        if self.enabled:
+            self._collect_completed_write()
 
     def close(self, final_results=None):
         if not self.enabled:
             if final_results is not None:
                 save_results(final_results)
             return
-        with self.condition:
-            if final_results is not None:
-                self.latest_results = list(final_results)
-            self.stop_requested = True
-            self.condition.notify()
-        self.thread.join()
-        self.check_error()
-
-    def _run(self):
-        while True:
-            with self.condition:
-                while self.latest_results is None and not self.stop_requested:
-                    self.condition.wait()
-                if self.latest_results is None and self.stop_requested:
-                    return
-                results = self.latest_results
-                self.latest_results = None
-            try:
-                save_results(results)
-            except Exception as exc:
-                self.error = exc
-                logger.exception("Background checkpoint writer failed")
-                return
-            with self.condition:
-                if self.stop_requested and self.latest_results is None:
-                    return
+        if final_results is not None:
+            self.latest_results = list(final_results)
+        try:
+            while self.pending_future is not None or self.latest_results is not None:
+                if self.pending_future is not None:
+                    future = self.pending_future
+                    self.pending_future = None
+                    future.result()
+                self._start_latest_write()
+        finally:
+            self.executor.shutdown(wait=True)
+            if self.previous_sidecar_flag is None:
+                del os.environ["SLRV_FIT_CPU_SIDECAR"]
+            else:
+                os.environ["SLRV_FIT_CPU_SIDECAR"] = self.previous_sidecar_flag
 
 
 def truth_self_lensing_system(ts):
