@@ -513,7 +513,9 @@ def _metadata_header(row, rv_err, lc_err):
         "MSTAR": float(row["Mcomp"]),
         "RSTAR": float(row["Rcomp"]),
         "TEFF": float(row["Teff"]),
-        "B": float(row["b"]),
+        # Astropy's table metadata serialiser accepts this custom attribute as
+        # text; readers can convert the dimensionless value back to float.
+        "B": str(float(row["b"])),
         "I": float(row["i"]),
         "PEAK_T": float(row["peak_time"]),
         "RV_ACC": float(row["RV accuracy"]),
