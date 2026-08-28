@@ -656,7 +656,7 @@ def plot_prefit_relative_error_improvement_scatter_grids(
                         zorder=3,
                     )
                 if row_index == 0:
-                    axis.set_title(f"Nobs {nobs:g}")
+                    axis.set_title(rf"$N_\mathrm{{obs}}$ {nobs:g}")
                 if col_index == 0:
                     axis.set_ylabel(
                         f"Baseline {baseline / 365:g} yr\nRelative-error improvement"
@@ -1093,7 +1093,7 @@ def plot_prefit_improvement_by_nobs_and_baseline(results):
                     )
 
                 if row_index == 0:
-                    axis.set_title(f"Nobs {nobs:g}")
+                    axis.set_title(rf"$N_\mathrm{{obs}}$ {nobs:g}")
                 if col_index == 0:
                     axis.set_ylabel(
                         f"Baseline {baseline / 365:g} yr\nRelative error"
@@ -1547,7 +1547,7 @@ def plot_population_weighted_period_heatmaps(survey_counts, metrics, filename_pr
                 )
                 last_mesh = heatmap.collections[0]
                 if row_index == 0:
-                    axis.set_title(f"Nobs {nobs:g}")
+                    axis.set_title(rf"$N_\mathrm{{obs}}$ {nobs:g}")
                 if col_index == 0:
                     axis.set_ylabel(
                         f"Baseline {baseline / 365:g} yr\\n"
@@ -1783,6 +1783,24 @@ def binned_metric_rows(
     return finite
 
 
+MAX_NOBS_FACET_COLUMNS = 4
+
+
+def truth_range_facet_geometry(baselines, nobss):
+    """Return the tiled facet geometry for truth-range summary figures."""
+    columns = min(MAX_NOBS_FACET_COLUMNS, len(nobss))
+    rows_per_baseline = (len(nobss) + columns - 1) // columns
+    return len(baselines) * rows_per_baseline, columns, rows_per_baseline
+
+
+def truth_range_facet_index(baseline_index, nobs_index, columns, rows_per_baseline):
+    """Map a baseline/Nobs pair onto the tiled matplotlib axes grid."""
+    return (
+        baseline_index * rows_per_baseline + nobs_index // columns,
+        nobs_index % columns,
+    )
+
+
 def plot_recovery_by_truth_range(
     results,
     param,
@@ -1813,26 +1831,32 @@ def plot_recovery_by_truth_range(
     baselines = numpy.sort(table["baseline"].dropna().unique())
     nobss = numpy.sort(table["nobs"].dropna().unique())
     bin_labels = list(labels) if labels is not None else list(table["_value_bin_label"].drop_duplicates())
+    facet_rows, facet_columns, rows_per_baseline = truth_range_facet_geometry(
+        baselines, nobss
+    )
 
+    # Wrap Nobs facets after four columns.  This keeps cells readable when
+    # several observing strategies are present.
     fig, axes = pyplot.subplots(
-        len(baselines),
-        len(nobss),
-        figsize=(8.2, 6.8),
+        facet_rows,
+        facet_columns,
+        figsize=(
+            max(8.2, 1.8 * facet_columns + 1.6),
+            max(3.8, 1.45 * facet_rows + 1.8),
+        ),
         sharex=True,
         sharey=True,
         constrained_layout=True,
     )
-    if len(baselines) == 1 and len(nobss) == 1:
-        axes = numpy.asarray([[axes]])
-    elif len(baselines) == 1:
-        axes = numpy.asarray([axes])
-    elif len(nobss) == 1:
-        axes = numpy.asarray([[axis] for axis in axes])
+    axes = numpy.asarray(axes, dtype=object).reshape(facet_rows, facet_columns)
 
     last_mesh = None
     for row_index, baseline in enumerate(baselines):
         for col_index, nobs in enumerate(nobss):
-            axis = axes[row_index, col_index]
+            facet_row, facet_column = truth_range_facet_index(
+                row_index, col_index, facet_columns, rows_per_baseline
+            )
+            axis = axes[facet_row, facet_column]
             subset = table[
                 (table["baseline"] == baseline) & (table["nobs"] == nobs)
             ]
@@ -1857,21 +1881,15 @@ def plot_recovery_by_truth_range(
                 cbar=False,
             )
             last_mesh = heatmap.collections[0]
-            if row_index == 0:
-                axis.set_title(f"Nobs {nobs:g}")
-            if col_index == 0:
-                axis.set_ylabel(
-                    f"Baseline {baseline / 365:g} yr\n"
-                    + r"RV accuracy [m s$^{-1}$]"
-                )
+            axis.set_title(rf"$N_\mathrm{{obs}}$ {nobs:g}")
+            if facet_column == 0:
+                axis.set_ylabel(r"RV accuracy [m s$^{-1}$]")
             else:
                 axis.set_ylabel("")
-            if row_index == len(baselines) - 1:
-                axis.set_xlabel(x_label)
-            else:
-                axis.set_xlabel("")
+            axis.set_xlabel("")
             axis.tick_params(axis="x", rotation=35)
 
+    fig.supxlabel(x_label)
     if last_mesh is not None:
         fig.colorbar(
             last_mesh,
@@ -1922,26 +1940,30 @@ def plot_metric_by_truth_range(
     baselines = numpy.sort(table["baseline"].dropna().unique())
     nobss = numpy.sort(table["nobs"].dropna().unique())
     bin_labels = list(labels) if labels is not None else list(table["_value_bin_label"].drop_duplicates())
+    facet_rows, facet_columns, rows_per_baseline = truth_range_facet_geometry(
+        baselines, nobss
+    )
 
     fig, axes = pyplot.subplots(
-        len(baselines),
-        len(nobss),
-        figsize=(8.2, 6.8),
+        facet_rows,
+        facet_columns,
+        figsize=(
+            max(8.2, 1.8 * facet_columns + 1.6),
+            max(3.8, 1.45 * facet_rows + 1.8),
+        ),
         sharex=True,
         sharey=True,
         constrained_layout=True,
     )
-    if len(baselines) == 1 and len(nobss) == 1:
-        axes = numpy.asarray([[axes]])
-    elif len(baselines) == 1:
-        axes = numpy.asarray([axes])
-    elif len(nobss) == 1:
-        axes = numpy.asarray([[axis] for axis in axes])
+    axes = numpy.asarray(axes, dtype=object).reshape(facet_rows, facet_columns)
 
     last_mesh = None
     for row_index, baseline in enumerate(baselines):
         for col_index, nobs in enumerate(nobss):
-            axis = axes[row_index, col_index]
+            facet_row, facet_column = truth_range_facet_index(
+                row_index, col_index, facet_columns, rows_per_baseline
+            )
+            axis = axes[facet_row, facet_column]
             subset = table[
                 (table["baseline"] == baseline) & (table["nobs"] == nobs)
             ].copy()
@@ -1967,21 +1989,15 @@ def plot_metric_by_truth_range(
                 cbar=False,
             )
             last_mesh = heatmap.collections[0]
-            if row_index == 0:
-                axis.set_title(f"Nobs {nobs:g}")
-            if col_index == 0:
-                axis.set_ylabel(
-                    f"Baseline {baseline / 365:g} yr\n"
-                    + r"RV accuracy [m s$^{-1}$]"
-                )
+            axis.set_title(rf"$N_\mathrm{{obs}}$ {nobs:g}")
+            if facet_column == 0:
+                axis.set_ylabel(r"RV accuracy [m s$^{-1}$]")
             else:
                 axis.set_ylabel("")
-            if row_index == len(baselines) - 1:
-                axis.set_xlabel(x_label)
-            else:
-                axis.set_xlabel("")
+            axis.set_xlabel("")
             axis.tick_params(axis="x", rotation=35)
 
+    fig.supxlabel(x_label)
     if last_mesh is not None:
         fig.colorbar(
             last_mesh,
@@ -2027,6 +2043,9 @@ def plot_relative_error_distribution_by_truth_range(
         else list(plot_data["_value_bin_label"].drop_duplicates())
     )
     rv_accuracies = numpy.sort(plot_data["RV accuracy"].dropna().unique())
+    facet_rows, facet_columns, rows_per_baseline = truth_range_facet_geometry(
+        baselines, nobss
+    )
     positive_data = plot_data[plot_data[metric_column] > 0].copy()
     if positive_data.empty:
         raise ValueError(f"No positive relative errors available for {metric_column}")
@@ -2039,19 +2058,28 @@ def plot_relative_error_distribution_by_truth_range(
         log_max += 0.5
     histogram_edges = numpy.linspace(log_min, log_max, 11)
 
+    # Each parent panel uses an equal aspect ratio so its inset histograms
+    # align with the heatmap-cell grid.  Wrapping after four panels keeps
+    # those cells from being squashed horizontally.
     fig, axes = pyplot.subplots(
-        len(baselines),
-        len(nobss),
-        figsize=(8.2, 6.8),
+        facet_rows,
+        facet_columns,
+        figsize=(
+            max(8.2, 1.8 * facet_columns + 1.6),
+            max(3.8, 1.55 * facet_rows + 1.8),
+        ),
         sharex=True,
         sharey=True,
         constrained_layout=True,
     )
-    axes = numpy.asarray(axes, dtype=object).reshape(len(baselines), len(nobss))
+    axes = numpy.asarray(axes, dtype=object).reshape(facet_rows, facet_columns)
 
     for row_index, baseline in enumerate(baselines):
         for col_index, nobs in enumerate(nobss):
-            axis = axes[row_index, col_index]
+            facet_row, facet_column = truth_range_facet_index(
+                row_index, col_index, facet_columns, rows_per_baseline
+            )
+            axis = axes[facet_row, facet_column]
             panel_data = positive_data[
                 (positive_data["baseline"] == baseline)
                 & (positive_data["nobs"] == nobs)
@@ -2106,21 +2134,15 @@ def plot_relative_error_distribution_by_truth_range(
                     inset.set_ylim(0, max(0.35, frequencies.max() * 1.08))
                     inset.set_axis_off()
 
-            if row_index == 0:
-                axis.set_title(f"Nobs {nobs:g}")
-            if col_index == 0:
-                axis.set_ylabel(
-                    f"Baseline {baseline / 365:g} yr\n"
-                    + r"RV accuracy [m s$^{-1}$]"
-                )
+            axis.set_title(rf"$N_\mathrm{{obs}}$ {nobs:g}")
+            if facet_column == 0:
+                axis.set_ylabel(r"RV accuracy [m s$^{-1}$]")
             else:
                 axis.set_ylabel("")
-            if row_index == len(baselines) - 1:
-                axis.set_xlabel(x_label)
-            else:
-                axis.set_xlabel("")
+            axis.set_xlabel("")
             axis.tick_params(axis="x", rotation=35)
 
+    fig.supxlabel(x_label, y=0.06)
     fig.text(
         0.5,
         0.01,
