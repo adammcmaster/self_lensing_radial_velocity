@@ -97,7 +97,7 @@ $^{2}$School of Physical Sciences, The Open University, Milton Keynes, MK7 6AA, 
 
 % Abstract of the paper
 \begin{abstract}
-    Compact objects in approximately edge-on binary orbits with stars are known to be able to produce a self-lensing effect, amplifying light from their companion once per orbit. To date, five white dwarf self-lensing systems are known, while none are known containing black holes or neutron stars. Discovery of such systems is a potential method of finding quiescent black holes and neutron stars, most of which will be pristine and unchanged from their formation. Photometric detections alone can suffer from degeneracies in the lens mass and orbital parameters when the peak amplification and crossing time are not well constrained, while photometric searches produce too many false positives to allow detailed radial velocity investigation of every candidate. Therefore we investigate the minimal radial velocity (RV) observational requirements to characterise such systems by simulating detectable self-lensing light curves, generating RV observations over a grid of cadences, baselines, and instrumental precisions, and fitting RV jointly with photometry. We evaluate the median relative error in the recovered lens mass and orbital period, alongside compact-object class recovery, and map the fitted outcomes onto population-synthesis predictions for current and future photometric surveys. We find that adding RV measurements substantially reduces parameter error, with compact-object class generally easier to determine than the exact lens mass. Parameter accuracy is driven mainly by observing baseline and cadence, with RV precision playing a weaker role except for the longest-period systems. These results suggest that multi-stage RV follow-up, starting with a small number of observations of many candidates, can efficiently classify self-lensing candidates and identify high-priority systems for further investigation.
+    Compact objects in approximately edge-on binary orbits with stars are known to be able to produce a self-lensing effect, amplifying light from their companion once per orbit. To date, five white dwarf self-lensing systems are known, while none are known containing black holes or neutron stars. Discovery of such systems is a potential method of finding quiescent black holes and neutron stars, most of which will be pristine and unchanged from their formation. Photometric detections alone can suffer from degeneracies in the lens mass and orbital parameters when the peak amplification and crossing time are not well constrained, while photometric searches produce too many false positives to allow detailed radial velocity investigation of every candidate. Therefore we investigate the minimal radial velocity (RV) observational requirements to characterise such systems by simulating detectable self-lensing light curves, using those light curves to generate targeted RV observations, and fitting RV jointly with photometry. We evaluate the median relative error in the recovered lens mass and orbital period, alongside compact-object class recovery, and map the fitted outcomes onto population-synthesis predictions for current and future photometric surveys. We find that adding RV measurements substantially reduces parameter error, with compact-object class generally easier to determine than the exact lens mass. Parameter accuracy is driven mainly by number of RV observations, with RV precision playing a weaker role except for the longest-period systems. These results suggest that multi-stage RV follow-up, starting with a small number of observations of many candidates, can efficiently classify self-lensing candidates and identify high-priority systems for further investigation.
 \end{abstract}
 
 % Select between one and six entries from the list of approved keywords.
@@ -138,9 +138,11 @@ We investigate the relationship between observing cadence, observing campaign du
 
 As the basis of this work, we have generated a library of self-lensing photometric simulations covering a range of physical parameters, filtered to include only the simulated light curves which contain visible lensing, where the peak amplitude is larger than the photometric noise. We also exclude systems overflowing their Roche lobe and any systems where lensing is not geometrically possible. These simulations are described in Section~\ref{sec:phot-sims}.
 
-The radial velocity measurements are simulated for the same set of simulation parameters as the photometry (Section~\ref{sec:rv-sims}). The RV simulations are then sampled according to a range of observing schedules, and Gaussian noise is added to simulate a range of spectrograph accuracies.
+An MCMC fit is then performed against the simulated photometry, to sample the posterior distribution of the self-lensing physical parameters and find distinct physical solutions for each light curve. We assume the stellar properties, mass, radius, effective temperature, and distance from Earth, are known. The set of distinct solutions is then used to compute an RV observing schedule using a variable number of observations (between three and ten observations) over a chosen observing baseline, such that each schedule is optimised to distinguish between the MCMC solutions.
 
-An MCMC fit is then performed to sample the posterior distribution of the self-lensing physical parameters, constrained by the photometry and RV (Section~\ref{sec:fitting}. We assume the stellar properties, mass, radius, effective temperature, and distance from Earth, are known. We then aggregate the median relative errors across observing parameters and self-lensing physical parameters to investigate how each observing strategy affects parameter retrieval.
+Radial velocity measurements are then simulated for the computed observing schedule, using the same set of simulation parameters as the photometry (Section~\ref{sec:rv-sims}). Gaussian noise is added to simulate a range of spectrograph accuracies.
+
+A second MCMC fit is then performed to sample the posterior distribution constrained jointly by the photometry and RV (Section~\ref{sec:fitting}. We then aggregate the median relative errors across observing parameters and self-lensing physical parameters to investigate how each observing schedule affects parameter retrieval.
 
 Finally, we map the fitted outcomes onto previous population synthesis results to estimate the numbers of self-lensing systems which can be confirmed following detection in various photometric surveys (Section~\ref{sec:pop-synth}).
 
@@ -362,6 +364,30 @@ The variability caused by magnetic effects has also been included in prior studi
 For a helpful review on
 modelling stellar variability through GPs, see \cite{aigrain_gaussian_2023}.
 
+\subsection{Photometric MCMC fit} \label{sec:phot-fit}
+
+Each simulated photometric light curve is then fitted via MCMC using a random-walk Metropolis-Hastings sampler implemtned with the BlackJAX package (128 walkers, 200 burn-in steps, 1,000 post-burn steps). For these fits it is assumed we know the stellar physical parameters exactly, along with the exact relative amplification (Section~\ref{sec:phot-sims}) and crossing time. In reality there will be uncertainty in these values, but determining them is a separate probem which is out of scope for the present work. Light curves are binned according to their crossing time to minimise computation time while preserving the shape of the self-lensing peak (\textbf{TODO: Insert table of bin sizes}).
+
+For computational efficiency, fits are run as batched, vectorised fits on a GPU. We fit only the fundamental physical parameters of the system,
+\begin{equation}
+    \boldsymbol{\theta} = (a, i, M_\mathrm{lens}, e, \omega),
+\end{equation}
+with the stellar mass, stellar radius, effective temperature, distance, and lensing-peak time held fixed at their simulated values. Orbital period, impact parameter, maximum impact parameter, and effective lensing-event duration are derived from the fitted physical parameters rather than fitted directly.
+
+Walkers are initialised using an estimated parameter distribution calculated from $\tau_\mathrm{eff}$ and $A_\mathrm{SL}$. Similar to Figure~\ref{fig:self-lensing-observable-space}, parameters are calculated in the region around the observed values, and then these are clustered by the parameters in $\boldsymbol{\theta}$ using $k$-means clustering to find distinct groupings of estimated parameters. The central point of each cluster is used to choose initial walker positions. This ensures the random walk thoroughly explores the area of the parameter space with the highest likelihood given the known amplification and crossing time, without constraining it from exploring beyond those regions.
+
+We use a uniform prior within the corresponding parameter limits in Table~\ref{tab:phot_sim_parameter_ranges}, with negative infinity probability outside these limits. We also require trial systems to satisfy the self-lensing geometry condition $b \leq b_\mathrm{max}$.
+
+At the end of the MCMC run, the posterior parameter distribution is clustered using $k$-means clustering to derive a set of distinct solutions which could produce the simulated light curve (to account for degeneracies).
+
+\subsection{Targeted radial velocity scheduling} \label{sec:scheduling}
+
+\textbf{TODO: Describe the new scheduling procedure.}
+
+% We first estimate the parameters from amplitude and crossing time. This is used to seed walkers in the right regions of parameter space to make fitting more effective with fewer steps. We assume amplitude and crossing time have been accurately determined (doing this is a separate probelm out of scope for this work)
+% Need to mention walker initialisation (based on estimated parameter clusters) in brief; in next section? Or add a prefitting section? Or is THIS the prefitting section?
+% Mention that we do the prefit, detect multi-mode (degenerate) solutions, and account for that in scheduling. We use half of the available observations to deliberately distinguish modes based on their predicted RVs, then the rest of maximise phase coverage by minimising gaps.
+
 \subsection{Radial velocity} \label{sec:rv-sims}
 
 The simulated RV curves start at randomised times between 1 year and 10 years from the end of the photometry. This is to simulate a realistic delay in identifying candidates in the photometry and organising follow-up of those candidates.
@@ -408,23 +434,11 @@ We generate baseline RV curves which contain one RV measurement per day for five
 
 As well as the varying instrumental noise, fixed Gaussian noise ($\sigma = 10$ m/s) is added in every configuration to represent stellar noise. For simplicity, we do not include proper motion or heliocentric motion, as these would be corrected before fitting real observations.
 
-\subsection{Targeted radial velocity scheduling} \label{sec:scheduling}
+\subsection{Joint photometric-RV MCMC fit} \label{sec:fitting}
 
-\textbf{TODO: Describe the new scheduling procedure. Also update the previous section.}
+\textbf{TODO: Update this}
 
-% We first do a photometry-only prefit to estimate orbital period and physical parameters.
-% The prefit results do not need to be precise
-% We first estimate the parameters from amplitude anf crossing time. This is used to seed walkers in the right regions of parameter space to make fitting more effective with fewer steps. We assume amplitude and crossing time have been accurately determined (doing this is a separate probelm out of scope for this work)
-% Need to mention walker initialisation (based on estimated parameter clusters) in brief; in next section? Or add a prefitting section? Or is THIS the prefitting section?
-% Mention that we do the prefit, detect multi-mode (degenerate) solutions, and account for that in scheduling. We use half of the available observations to deliberately distinguish modes based on their predicted RVs, then the rest of maximise phase coverage by minimising gaps.
-
-\subsection{Fitting of simulated observations} \label{sec:fitting}
-
-Each simulated pair of photometric light curves and RV curves is then fitted via MCMC using a random-walk Metropolis-Hastings sampler implemented with the BlackJAX package (128 walkers, and 200 burn-in steps). The photometry is clipped to the interval $t_0 \pm \tau_\mathrm{eff}$ (where $\tau_\mathrm{eff}$ is the effective Einstein crossing time defined in \cite{wiktorowicz_predicting_2021}) around the lensing peak and binned to 100 bins for computational efficiency. Before running the full joint fit (photometry and RV), a photometry-only pre-fit is run for each simulated light curve (1,000 steps) and the walker state from this is used as the initial walker state for the 45 joint fits (an additional 1,000 steps). An RV-only fit of 1,000 steps is also performed. The Metropolis-Hastings random-walk proposal scale is reduced based on the number of RV measurements, when RV data are present, or otherwise on the number of photometric points, to allow the walkers to efficiently explore the narrower posterior. For computational efficiency, fits are run as batched, vectorised fits on a GPU. We fit only the fundamental physical parameters of the system,
-\begin{equation}
-    \boldsymbol{\theta} = (a, i, M_\mathrm{lens}, e, \omega),
-\end{equation}
-with the stellar mass, stellar radius, effective temperature, distance, and lensing-peak time held fixed at their simulated values. Orbital period, impact parameter, maximum impact parameter, and effective lensing-event duration are derived from the fitted physical parameters rather than fitted directly. We use a uniform prior within the corresponding parameter limits in Table~\ref{tab:phot_sim_parameter_ranges}, with negative infinity probability outside these limits. We also require trial systems to satisfy the self-lensing geometry condition $b \leq b_\mathrm{max}$.
+Each simulated pair of photometric light curves and RV curves is then fitted via MCMC using a random-walk Metropolis-Hastings sampler implemented with the BlackJAX package (128 walkers, and 200 burn-in steps). The photometry is clipped to the interval $t_0 \pm \tau_\mathrm{eff}$ (where $\tau_\mathrm{eff}$ is the effective Einstein crossing time defined in \cite{wiktorowicz_predicting_2021}) around the lensing peak and binned to 100 bins for computational efficiency. Before running the full joint fit (photometry and RV), a photometry-only pre-fit is run for each simulated light curve (1,000 steps) and the walker state from this is used as the initial walker state for the 45 joint fits (an additional 1,000 steps). An RV-only fit of 1,000 steps is also performed. The Metropolis-Hastings random-walk proposal scale is reduced based on the number of RV measurements, when RV data are present, or otherwise on the number of photometric points, to allow the walkers to efficiently explore the narrower posterior.
 
 For a trial parameter vector $\boldsymbol{\theta}$, let $v_\mathrm{mod}(t_k;\boldsymbol{\theta})$ be the model RV at the $k$th RV observation time, and let $N_\mathrm{RV}$ be the number of RV measurements. The RV contribution to the fit statistic is
 \begin{equation}
