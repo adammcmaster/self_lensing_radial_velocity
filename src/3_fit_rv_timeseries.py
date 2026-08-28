@@ -199,10 +199,10 @@ FIT_MCMC_PROGRESS = os.environ.get("SLRV_FIT_MCMC_PROGRESS", "0").lower() in (
     "on",
 )
 # The BlackJAX adapter uses its progress chunk size to bound the compiled
-# ``lax.scan`` output. Apply that bound automatically to native-cadence joint
-# fits, which otherwise compile all FIT_NSTEPS at once and can require tens of
-# GiB for a single system. Binned joint fits remain unchunked unless visible
-# MCMC progress is explicitly requested.
+# ``lax.scan`` output. Apply that bound automatically to all joint fits: a
+# 20-row hourly batch has more walker-by-light-curve elements than a one-row
+# native-cadence batch and likewise requires tens of GiB when all FIT_NSTEPS
+# are compiled in one scan.
 FIT_MCMC_CHUNKING = os.environ.get("SLRV_FIT_MCMC_CHUNKING", "1").lower() in (
     "1",
     "true",
@@ -1252,10 +1252,7 @@ def run_joint_batch(
         nsteps=FIT_NSTEPS,
         nwalkers=FIT_NWALKERS,
         burn=FIT_BURN,
-        progress=(
-            FIT_MCMC_PROGRESS
-            or (FIT_MCMC_CHUNKING and joint_fit_uses_native_cadence(rows[0][1]))
-        ),
+        progress=FIT_MCMC_PROGRESS or FIT_MCMC_CHUNKING,
         progress_desc=f"MCMC batched joint {short_id(rows[0][1].get('system_id', None))}",
         progress_chunk_size=FIT_PROGRESS_CHUNK_SIZE,
         lensing_method=FIT_LENSING_METHOD,
@@ -1413,10 +1410,6 @@ def joint_fit_batch_size(ts):
     if bin_width_days == PREFIT_NATIVE_CADENCE_DAYS:
         return JOINT_FIT_BATCH_SIZE_NATIVE_CADENCE
     return JOINT_FIT_BATCH_SIZE_BINNED
-
-
-def joint_fit_uses_native_cadence(ts):
-    return prefit_bin_width_days(ts["tau_eff"]) == PREFIT_NATIVE_CADENCE_DAYS
 
 
 def batched_joint_row_chunks(rows):
@@ -2005,7 +1998,7 @@ if __name__ == "__main__":
     logger.info("Fit eccentricity limits: %s", DEFAULT_LIMITS["e"])
     logger.info(
         "Fit likelihood settings: FIT_USE_LC=%s "
-        "FIT_MCMC_PROGRESS=%s FIT_MCMC_CHUNKING(native only)=%s sampler=blackjax",
+        "FIT_MCMC_PROGRESS=%s FIT_MCMC_CHUNKING(all joint fits)=%s sampler=blackjax",
         FIT_USE_LC,
         FIT_MCMC_PROGRESS,
         FIT_MCMC_CHUNKING,
