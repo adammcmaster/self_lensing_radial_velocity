@@ -252,7 +252,8 @@ FIT_CPU_PREFETCH_FILES = max(
 # configurable batch size. Joint fits choose their batch size from the
 # photometry cadence below.
 FIT_BATCH_SIZE = optional_positive_int(os.environ.get("SLRV_FIT_BATCH_SIZE", 4))
-JOINT_FIT_BATCH_SIZE_BINNED = 20
+JOINT_FIT_BATCH_SIZE_SIX_HOUR = 20
+JOINT_FIT_BATCH_SIZE_HOURLY = 8
 JOINT_FIT_BATCH_SIZE_NATIVE_CADENCE = 1
 FIT_PROPOSAL_SCALE_FRACTION = float(
     os.environ.get("SLRV_FIT_PROPOSAL_SCALE_FRACTION", 0.005)
@@ -1409,7 +1410,9 @@ def joint_fit_batch_size(ts):
     bin_width_days = prefit_bin_width_days(ts["tau_eff"])
     if bin_width_days == PREFIT_NATIVE_CADENCE_DAYS:
         return JOINT_FIT_BATCH_SIZE_NATIVE_CADENCE
-    return JOINT_FIT_BATCH_SIZE_BINNED
+    if bin_width_days == 1.0 / 24.0:
+        return JOINT_FIT_BATCH_SIZE_HOURLY
+    return JOINT_FIT_BATCH_SIZE_SIX_HOUR
 
 
 def batched_joint_row_chunks(rows):
@@ -1420,11 +1423,7 @@ def batched_joint_row_chunks(rows):
         rows_by_bin_width.setdefault(bin_width_days, []).append(row)
 
     for bin_width_days, width_rows in rows_by_bin_width.items():
-        batch_size = (
-            JOINT_FIT_BATCH_SIZE_NATIVE_CADENCE
-            if bin_width_days == PREFIT_NATIVE_CADENCE_DAYS
-            else JOINT_FIT_BATCH_SIZE_BINNED
-        )
+        batch_size = joint_fit_batch_size(width_rows[0][1])
         for start in range(0, len(width_rows), batch_size):
             yield width_rows[start : start + batch_size]
 
@@ -1680,12 +1679,13 @@ def fit_rv_file(rows, defer_final_materialization=False, prepared_file=None):
             )
         if len(batches) > 1:
             logger.info(
-                "Splitting %d rv rows into %d batched joint chunks; "
-                "native cadence uses %d row and binned cadences use up to %d rows",
+                "Splitting %d rv rows into %d batched joint chunks; native cadence "
+                "uses %d row, hourly bins up to %d rows, and six-hour bins up to %d rows",
                 len(rows_needing_joint),
                 len(batches),
                 JOINT_FIT_BATCH_SIZE_NATIVE_CADENCE,
-                JOINT_FIT_BATCH_SIZE_BINNED,
+                JOINT_FIT_BATCH_SIZE_HOURLY,
+                JOINT_FIT_BATCH_SIZE_SIX_HOUR,
             )
         for batch_number, (batch_rows, inputs) in enumerate(
             zip(batches, prepared_joint_inputs), start=1
@@ -2007,10 +2007,12 @@ if __name__ == "__main__":
     logger.info("Fit lensing method: FIT_LENSING_METHOD=%s", FIT_LENSING_METHOD)
     logger.info(
         "Batched fit settings: FIT_BATCHED_JOINT=%s FIT_BATCHED_RV_ONLY=%s "
-        "joint_batch_size(binned)=%d joint_batch_size(native)=%d",
+        "joint_batch_size(six_hour)=%d joint_batch_size(hourly)=%d "
+        "joint_batch_size(native)=%d",
         FIT_BATCHED_JOINT,
         FIT_BATCHED_RV_ONLY,
-        JOINT_FIT_BATCH_SIZE_BINNED,
+        JOINT_FIT_BATCH_SIZE_SIX_HOUR,
+        JOINT_FIT_BATCH_SIZE_HOURLY,
         JOINT_FIT_BATCH_SIZE_NATIVE_CADENCE,
     )
     logger.info(
