@@ -1,6 +1,7 @@
-"""Add RV-only fits without the photometric peak-time prior to fitted results."""
+"""Fit evenly spaced RV simulations, with and without the peak-time prior."""
 
 import argparse
+import hashlib
 import logging
 import multiprocessing
 import os
@@ -62,7 +63,10 @@ FIT_RESULTS_LOCK = None
 if __name__ == "__main__":
     from fitting import acquire_fit_results_lock
 
-    FIT_RESULTS_LOCK = acquire_fit_results_lock("RV-only no-prior fitting script")
+    from fitting import RV_EVEN_SPACED_RESULTS_PATH
+    FIT_RESULTS_LOCK = acquire_fit_results_lock(
+        "RV evenly spaced fitting script", RV_EVEN_SPACED_RESULTS_PATH
+    )
 
 import jax
 
@@ -100,18 +104,26 @@ from jax_compat import install_quax_jax_stage_patch
 
 install_quax_jax_stage_patch()
 
-from fitting import SAMPLER_STATE_PATH, TIMESERIES_TABLE_PATH
-from rv_timeseries import load_rv_timeseries_curves
+from fitting import PREFIT_RESULTS_PATH, RV_EVEN_SPACED_RESULTS_PATH, SAMPLER_STATE_PATH
+from rv_timeseries import load_rv_timeseries
 from rv_only_no_prior import (
     self_lensing_system_from_rv_fit_no_peak_prior_blackjax,
     self_lensing_systems_from_batched_rv_fit_no_peak_prior_blackjax,
 )
+from schedule import evenly_spaced_rv_observations
+from selflensing.fitting import (
+    self_lensing_system_from_fit_blackjax,
+    self_lensing_systems_from_batched_fit_blackjax,
+)
 from selflensing.models import DEFAULT_LIMITS
+from selflensing.lightcurves import radial_velocity_m_per_s
+from spectrograph import Spectrograph
 from utils import configure_logging
 
 logger = logging.getLogger(__name__)
 
 RV_NO_PRIOR_PREFIX = "rvnoprior"
+RV_PRIOR_PREFIX = "rvprior"
 FIT_RESULT_COLUMNS = (
     "fitted_a",
     "fitted_b",
@@ -130,6 +142,7 @@ RV_NO_PRIOR_RESULT_COLUMNS = tuple(
     f"{RV_NO_PRIOR_PREFIX}_fitted_rv_reference_time",
     f"{RV_NO_PRIOR_PREFIX}_fitted_peak_time",
 )
+RV_PRIOR_RESULT_COLUMNS = tuple(f"{RV_PRIOR_PREFIX}_{column}" for column in FIT_RESULT_COLUMNS)
 RV_NO_PRIOR_PARAMETER_NAMES = numpy.asarray(
     ["a", "i", "Macc", "e", "periapsis_phase", "rv_phase"],
     dtype=str,
@@ -139,14 +152,14 @@ RV_NO_PRIOR_PARAMETER_NAMES = numpy.asarray(
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "Fit existing rv results with RV data only, sampling a free RV "
-            "phase instead of using the photometric peak-time prior."
+            "Fit evenly spaced RV simulations both with the photometric "
+            "peak-time prior and with a free RV phase."
         )
     )
     parser.add_argument(
-        "--clear-rv-no-prior-results",
+        "--clear-results",
         action="store_true",
-        help="Drop only existing rvnoprior_* columns before fitting.",
+        help="Drop existing RV-only result columns before fitting.",
     )
     return parser.parse_args()
 
@@ -408,7 +421,7 @@ def scalar_is_finite(value):
 def fit_columns_complete(row):
     return all(
         column in row and scalar_is_finite(row[column])
-        for column in RV_NO_PRIOR_RESULT_COLUMNS
+        for column in (*RV_PRIOR_RESULT_COLUMNS, *RV_NO_PRIOR_RESULT_COLUMNS)
     )
 
 
@@ -420,16 +433,35 @@ def result_checkpoint_key(row):
     return f"row:{row.name}"
 
 
-def load_fitted_timeseries():
-    if not TIMESERIES_TABLE_PATH.exists():
-        raise FileNotFoundError(
-            f"Existing fitted timeseries table not found at {TIMESERIES_TABLE_PATH}"
+def load_results():
+    if RV_EVEN_SPACED_RESULTS_PATH.exists():
+        table = pandas.read_pickle(RV_EVEN_SPACED_RESULTS_PATH)
+    else:
+        table = load_rv_timeseries()
+        if not PREFIT_RESULTS_PATH.exists():
+            raise FileNotFoundError(
+                f"Photometry-prefit table is missing at {PREFIT_RESULTS_PATH}; "
+                "it supplies the RV campaign start times."
+            )
+        prefits = pandas.read_pickle(PREFIT_RESULTS_PATH)
+        required = {"simulation_id", "campaign_start"}
+        missing = required.difference(prefits.columns)
+        if missing:
+            raise KeyError(f"Photometry-prefit table is missing columns: {sorted(missing)}")
+        table = table.merge(
+            prefits.loc[:, ["simulation_id", "campaign_start"]].rename(
+                columns={"simulation_id": "system_id"}
+            ),
+            on="system_id",
+            how="left",
+            validate="many_to_one",
         )
-    table = pandas.read_pickle(TIMESERIES_TABLE_PATH)
+        if table["campaign_start"].isna().any():
+            raise KeyError("No campaign start time was found for one or more RV systems")
     logger.info(
-        "Loaded %d fitted timeseries rows from %s",
+        "Loaded %d RV evenly spaced result rows from %s",
         len(table),
-        TIMESERIES_TABLE_PATH,
+        RV_EVEN_SPACED_RESULTS_PATH,
     )
     return table
 
@@ -491,6 +523,37 @@ def padded_series(series, fill_value=0.0, fill_from_first=False):
     return data, mask
 
 
+def evenly_spaced_curve(ts):
+    """Generate the independent, deterministic evenly spaced RV realization.
+
+    Targeted RV curves are retained for the joint-fit campaign.  This helper
+    creates the additional RV-only experiment from the simulation truth at a
+    separate regular grid, with a seed tied to ``rv_id`` so checkpointed
+    reruns reproduce exactly the same noisy measurements.
+    """
+    if "campaign_start" not in ts:
+        raise KeyError("RV metadata must include campaign_start for evenly spaced fits")
+    times = evenly_spaced_rv_observations(
+        ts["campaign_start"], ts["baseline"], ts["nobs"]
+    )
+    parameters = numpy.asarray(
+        [ts[name] for name in ("a", "i", "Macc", "Mcomp", "Rcomp", "Teff", "e", "periapsis_phase")],
+        dtype=float,
+    )
+    noiseless_rv = numpy.asarray(
+        radial_velocity_m_per_s(times, parameters, float(ts["peak_time"])), dtype=float
+    )
+    rv_err = numpy.sqrt(
+        Spectrograph.STELLAR_NOISE.to_value(units.m / units.s) ** 2
+        + float(ts["RV accuracy"]) ** 2
+    )
+    seed = int.from_bytes(
+        hashlib.sha256(str(ts["rv_id"]).encode("utf-8")).digest()[:8], "little"
+    )
+    rv = noiseless_rv + numpy.random.default_rng(seed).normal(0.0, rv_err, len(times))
+    return {"rv_times": times, "rv": rv, "rv_err": numpy.full(len(times), rv_err)}
+
+
 def batched_fit_inputs(rows, curves):
     rv_times = []
     rv = []
@@ -528,6 +591,21 @@ def add_rv_no_prior_columns(row, fit_result):
         fit_result.rv_reference_time
     )
     new_row[f"{RV_NO_PRIOR_PREFIX}_fitted_peak_time"] = fit_result.rv_peak_time
+    return new_row
+
+
+def add_rv_prior_columns(row, system):
+    """Attach the RV-only posterior summary that uses the known peak epoch."""
+    new_row = pandas.Series(row).copy()
+    new_row[f"{RV_PRIOR_PREFIX}_fitted_a"] = system.a.value
+    new_row[f"{RV_PRIOR_PREFIX}_fitted_b"] = system.b.value
+    new_row[f"{RV_PRIOR_PREFIX}_fitted_b_max"] = system.b_max.value
+    new_row[f"{RV_PRIOR_PREFIX}_fitted_i"] = system.i.value
+    new_row[f"{RV_PRIOR_PREFIX}_fitted_Macc"] = system.Macc.value
+    new_row[f"{RV_PRIOR_PREFIX}_fitted_e"] = system.e.value
+    new_row[f"{RV_PRIOR_PREFIX}_fitted_periapsis_phase"] = system.periapsis_phase.value
+    new_row[f"{RV_PRIOR_PREFIX}_fitted_porb"] = system.porb.value
+    new_row[f"{RV_PRIOR_PREFIX}_fitted_tau_eff"] = system.tau_eff.value
     return new_row
 
 
@@ -580,6 +658,32 @@ def run_rv_no_prior_fit(args):
     return new_row
 
 
+def run_rv_prior_fit(i, ts, curve):
+    """Run an RV-only fit constrained by the photometrically known peak time."""
+    system, _, _ = self_lensing_system_from_fit_blackjax(
+        rv_times=Time(curve["rv_times"], format="jd"),
+        observed_rv=curve["rv"] * units.m / units.s,
+        observed_rv_err=curve["rv_err"] * units.m / units.s,
+        peak_time=Time(ts["peak_time"], format="jd"),
+        Mcomp=ts["Mcomp"] * units.M_sun,
+        Rcomp=ts["Rcomp"] * units.R_sun,
+        Teff=ts["Teff"] * units.K,
+        nsteps=FIT_NSTEPS,
+        nwalkers=FIT_NWALKERS,
+        burn=FIT_BURN,
+        progress=FIT_MCMC_PROGRESS,
+        progress_desc=f"MCMC RV peak prior {short_id(ts.get('rv_id', None))}",
+        progress_chunk_size=FIT_PROGRESS_CHUNK_SIZE,
+        lensing_method=FIT_LENSING_METHOD,
+        device=FIT_DEVICE,
+        prefer_gpu=FIT_DEVICE == "auto",
+        proposal_scale_fraction=FIT_PROPOSAL_SCALE_FRACTION,
+        return_sampler=False,
+        return_walker_state=False,
+    )
+    return add_rv_prior_columns(ts, system)
+
+
 def run_rv_no_prior_batch(rows, curves):
     start = time.perf_counter()
     inputs = batched_fit_inputs(rows, curves)
@@ -624,6 +728,36 @@ def run_rv_no_prior_batch(rows, curves):
     ]
 
 
+def run_rv_prior_batch(rows, curves):
+    inputs = batched_fit_inputs(rows, curves)
+    row_table = pandas.DataFrame([ts for _, ts in rows])
+    systems, _, _ = self_lensing_systems_from_batched_fit_blackjax(
+        rv_times=Time(inputs["rv_times"], format="jd"),
+        observed_rv=inputs["observed_rv"] * units.m / units.s,
+        observed_rv_err=inputs["observed_rv_err"] * units.m / units.s,
+        rv_mask=inputs["rv_mask"],
+        peak_time=Time(row_table["peak_time"].to_numpy(dtype=float), format="jd"),
+        Mcomp=row_table["Mcomp"].to_numpy(dtype=float) * units.M_sun,
+        Rcomp=row_table["Rcomp"].to_numpy(dtype=float) * units.R_sun,
+        Teff=row_table["Teff"].to_numpy(dtype=float) * units.K,
+        d=row_table["d"].to_numpy(dtype=float) * units.kpc,
+        false_alarm_probability=0.5,
+        nsteps=FIT_NSTEPS,
+        nwalkers=FIT_NWALKERS,
+        burn=FIT_BURN,
+        progress=FIT_MCMC_PROGRESS,
+        progress_desc=f"MCMC batched RV peak prior {short_id(rows[0][1].get('system_id', None))}",
+        progress_chunk_size=FIT_PROGRESS_CHUNK_SIZE,
+        lensing_method=FIT_LENSING_METHOD,
+        device=FIT_DEVICE,
+        prefer_gpu=FIT_DEVICE == "auto",
+        proposal_scale_fraction=FIT_PROPOSAL_SCALE_FRACTION,
+        return_sampler=False,
+        return_walker_state=False,
+    )
+    return [add_rv_prior_columns(row, system) for (_, row), system in zip(rows, systems)]
+
+
 def batched_row_chunks(rows):
     if FIT_BATCH_SIZE is None or FIT_BATCH_SIZE >= len(rows):
         yield rows
@@ -637,12 +771,16 @@ def fit_rv_file(rows):
     if not rows:
         return []
     path = rows[0][1]["rv_path"]
-    logger.info("Loading grouped rv curves from %s", path)
-    curves = load_rv_timeseries_curves(rows)
+    logger.info("Generating evenly spaced RV curves for %s", path)
+    curves = {str(ts["rv_id"]): evenly_spaced_curve(ts) for _, ts in rows}
     if FIT_BATCHED and not FIT_SAVE_SAMPLERS:
         results = []
         for batch_rows in batched_row_chunks(rows):
-            results.extend(run_rv_no_prior_batch(batch_rows, curves))
+            prior_rows = run_rv_prior_batch(batch_rows, curves)
+            no_prior_rows = run_rv_no_prior_batch(batch_rows, curves)
+            results.extend(
+                merge_rv_fit_rows(prior_rows, no_prior_rows)
+            )
         return results
     results = []
     for i, ts in tqdm(
@@ -652,7 +790,10 @@ def fit_rv_file(rows):
         leave=False,
         dynamic_ncols=True,
     ):
-        results.append(run_rv_no_prior_fit((i, ts, curves[str(ts["rv_id"])])))
+        curve = curves[str(ts["rv_id"])]
+        prior_row = run_rv_prior_fit(i, ts, curve)
+        no_prior_row = run_rv_no_prior_fit((i, ts, curve))
+        results.extend(merge_rv_fit_rows([prior_row], [no_prior_row]))
     return results
 
 
@@ -747,7 +888,20 @@ def process_map_iter(fn, iterable, total=None, desc=None, max_workers=None, chun
         )
 
 
-def merge_rv_no_prior_results(existing_results, new_rows):
+def merge_rv_fit_rows(prior_rows, no_prior_rows):
+    no_prior_by_key = {result_checkpoint_key(row): row for row in no_prior_rows}
+    merged_rows = []
+    for prior_row in prior_rows:
+        combined = pandas.Series(prior_row).copy()
+        no_prior_row = no_prior_by_key[result_checkpoint_key(prior_row)]
+        for column, value in no_prior_row.items():
+            if column.startswith(f"{RV_NO_PRIOR_PREFIX}_"):
+                combined[column] = value
+        merged_rows.append(combined)
+    return merged_rows
+
+
+def merge_rv_even_spaced_results(existing_results, new_rows):
     if not new_rows:
         return existing_results.copy()
     merged = existing_results.copy()
@@ -762,16 +916,17 @@ def merge_rv_no_prior_results(existing_results, new_rows):
             raise ValueError(f"Refusing to add new result row for unknown key {key}")
         target_index = index_by_key[key]
         for column, value in row.items():
-            if column.startswith(f"{RV_NO_PRIOR_PREFIX}_"):
+            if column.startswith((f"{RV_PRIOR_PREFIX}_", f"{RV_NO_PRIOR_PREFIX}_")):
                 merged.at[target_index, column] = value
     return merged
 
 
 def save_results(table):
-    temp_path = Path(f"{TIMESERIES_TABLE_PATH}.rvnoprior.new.gz")
+    RV_EVEN_SPACED_RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = Path(f"{RV_EVEN_SPACED_RESULTS_PATH}.new.gz")
     table.reset_index(drop=True).to_pickle(temp_path)
-    os.replace(temp_path, TIMESERIES_TABLE_PATH)
-    logger.info("Saved RV-only no-prior columns atomically to %s", TIMESERIES_TABLE_PATH)
+    os.replace(temp_path, RV_EVEN_SPACED_RESULTS_PATH)
+    logger.info("Saved RV evenly spaced results atomically to %s", RV_EVEN_SPACED_RESULTS_PATH)
 
 
 class AsyncCheckpointWriter:
@@ -805,7 +960,7 @@ class AsyncCheckpointWriter:
     def close(self, final_rows=None):
         if not self.enabled:
             if final_rows is not None:
-                save_results(merge_rv_no_prior_results(self.base_results, final_rows))
+                save_results(merge_rv_even_spaced_results(self.base_results, final_rows))
             return
         with self.condition:
             if final_rows is not None:
@@ -825,7 +980,7 @@ class AsyncCheckpointWriter:
                 rows = self.latest_rows
                 self.latest_rows = None
             try:
-                save_results(merge_rv_no_prior_results(self.base_results, rows))
+                save_results(merge_rv_even_spaced_results(self.base_results, rows))
             except Exception as exc:
                 self.error = exc
                 logger.exception("Background checkpoint writer failed")
@@ -855,14 +1010,14 @@ def record_group_results(group_results, progress, checkpoint_writer):
         progress.last_checkpoint_result_count = progress.new_result_count
 
 
-def clear_rv_no_prior_columns(table):
+def clear_rv_fit_columns(table):
     columns = [
         column
         for column in table.columns
-        if column.startswith(f"{RV_NO_PRIOR_PREFIX}_")
+        if column.startswith((f"{RV_PRIOR_PREFIX}_", f"{RV_NO_PRIOR_PREFIX}_"))
     ]
     if columns:
-        logger.info("Dropping %d existing rvnoprior column(s)", len(columns))
+        logger.info("Dropping %d existing RV-only result column(s)", len(columns))
         return table.drop(columns=columns)
     return table
 
@@ -870,7 +1025,7 @@ def clear_rv_no_prior_columns(table):
 if __name__ == "__main__":
     args = parse_args()
     configure_logging()
-    logger.info("Starting RV-only no-prior fitting script")
+    logger.info("Starting RV evenly spaced fitting script")
     logger.info(
         "Settings: FIT_MAX_WORKERS=%d FIT_SAMPLE_SIZE=%s FIT_NSTEPS=%d "
         "FIT_NWALKERS=%d FIT_BURN=%d FIT_BATCH_SIZE=%s FIT_BATCHED=%s "
@@ -900,9 +1055,9 @@ if __name__ == "__main__":
             f"Available devices: [{jax_device_summary()}]"
         )
 
-    existing_results = load_fitted_timeseries()
-    if args.clear_rv_no_prior_results:
-        existing_results = clear_rv_no_prior_columns(existing_results)
+    existing_results = load_results()
+    if args.clear_results:
+        existing_results = clear_rv_fit_columns(existing_results)
         save_results(existing_results)
     candidate_results = existing_results
     if FIT_BATCH_FILE:
@@ -910,7 +1065,7 @@ if __name__ == "__main__":
 
     rows_to_fit = rows_requiring_fit(candidate_results)
     if len(rows_to_fit) == 0:
-        logger.info("No rows left with missing RV-only no-prior fit columns; exiting")
+        logger.info("No rows left with missing RV-only fit columns; exiting")
         raise SystemExit
     if FIT_BATCH_FILE:
         logger.info("Using all %d incomplete manifest rows for fitting", len(rows_to_fit))
@@ -931,7 +1086,7 @@ if __name__ == "__main__":
         for group_results in preloaded_process_map_iter(
             jobs,
             total=len(jobs),
-            desc="RV-only no-prior fits",
+            desc="RV-only evenly spaced fits",
             max_workers=FIT_MAX_WORKERS,
         ):
             record_group_results(group_results, progress, checkpoint_writer)
@@ -946,6 +1101,6 @@ if __name__ == "__main__":
         checkpoint_writer.close(final_rows=progress.new_rows)
         raise
     logger.info(
-        "Finished RV-only no-prior fitting script with %d new row update(s)",
+        "Finished RV evenly spaced fitting script with %d new row update(s)",
         progress.new_result_count,
     )

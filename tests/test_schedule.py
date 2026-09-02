@@ -24,6 +24,12 @@ PARAMETERS = numpy.array([1.0, numpy.pi / 2, 10.0, 1.0, 1.0, 5772.0, 0.0, 0.0])
 
 
 class RVScheduleTest(unittest.TestCase):
+    def test_evenly_spaced_helper_covers_the_full_campaign(self):
+        assert_allclose(
+            schedule.evenly_spaced_rv_observations(50.0, 150.0, 6),
+            numpy.linspace(50.0, 200.0, 6),
+        )
+
     def test_schedules_peak_triplet_and_even_remaining_observations(self):
         times = schedule.schedule_rv_observations(
             t0=100.0,

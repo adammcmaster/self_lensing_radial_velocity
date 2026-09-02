@@ -27,7 +27,7 @@ from selflensing.models import DEFAULT_LIMITS
 
 
 def load_rv_no_prior_script():
-    path = SRC_PATH / "3.1_fit_rv_only_no_prior.py"
+    path = SRC_PATH / "4_rv_even_spaced_fit.py"
     spec = importlib.util.spec_from_file_location("rv_no_prior_script", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -78,13 +78,8 @@ class RVOnlyNoPriorDriftTest(unittest.TestCase):
         proposal_scale = rv_only_no_prior._default_proposal_scale(0.005)
         observed_rv = numpy.arange(13.0)
 
-        upstream = upstream_blackjax._scaled_proposal_scale(
-            proposal_scale[:5],
-            observed_rv,
-            None,
-            None,
-            None,
-        )
+        upstream_args = [proposal_scale[:5], observed_rv, None, None, None, None]
+        upstream = upstream_blackjax._scaled_proposal_scale(*upstream_args)
         local = rv_only_no_prior._scaled_rv_proposal_scale(
             proposal_scale,
             observed_rv,
@@ -154,7 +149,7 @@ class RVOnlyNoPriorDriftTest(unittest.TestCase):
             )
         ]
 
-        merged = script.merge_rv_no_prior_results(base, new_rows)
+        merged = script.merge_rv_even_spaced_results(base, new_rows)
 
         self.assertEqual(list(merged["rv_id"]), ["a", "b"])
         self.assertEqual(merged.loc[0, "fitted_Macc"], 7.0)

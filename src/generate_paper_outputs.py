@@ -22,7 +22,7 @@ from matplotlib.colors import ListedColormap, LogNorm, Normalize
 from matplotlib.lines import Line2D
 
 from estimation import calc_self_lensing_observable_space
-from fitting import PREFIT_RESULTS_PATH
+from fitting import PREFIT_RESULTS_PATH, RV_EVEN_SPACED_RESULTS_PATH
 from utils import configure_logging
 
 
@@ -89,8 +89,8 @@ PARAMETERS = {
 PREFIT_COMPARISON_STAGE_STYLES = {
     "Photometry only": {"color": "#CC79A7", "marker": None, "linestyle": "--"},
     "Photometry + RV": {"color": "#0072B2", "marker": "o", "linestyle": "-"},
-    "RV only": {"color": "#009E73", "marker": "s", "linestyle": "-."},
-    "RV only, no peak time": {"color": "#D55E00", "marker": "^", "linestyle": ":"},
+    "RV (evenly spaced)": {"color": "#009E73", "marker": "s", "linestyle": "-."},
+    "RV (evenly spaced, no peak time prior)": {"color": "#D55E00", "marker": "^", "linestyle": ":"},
 }
 
 SURVEY_DETECTED_COUNTS = {
@@ -132,6 +132,12 @@ def prefit_result_path():
     return Path(os.environ.get("SLRV_PREFIT_OUTPUT_PATH", PREFIT_RESULTS_PATH))
 
 
+def rv_even_spaced_result_path():
+    return Path(
+        os.environ.get("SLRV_RV_EVEN_SPACED_FIT_OUTPUT_PATH", RV_EVEN_SPACED_RESULTS_PATH)
+    )
+
+
 def attach_prefit_results(results):
     """Join photometry-only fit summaries to every RV/joint-fit row."""
     path = prefit_result_path()
@@ -168,6 +174,25 @@ def attach_prefit_results(results):
     if duplicate_columns:
         merged = merged.drop(columns=duplicate_columns)
     return merged.merge(prefits, on="system_id", how="left", validate="many_to_one")
+
+
+def attach_rv_even_spaced_results(results):
+    """Join standalone RV-only fits without modifying joint-fit checkpoints."""
+    path = rv_even_spaced_result_path()
+    if not path.exists():
+        logger.warning("RV evenly spaced results are unavailable at %s", path)
+        return results
+    rv_results = pandas.read_pickle(path).copy()
+    if "rv_id" not in rv_results:
+        raise KeyError("RV evenly spaced results table is missing rv_id")
+    columns = ["rv_id", *[
+        column for column in rv_results
+        if column.startswith(("rvprior_", "rvnoprior_"))
+    ]]
+    rv_results = rv_results.loc[:, columns]
+    if rv_results["rv_id"].duplicated().any():
+        raise ValueError("RV evenly spaced results contain duplicate rv_id values")
+    return results.merge(rv_results, on="rv_id", how="left", validate="one_to_one")
 
 
 def relative_error(truth, fitted):
@@ -236,6 +261,7 @@ def load_results(path):
 
     results = results.dropna(subset=["baseline", "nobs", "RV accuracy"]).copy()
     results = attach_prefit_results(results)
+    results = attach_rv_even_spaced_results(results)
     results["baseline_years"] = results["baseline"] / 365.0
     results["n_rv"] = results["nobs"].astype(int)
     results["strategy"] = (
@@ -295,7 +321,7 @@ def prefit_comparison_parameters(results):
     parameters = {}
     for param, spec in PARAMETERS.items():
         prefit_column = f"prefit_{spec['fitted']}"
-        rvfit_column = f"rvfit_{spec['fitted']}"
+        rvfit_column = f"rvprior_{spec['fitted']}"
         rv_no_prior_column = f"rvnoprior_{spec['fitted']}"
         if prefit_column in results.columns:
             parameters[param] = {**spec, "prefit": prefit_column}
@@ -320,8 +346,8 @@ def prefit_joint_error_rows(results):
         for fit_stage, value_column in (
             ("Photometry only", spec["prefit"]),
             ("Photometry + RV", spec["fitted"]),
-            ("RV only", spec.get("rvfit")),
-            ("RV only, no peak time", spec.get("rvnoprior")),
+            ("RV (evenly spaced)", spec.get("rvfit")),
+            ("RV (evenly spaced, no peak time prior)", spec.get("rvnoprior")),
         ):
             if value_column is None:
                 continue
@@ -376,8 +402,8 @@ def prefit_joint_error_rows(results):
 def warn_on_matching_joint_and_rv_only_columns(results, parameters):
     for param, spec in parameters.items():
         for label, rv_column in (
-            ("RV-only", spec.get("rvfit")),
-            ("RV-only no-peak-time", spec.get("rvnoprior")),
+            ("RV evenly spaced", spec.get("rvfit")),
+            ("RV evenly spaced, no-peak-time", spec.get("rvnoprior")),
         ):
             if rv_column is None:
                 continue
@@ -1162,8 +1188,8 @@ def prefit_compact_object_class_rows(results):
     fit_stages = (
         ("Photometry only", mass_spec["prefit"]),
         ("Photometry + RV", mass_spec["fitted"]),
-        ("RV only", mass_spec.get("rvfit")),
-        ("RV only, no peak time", mass_spec.get("rvnoprior")),
+        ("RV (evenly spaced)", mass_spec.get("rvfit")),
+        ("RV (evenly spaced, no peak time prior)", mass_spec.get("rvnoprior")),
     )
     rows = []
     for fit_stage, value_column in fit_stages:

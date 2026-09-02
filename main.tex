@@ -564,14 +564,12 @@ RV accuracy also has a measurable effect on the median relative error, but this 
 
 \subsection{Photometry-only and RV-only vs joint fits and $N_\text{RV}$}
 
-The simulations are generated on the assumption that we photometrically detect a candidate self-lensing event and then follow up with RV measurements some time later. In order to optimise the RV observing schedule we therefore explore how informative the photometry is alone and whether information derived from the photometry can be used in planning RV observations. For completeness, we also assess how well we can recover parameters with RV only.
-
-\textbf{TODO: Decide whether to discuss observation timing here, or marginalise it out to focus on RV precision and count.}
+The simulations are generated on the assumption that we photometrically detect a candidate self-lensing event and then follow up with RV measurements some time later. The joint fits use the targeted schedules described above. For completeness, we separately assess two RV-only fits on independently generated evenly spaced observations: one uses the known photometric peak time as a prior and the other leaves the RV phase free.
 
 \begin{figure*}
     \centering
     \includegraphics[height=0.4\textheight]{paper/figures/prefit_improvement_by_n_rv.pdf}
-    \caption{Comparison between the photometry-only pre-fit accuracy, RV-only fit accuracy, and joint photometry plus RV fit accuracy. Separate panels show the fitted parameters. Points show the median relative error in each parameter as a function of the number of RV measurements, and shaded regions show the interquartile range.}
+    \caption{Comparison between the photometry-only pre-fit accuracy, evenly spaced RV-only fit accuracy (with and without the peak-time prior), and joint photometry plus RV fit accuracy. Separate panels show the fitted parameters. Points show the median relative error in each parameter as a function of the number of RV measurements, and shaded regions show the interquartile range.}
     \label{fig:prefit-improvement-by-n-rv}
 \end{figure*}
 

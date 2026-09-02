@@ -107,10 +107,7 @@ from selflensing.fitting import (
 from selflensing.models import DEFAULT_LIMITS, SelfLensingSystem
 
 from fitting import PREFIT_RESULTS_PATH, SAMPLER_STATE_PATH, TIMESERIES_TABLE_PATH
-from fit_materialization import (
-    materialize_joint_batch_result as materialize_joint_batch_result_in_process,
-    materialize_rv_only_batch_result as materialize_rv_only_batch_result_in_process,
-)
+from fit_materialization import materialize_joint_batch_result as materialize_joint_batch_result_in_process
 from prefit import (
     PREFIT_NATIVE_CADENCE_DAYS,
     bin_full_lightcurve_hourly,
@@ -215,15 +212,6 @@ FIT_BATCHED_JOINT = os.environ.get("SLRV_FIT_BATCHED_JOINT", "1").lower() in (
     "yes",
     "on",
 )
-FIT_BATCHED_RV_ONLY = os.environ.get("SLRV_FIT_BATCHED_RV_ONLY", "1").lower() in (
-    "1",
-    "true",
-    "yes",
-    "on",
-)
-FIT_RUN_RV_ONLY = os.environ.get("SLRV_FIT_RUN_RV_ONLY", "0").lower() in (
-    "1", "true", "yes", "on"
-)
 FIT_SAVE_SAMPLERS = os.environ.get("SLRV_FIT_SAVE_SAMPLERS", "0").lower() in (
     "1",
     "true",
@@ -248,10 +236,6 @@ FIT_CPU_SIDECAR_MAX_WORKERS = max(
 FIT_CPU_PREFETCH_FILES = max(
     1, int(os.environ.get("SLRV_FIT_CPU_PREFETCH_FILES", 16))
 )
-# RV-only fits have no photometry dimension, so retain their independently
-# configurable batch size. Joint fits choose their batch size from the
-# photometry cadence below.
-FIT_BATCH_SIZE = optional_positive_int(os.environ.get("SLRV_FIT_BATCH_SIZE", 4))
 JOINT_FIT_BATCH_SIZE_SIX_HOUR = 20
 JOINT_FIT_BATCH_SIZE_HOURLY = 8
 JOINT_FIT_BATCH_SIZE_NATIVE_CADENCE = 1
@@ -310,7 +294,6 @@ FIT_RESULT_COLUMNS = (
     "fitted_tau_eff",
 )
 PREFIT_RESULT_COLUMNS = tuple(f"prefit_{column}" for column in FIT_RESULT_COLUMNS)
-RV_ONLY_RESULT_COLUMNS = tuple(f"rvfit_{column}" for column in FIT_RESULT_COLUMNS)
 
 
 def safe_path_token(value):
@@ -623,12 +606,8 @@ def row_needs_joint_fit(row):
     return FIT_USE_LC and not fit_columns_complete(row, FIT_RESULT_COLUMNS)
 
 
-def row_needs_rv_only_fit(row):
-    return FIT_RUN_RV_ONLY and not fit_columns_complete(row, RV_ONLY_RESULT_COLUMNS)
-
-
 def row_needs_any_fit(row):
-    return row_needs_prefit(row) or row_needs_joint_fit(row) or row_needs_rv_only_fit(row)
+    return row_needs_prefit(row) or row_needs_joint_fit(row)
 
 
 def existing_result_map(results):
@@ -1470,9 +1449,7 @@ class PendingRVFileResult:
     rows: list
     rows_by_key: dict
     results: list
-    rv_only_results: list
     pending_joint_materialization: object
-    pending_rv_only_materialization: object
     path: object
     sampler_writer: object
     close_sampler_writer: bool
@@ -1487,24 +1464,16 @@ def finish_rv_file_result(pending_result):
             finish_pending_fit_results(pending_result.pending_joint_materialization),
         )
         pending_result.pending_joint_materialization = None
-    if pending_result.pending_rv_only_materialization is not None:
-        store_materialized_results(
-            pending_result.rv_only_results,
-            pending_result.rows_by_key,
-            finish_pending_fit_results(pending_result.pending_rv_only_materialization),
-        )
-        pending_result.pending_rv_only_materialization = None
     if pending_result.materialize_executor is not None:
         pending_result.materialize_executor.shutdown(wait=True)
         pending_result.materialize_executor = None
-    logger.info("Finished all RV-only fits for %s", pending_result.path)
     if pending_result.close_sampler_writer:
         pending_result.sampler_writer.close()
     logger.info("Finished grouped fit for %s", pending_result.path)
     updated_keys = {
         result_checkpoint_key(ts)
         for _, ts in pending_result.rows
-        if row_needs_prefit(ts) or row_needs_joint_fit(ts) or row_needs_rv_only_fit(ts)
+        if row_needs_prefit(ts) or row_needs_joint_fit(ts)
     }
     return [(pending_result.rows_by_key[key], None, None) for key in updated_keys]
 
@@ -1641,12 +1610,10 @@ def fit_rv_file(rows, defer_final_materialization=False, prepared_file=None):
         logger.info("Using %d CPU-sidecar-prepared curves from %s", len(curves), path)
     rows_by_key = {result_checkpoint_key(ts): pandas.Series(ts).copy() for _, ts in rows}
     rows_needing_joint = [(i, ts) for i, ts in rows if row_needs_joint_fit(ts)]
-    rows_needing_rv_only = [(i, ts) for i, ts in rows if row_needs_rv_only_fit(ts)]
     logger.info(
-        "Grouped fit stage needs for %s: joint=%d rv_only=%d",
+        "Grouped fit stage needs for %s: joint=%d",
         path,
         len(rows_needing_joint),
-        len(rows_needing_rv_only),
     )
     initial_walker_state = None
     # Kept as explicit ``None`` arguments for the existing materialization
@@ -1665,8 +1632,7 @@ def fit_rv_file(rows, defer_final_materialization=False, prepared_file=None):
     results = []
     materialize_executor = None
     if (
-        (rows_needing_joint and can_use_batched_joint_fit())
-        or (rows_needing_rv_only and can_use_batched_rv_only_fit())
+        rows_needing_joint and can_use_batched_joint_fit()
     ):
         materialize_executor = make_materialize_executor()
     pending_joint_materialization = None
@@ -1728,13 +1694,12 @@ def fit_rv_file(rows, defer_final_materialization=False, prepared_file=None):
                     prefit_sampler_state_path,
                     prefit_ts,
                 )
-        if not (rows_needing_rv_only and can_use_batched_rv_only_fit()):
-            store_materialized_results(
-                results,
-                rows_by_key,
-                finish_pending_fit_results(pending_joint_materialization),
-            )
-            pending_joint_materialization = None
+        store_materialized_results(
+            results,
+            rows_by_key,
+            finish_pending_fit_results(pending_joint_materialization),
+        )
+        pending_joint_materialization = None
     elif rows_needing_joint:
         file_progress_desc = (
             f"RV joint fits {short_id(rows[0][1].get('system_id', Path(path).stem))}"
@@ -1777,110 +1742,11 @@ def fit_rv_file(rows, defer_final_materialization=False, prepared_file=None):
                 results.append(finished_fit)
                 rows_by_key[result_checkpoint_key(finished_fit[0])] = finished_fit[0]
     logger.info("Finished all joint fits for %s", path)
-    rv_only_results = []
-    pending_rv_only_materialization = None
-    if rows_needing_rv_only:
-        if can_use_batched_rv_only_fit():
-            current_rv_only_rows = [
-                (i, rows_by_key.get(result_checkpoint_key(ts), ts))
-                for i, ts in rows_needing_rv_only
-            ]
-            batches = list(batched_row_chunks(current_rv_only_rows))
-            if len(batches) > 1:
-                logger.info(
-                    "Splitting %d rv rows into %d batched RV-only chunks of up to %d",
-                    len(rows_needing_rv_only),
-                    len(batches),
-                    FIT_BATCH_SIZE,
-                )
-            for batch_number, batch_rows in enumerate(batches, start=1):
-                if len(batches) > 1:
-                    logger.info(
-                        "Starting batched RV-only chunk %d/%d with %d rows from %s",
-                        batch_number,
-                        len(batches),
-                        len(batch_rows),
-                        path,
-                    )
-                batch_fit_result = run_rv_only_batch(batch_rows, curves)
-                store_materialized_results(
-                    rv_only_results,
-                    rows_by_key,
-                    finish_pending_fit_results(pending_rv_only_materialization),
-                )
-                if pending_joint_materialization is not None:
-                    store_materialized_results(
-                        results,
-                        rows_by_key,
-                        finish_pending_fit_results(pending_joint_materialization),
-                    )
-                    pending_joint_materialization = None
-                materialize_rows = [
-                    (i, rows_by_key.get(result_checkpoint_key(ts), ts))
-                    for i, ts in batch_rows
-                ]
-                rv_only_materializer = (
-                    materialize_rv_only_batch_result_in_process
-                    if use_process_materializer()
-                    else materialize_rv_only_batch_result
-                )
-                pending_rv_only_materialization = materialize_executor.submit(
-                    rv_only_materializer,
-                    (
-                        materialize_rows,
-                        batch_fit_result[1],
-                        batch_fit_result[2],
-                        batch_fit_result[3],
-                    ),
-                )
-            if not defer_final_materialization:
-                store_materialized_results(
-                    rv_only_results,
-                    rows_by_key,
-                    finish_pending_fit_results(pending_rv_only_materialization),
-                )
-                pending_rv_only_materialization = None
-        else:
-            if pending_joint_materialization is not None:
-                store_materialized_results(
-                    results,
-                    rows_by_key,
-                    finish_pending_fit_results(pending_joint_materialization),
-                )
-                pending_joint_materialization = None
-            file_progress_desc = (
-                f"RV-only fits {short_id(rows[0][1].get('system_id', Path(path).stem))}"
-            )
-            for row_number, (i, ts) in enumerate(
-                tqdm(
-                    rows_needing_rv_only,
-                    total=len(rows_needing_rv_only),
-                    desc=file_progress_desc,
-                    leave=False,
-                    dynamic_ncols=True,
-                ),
-                start=1,
-            ):
-                key = result_checkpoint_key(ts)
-                row = rows_by_key.get(key, ts)
-                logger.info(
-                    "Starting RV-only fit %d/%d for rv_id=%s",
-                    row_number,
-                    len(rows_needing_rv_only),
-                    row.get("rv_id", None),
-                )
-                curve = curves[str(row["rv_id"])]
-                rv_fit_result = run_rv_only_fit(i, row, curve)
-                rv_only_result = materialize_rv_only_fit_result(rv_fit_result, row)
-                rv_only_results.append(rv_only_result)
-                rows_by_key[result_checkpoint_key(rv_only_result[0])] = rv_only_result[0]
     pending_result = PendingRVFileResult(
         rows=rows,
         rows_by_key=rows_by_key,
         results=results,
-        rv_only_results=rv_only_results,
         pending_joint_materialization=pending_joint_materialization,
-        pending_rv_only_materialization=pending_rv_only_materialization,
         path=path,
         sampler_writer=sampler_writer,
         close_sampler_writer=close_sampler_writer,
@@ -1986,14 +1852,13 @@ if __name__ == "__main__":
     logger.info("Fit batch file: %s", FIT_BATCH_FILE)
     logger.info(
         "MCMC settings: FIT_NSTEPS=%d FIT_NWALKERS=%d FIT_BURN=%d "
-        "FIT_PROGRESS_CHUNK_SIZE=%d FIT_BATCH_SIZE=%s "
+        "FIT_PROGRESS_CHUNK_SIZE=%d "
         "FIT_PROPOSAL_SCALE_FRACTION=%g "
         "FIT_PREFIT_PROPOSAL_SCALE_FRACTION=%g MP_START_METHOD=%s",
         FIT_NSTEPS,
         FIT_NWALKERS,
         FIT_BURN,
         FIT_PROGRESS_CHUNK_SIZE,
-        FIT_BATCH_SIZE if FIT_BATCH_SIZE is not None else "all",
         FIT_PROPOSAL_SCALE_FRACTION,
         FIT_PREFIT_PROPOSAL_SCALE_FRACTION,
         MP_START_METHOD,
@@ -2009,11 +1874,10 @@ if __name__ == "__main__":
     logger.info("Fit device setting: FIT_DEVICE=%s", FIT_DEVICE)
     logger.info("Fit lensing method: FIT_LENSING_METHOD=%s", FIT_LENSING_METHOD)
     logger.info(
-        "Batched fit settings: FIT_BATCHED_JOINT=%s FIT_BATCHED_RV_ONLY=%s "
+        "Batched joint-fit settings: FIT_BATCHED_JOINT=%s "
         "joint_batch_size(six_hour)=%d joint_batch_size(hourly)=%d "
         "joint_batch_size(native)=%d",
         FIT_BATCHED_JOINT,
-        FIT_BATCHED_RV_ONLY,
         JOINT_FIT_BATCH_SIZE_SIX_HOUR,
         JOINT_FIT_BATCH_SIZE_HOURLY,
         JOINT_FIT_BATCH_SIZE_NATIVE_CADENCE,

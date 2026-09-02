@@ -70,7 +70,7 @@ class PrefitImprovementStageTest(unittest.TestCase):
                 "b": [0.1, 0.2],
                 "prefit_fitted_Macc": [4.5, 9.0],
                 "fitted_Macc": [5.1, 10.1],
-                "rvfit_fitted_Macc": [5.2, 10.2],
+                "rvprior_fitted_Macc": [5.2, 10.2],
                 "rvnoprior_fitted_Macc": [6.0, 12.0],
             }
         )
@@ -83,12 +83,12 @@ class PrefitImprovementStageTest(unittest.TestCase):
             {
                 "Photometry only",
                 "Photometry + RV",
-                "RV only",
-                "RV only, no peak time",
+                "RV (evenly spaced)",
+                "RV (evenly spaced, no peak time prior)",
             },
         )
         self.assertIn(
-            "RV only, no peak time",
+            "RV (evenly spaced, no peak time prior)",
             paper_outputs.PREFIT_COMPARISON_STAGE_STYLES,
         )
 
@@ -100,14 +100,14 @@ class PrefitImprovementStageTest(unittest.TestCase):
                 "Macc": [4.0, 8.0],
                 "prefit_fitted_Macc": [2.5, 6.0],
                 "fitted_Macc": [4.2, 8.2],
-                "rvfit_fitted_Macc": [4.1, 8.1],
+                "rvprior_fitted_Macc": [4.1, 8.1],
                 "rvnoprior_fitted_Macc": [5.0, 12.0],
             }
         )
 
         rows = paper_outputs.prefit_compact_object_class_rows(results)
 
-        self.assertIn("RV only, no peak time", set(rows["fit_stage"]))
+        self.assertIn("RV (evenly spaced, no peak time prior)", set(rows["fit_stage"]))
 
 
 if __name__ == "__main__":

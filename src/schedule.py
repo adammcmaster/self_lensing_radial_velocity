@@ -266,6 +266,21 @@ def _even_times(start, duration, count):
     return numpy.linspace(start, start + duration, count)
 
 
+def evenly_spaced_rv_observations(campaign_start, baseline, nobs):
+    """Return a deterministic, evenly spaced RV schedule over the campaign.
+
+    This deliberately makes no use of photometric posterior modes or the
+    predicted lensing epoch, so every RV experiment has the same unbiased
+    time coverage for its campaign and observation count.
+    """
+    nobs = int(nobs)
+    if nobs < 1:
+        raise ValueError("nobs must be at least one")
+    if baseline <= 0:
+        raise ValueError("baseline must be positive")
+    return _even_times(float(campaign_start), float(baseline), nobs)
+
+
 def _even_times_outside_triplet(start, duration, count, anchor, delta):
     """Place observations evenly over the usable window excluding the triplet."""
     if count == 0:
