@@ -24,7 +24,7 @@ from tqdm import tqdm
 
 from photometry import PHOTOMETRY_SIMULATION_PATH
 from selflensing.batch import (
-    make_batched_light_curve_generator,
+    batched_light_curve_jit,
     batched_gp_light_curve_jit,
 )
 from selflensing.gp import TESSGP
@@ -216,7 +216,7 @@ def make_tess_gp_input_generator():
     return generate
 
 
-def _header_values(system, source_amplification):
+def _header_values(system, source_amplification, peak_time):
     return {
         "A": float(system.a.value),
         "I": float(system.i.value),
@@ -230,7 +230,7 @@ def _header_values(system, source_amplification):
         "P": float(system.porb.value),
         "TAU_EFF": float(system.tau_eff.value),
         "TAU_SL": float(system.tau_sl.value),
-        "PEAK_T": PHOTOMETRY_PEAK_JD,
+        "PEAK_T": float(peak_time),
         "AMP_SL": float(source_amplification),
         "SIMVER": "2.0",
         "GPKERNEL": GP_KERNEL_TYPE,
@@ -291,12 +291,6 @@ def main():
     absolute_times = PHOTOMETRY_PEAK_JD + relative_times
     device = next(device for device in jax.devices() if device.platform == "gpu")
     device_relative_times = jax.device_put(jnp.asarray(relative_times), device)
-    deterministic = make_batched_light_curve_generator(
-        relative_times, peak_times=0.0, device=device
-    )
-    lensing_only = make_batched_light_curve_generator(
-        relative_times, peak_times=0.0, ev=False, db=False, device=device
-    )
     tess_gp_inputs = make_tess_gp_input_generator()
     rng = numpy.random.default_rng(PHOTOMETRY_RANDOM_SEED)
     output_index = 0
@@ -346,8 +340,27 @@ def main():
                         continue
                     started = perf_counter()
                     params = parameter_matrix(batch)
-                    mean_flux = deterministic(params)
-                    sl_flux = lensing_only(params)
+                    # Each light curve has one lensing peak at a random point
+                    # within the observed TESS-sector window.
+                    peak_offsets = rng.uniform(
+                        -TESS_SECTOR_DAYS / 2.0,
+                        TESS_SECTOR_DAYS / 2.0,
+                        size=len(batch["a"]),
+                    )
+                    device_params = jax.device_put(jnp.asarray(params), device)
+                    device_peak_offsets = jax.device_put(jnp.asarray(peak_offsets), device)
+                    mean_flux = batched_light_curve_jit(
+                        device_relative_times,
+                        device_params,
+                        peak_times=device_peak_offsets,
+                    )
+                    sl_flux = batched_light_curve_jit(
+                        device_relative_times,
+                        device_params,
+                        peak_times=device_peak_offsets,
+                        ev=False,
+                        db=False,
+                    )
                     # Generator calls are asynchronous.  Attribute their real
                     # execution time here rather than to a later host transfer.
                     jax.block_until_ready(mean_flux)
@@ -380,8 +393,14 @@ def main():
                     fractional_errors = noise_measure / count_baselines
                     source_amplitudes = numpy.asarray(sl_flux).max(axis=1) - 1.0
                     detectable = source_amplitudes >= DETECTION_SIGMA * fractional_errors
-                    for index, (flux, flux_err, amplitude, is_detectable) in enumerate(
-                        zip(noisy_flux, fractional_errors, source_amplitudes, detectable)
+                    for index, (flux, flux_err, amplitude, is_detectable, peak_offset) in enumerate(
+                        zip(
+                            noisy_flux,
+                            fractional_errors,
+                            source_amplitudes,
+                            detectable,
+                            peak_offsets,
+                        )
                     ):
                         if not bool(is_detectable):
                             continue
@@ -395,7 +414,11 @@ def main():
                                     absolute_times,
                                     flux,
                                     numpy.full_like(flux, flux_err),
-                                    _header_values(system, amplitude),
+                                    _header_values(
+                                        system,
+                                        amplitude,
+                                        PHOTOMETRY_PEAK_JD + peak_offset,
+                                    ),
                                 )
                             )
                         output_index += 1
