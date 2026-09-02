@@ -1423,12 +1423,17 @@ def plot_population_weighted_survey_followup_heatmaps():
         )
         return
 
-    plot_population_weighted_period_heatmaps(
+    plot_population_weighted_binned_heatmaps(
         pandas.read_csv(survey_counts_path),
         metrics=[
             ("classified_fraction", "class", "Recovered [per cent]", "viridis", ".0f", 100),
         ],
         filename_prefix="population_weighted_rv_followup_heatmaps_counts",
+        bin_column="lens_mass_range",
+        bin_labels=LENS_MASS_RANGE_LABELS,
+        aggregate_column="period_range",
+        aggregate_label="All periods",
+        x_label="True lens mass range",
     )
 
 
@@ -1471,23 +1476,44 @@ def plot_population_weighted_relative_error_heatmaps():
         )
         return
 
-    plot_population_weighted_period_heatmaps(
+    plot_population_weighted_binned_heatmaps(
         survey_counts,
-        metrics=[
-            (value_column, slug, colorbar_label, "viridis_r", ".1f", None)
-            for value_column, slug, _, colorbar_label in metrics
-        ],
+        metrics=[(metrics[0][0], metrics[0][1], metrics[0][3], "viridis_r", ".1f", None)],
         filename_prefix="population_weighted_rv_followup_heatmaps_relative_error",
+        bin_column="lens_mass_range",
+        bin_labels=LENS_MASS_RANGE_LABELS,
+        aggregate_column="period_range",
+        aggregate_label="All periods",
+        x_label="True lens mass range",
+    )
+    plot_population_weighted_binned_heatmaps(
+        survey_counts,
+        metrics=[(metrics[1][0], metrics[1][1], metrics[1][3], "viridis_r", ".1f", None)],
+        filename_prefix="population_weighted_rv_followup_heatmaps_relative_error",
+        bin_column="period_range",
+        bin_labels=ORBITAL_PERIOD_RANGE_LABELS,
+        aggregate_column="lens_mass_range",
+        aggregate_label=ALL_MASSES_LABEL,
+        x_label="True orbital period range",
     )
 
 
-def plot_population_weighted_period_heatmaps(survey_counts, metrics, filename_prefix):
-    """Plot weighted metrics by orbital period in the recovery-grid layout."""
-    required_columns = {"lens_mass_range", "period_range"}
+def plot_population_weighted_binned_heatmaps(
+    survey_counts,
+    metrics,
+    filename_prefix,
+    bin_column,
+    bin_labels,
+    aggregate_column,
+    aggregate_label,
+    x_label,
+):
+    """Plot weighted metrics in the recovery-grid layout for a chosen true-value bin."""
+    required_columns = {bin_column, aggregate_column}
     missing = sorted(required_columns.difference(survey_counts.columns))
     if missing:
         raise KeyError(
-            "Population-weighted heatmaps require period-bin rows. Re-run "
+            "Population-weighted heatmaps require binned rows. Re-run "
             "src/5_population_weighted_followup.py; missing columns: "
             f"{missing}"
         )
@@ -1495,19 +1521,22 @@ def plot_population_weighted_period_heatmaps(survey_counts, metrics, filename_pr
     reference_survey = next(iter(SURVEY_DETECTED_COUNTS))
     data = survey_counts[
         (survey_counts["survey"] == reference_survey)
-        & (survey_counts["lens_mass_range"] == ALL_MASSES_LABEL)
-        & survey_counts["period_range"].isin(ORBITAL_PERIOD_RANGE_LABELS)
+        & (survey_counts[aggregate_column] == aggregate_label)
+        & survey_counts[bin_column].isin(bin_labels)
     ].copy()
     if data.empty:
         raise ValueError(
-            "Population-weighted heatmaps require rows with lens_mass_range='All masses'. "
-            "Re-run src/5_population_weighted_followup.py."
+            "Population-weighted heatmaps require rows with "
+            f"{aggregate_column}={aggregate_label!r}. Re-run "
+            "src/5_population_weighted_followup.py."
         )
 
     baselines = numpy.sort(data["baseline"].unique())
     nobss = numpy.sort(data["nobs"].unique())
     rv_values = numpy.sort(data["RV accuracy"].unique())
-    period_ranges = ORBITAL_PERIOD_RANGE_LABELS
+    available_bin_labels = [
+        label for label in bin_labels if label in set(data[bin_column])
+    ]
     facet_rows, facet_columns, rows_per_baseline = truth_range_facet_geometry(
         baselines, nobss
     )
@@ -1520,10 +1549,7 @@ def plot_population_weighted_period_heatmaps(survey_counts, metrics, filename_pr
             # Keep the heatmap cells near the proportions of the original
             # four-period by five-RV-accuracy panels as strategies are added.
             # A single unwrapped Nobs row makes every cell a thin strip.
-            figsize=(
-                max(8.2, 3.0 * facet_columns + 1.6),
-                max(3.8, 2.1 * facet_rows + 1.8),
-            ),
+            figsize=truth_range_heatmap_figure_size(facet_rows, facet_columns),
             sharex=True,
             sharey=True,
             constrained_layout=True,
@@ -1541,9 +1567,9 @@ def plot_population_weighted_period_heatmaps(survey_counts, metrics, filename_pr
                 ]
                 matrix = subset.pivot(
                     index="RV accuracy",
-                    columns="period_range",
+                    columns=bin_column,
                     values=value_column,
-                ).reindex(index=rv_values, columns=period_ranges)
+                ).reindex(index=rv_values, columns=available_bin_labels)
                 heatmap = seaborn.heatmap(
                     100.0 * matrix,
                     ax=axis,
@@ -1551,7 +1577,6 @@ def plot_population_weighted_period_heatmaps(survey_counts, metrics, filename_pr
                     vmax=vmax,
                     cmap=cmap,
                     annot=True,
-                    annot_kws={"fontsize": 6.0},
                     fmt=fmt,
                     cbar=False,
                     linewidths=0.35,
@@ -1568,7 +1593,7 @@ def plot_population_weighted_period_heatmaps(survey_counts, metrics, filename_pr
                     axis.set_ylabel("")
                 axis.set_xlabel("")
                 axis.tick_params(axis="x", rotation=35)
-        fig.supxlabel("True orbital period range")
+        fig.supxlabel(x_label)
         if last_mesh is not None:
             fig.colorbar(
                 last_mesh,
@@ -1792,6 +1817,16 @@ def binned_metric_rows(
 
 
 MAX_NOBS_FACET_COLUMNS = 4
+HEATMAP_FACET_WIDTH = 3.0
+HEATMAP_FACET_HEIGHT = 2.1
+
+
+def truth_range_heatmap_figure_size(rows, columns):
+    """Return a shared figure size for tiled truth-range heatmaps."""
+    return (
+        max(8.2, HEATMAP_FACET_WIDTH * columns + 1.6),
+        max(3.8, HEATMAP_FACET_HEIGHT * rows + 1.8),
+    )
 
 
 def truth_range_facet_geometry(baselines, nobss):
@@ -1848,10 +1883,7 @@ def plot_recovery_by_truth_range(
     fig, axes = pyplot.subplots(
         facet_rows,
         facet_columns,
-        figsize=(
-            max(8.2, 1.8 * facet_columns + 1.6),
-            max(3.8, 1.45 * facet_rows + 1.8),
-        ),
+        figsize=truth_range_heatmap_figure_size(facet_rows, facet_columns),
         sharex=True,
         sharey=True,
         constrained_layout=True,
@@ -1955,10 +1987,7 @@ def plot_metric_by_truth_range(
     fig, axes = pyplot.subplots(
         facet_rows,
         facet_columns,
-        figsize=(
-            max(8.2, 1.8 * facet_columns + 1.6),
-            max(3.8, 1.45 * facet_rows + 1.8),
-        ),
+        figsize=truth_range_heatmap_figure_size(facet_rows, facet_columns),
         sharex=True,
         sharey=True,
         constrained_layout=True,
