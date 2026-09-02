@@ -366,13 +366,13 @@ modelling stellar variability through GPs, see \cite{aigrain_gaussian_2023}.
 
 \subsection{Photometric MCMC fit} \label{sec:phot-fit}
 
-Each simulated photometric light curve is then fitted via MCMC using a random-walk Metropolis-Hastings sampler implemtned with the BlackJAX package (128 walkers, 200 burn-in steps, 1,000 post-burn steps). For these fits it is assumed we know the stellar physical parameters exactly, along with the exact relative amplification (Section~\ref{sec:phot-sims}) and crossing time. In reality there will be uncertainty in these values, but determining them is a separate probem which is out of scope for the present work. Light curves are binned according to their crossing time to minimise computation time while preserving the shape of the self-lensing peak (\textbf{TODO: Insert table of bin sizes}).
+Each simulated photometric light curve is fitted via MCMC using a random-walk Metropolis-Hastings sampler implemtned with the BlackJAX package (128 walkers, 200 burn-in steps, 1,000 post-burn steps). For these fits it is assumed we know the stellar physical parameters exactly, along with the exact relative amplification (Section~\ref{sec:phot-sims}) and crossing time. In reality there will be uncertainty in these values, but determining them is a separate probem which is out of scope for the present work. Light curves are binned according to their crossing time to minimise computation time while preserving the shape of the self-lensing peak (\textbf{TODO: Insert table of bin sizes}).
 
 For computational efficiency, fits are run as batched, vectorised fits on a GPU. We fit only the fundamental physical parameters of the system,
 \begin{equation}
     \boldsymbol{\theta} = (a, i, M_\mathrm{lens}, e, \omega),
 \end{equation}
-with the stellar mass, stellar radius, effective temperature, distance, and lensing-peak time held fixed at their simulated values. Orbital period, impact parameter, maximum impact parameter, and effective lensing-event duration are derived from the fitted physical parameters rather than fitted directly.
+with the stellar mass, stellar radius, effective temperature, distance, and lensing-peak time held fixed at their simulated values. Orbital period, impact parameter, maximum possible impact parameter, and effective lensing-event duration are derived from the fitted physical parameters rather than fitted directly.
 
 Walkers are initialised using an estimated parameter distribution calculated from $\tau_\mathrm{eff}$ and $A_\mathrm{SL}$. Similar to Figure~\ref{fig:self-lensing-observable-space}, parameters are calculated in the region around the observed values, and then these are clustered by the parameters in $\boldsymbol{\theta}$ using $k$-means clustering to find distinct groupings of estimated parameters. The central point of each cluster is used to choose initial walker positions. This ensures the random walk thoroughly explores the area of the parameter space with the highest likelihood given the known amplification and crossing time, without constraining it from exploring beyond those regions.
 
@@ -380,17 +380,9 @@ We use a uniform prior within the corresponding parameter limits in Table~\ref{t
 
 At the end of the MCMC run, the posterior parameter distribution is clustered using $k$-means clustering to derive a set of distinct solutions which could produce the simulated light curve (to account for degeneracies).
 
-\subsection{Targeted radial velocity scheduling} \label{sec:scheduling}
-
-\textbf{TODO: Describe the new scheduling procedure.}
-
-% We first estimate the parameters from amplitude and crossing time. This is used to seed walkers in the right regions of parameter space to make fitting more effective with fewer steps. We assume amplitude and crossing time have been accurately determined (doing this is a separate probelm out of scope for this work)
-% Need to mention walker initialisation (based on estimated parameter clusters) in brief; in next section? Or add a prefitting section? Or is THIS the prefitting section?
-% Mention that we do the prefit, detect multi-mode (degenerate) solutions, and account for that in scheduling. We use half of the available observations to deliberately distinguish modes based on their predicted RVs, then the rest of maximise phase coverage by minimising gaps.
-
 \subsection{Radial velocity} \label{sec:rv-sims}
 
-The simulated RV curves start at randomised times between 1 year and 10 years from the end of the photometry. This is to simulate a realistic delay in identifying candidates in the photometry and organising follow-up of those candidates.
+\textbf{TODO: Update this}
 
 The RV simulations use the same physical parameters and phase convention as the photometric simulations. Let $\mu_g=G(M_\mathrm{lens}+M_\star)$ be the standard gravitational parameter, and $h=[\mu_g a(1-e^2)]^{1/2}$ be the specific angular momentum of the relative orbit. The source-star barycentric radial and tangential orbital-velocity components are
 \begin{align}
@@ -436,13 +428,17 @@ As well as the varying instrumental noise, fixed Gaussian noise ($\sigma = 10$ m
 
 \subsection{Targeted radial velocity scheduling} \label{sec:scheduling}
 
-\textbf{TODO: Describe the new scheduling procedure. Also update the previous section.}
-
-% We first do a photometry-only prefit to estimate orbital period and physical parameters.
-% The prefit results do not need to be precise
-% We first estimate the parameters from amplitude anf crossing time. This is used to seed walkers in the right regions of parameter space to make fitting more effective with fewer steps. We assume amplitude and crossing time have been accurately determined (doing this is a separate probelm out of scope for this work)
-% Need to mention walker initialisation (based on estimated parameter clusters) in brief; in next section? Or add a prefitting section? Or is THIS the prefitting section?
 % Mention that we do the prefit, detect multi-mode (degenerate) solutions, and account for that in scheduling. We use half of the available observations to deliberately distinguish modes based on their predicted RVs, then the rest of maximise phase coverage by minimising gaps.
+
+The simulated RV curves start at randomised times between 1 year and 10 years from the end of the photometry. This is to simulate a realistic delay in identifying candidates in the photometry and organising follow-up of those candidates. For this work we assume each observing campaign will last five years, and we trial varying numbers of RV observations, $3 \leq N_\mathrm{obs} \leq 10$.
+
+The distinct solutions derived in Section~\ref{sec:phot-fit} are used to compute a schedule for the radial velocity observations, in which observations are deliberately timed to distinguish between the solutions and maximise the information gained about the binary orbit. 
+
+First, in the event that the photometric fit only found one plausible solution, the orbital period of that solution is checked to determine whether a lensing event will occur during the simulated observing window. If so, three observations are scheduled around this event, one at $t_0$, and two at $t_0 \pm \delta_t$. $\delta_t$ is chosen by drawing random samples from the photometric MCMC posterior and choosing the smallest value of $\delta_t$ where the change in RV is larger than $5 \sigma_\mathrm{RV}$ for $>90\%$ of samples, assuming $\omega = \pi$; i.e. the smallest time offset where a change in RV can be reliably measured by the simulated spectrograph. This triplet of observations provides information about $e$ and $\omega$: if $v_r(t_0) \neq 0$, then $e > 0$; if $v_r(t_0) = 0$, then either $e = 0$ or $\omega = 0$ (or both) and the value of $v_r(t_0 \pm \delta_t)$ provides information about these values.
+
+If there are multiple plausible photometric MCMC solutions, the predicted RV values for each of them over the observing campaign are calculated, and the difference in RV values for each pair of solutions is calculated (each ``solution" is a cluster of posterior samples, so the separation is actually the squared difference between the mean RVs of each cluster, normalised by the error). The final set of observation times is chosen by iteratively selecting the times which maximise the minimum separation between solutions, for a minimum of three observations and a maximum of $\lceil N_\mathrm{obs}/2 \rceil$.
+
+Any remaining observations are scheduled to minimise the gaps between observations. For a circular orbit, this is equivalent to limiting the gaps in orbital phase between observations, maximising the orbital phase coverage (within the constraint of the length of the observing campaign), and minimising the variances in fitted model parameters later derived from the observations \citep{koen_how_2024}.
 
 \subsection{Joint photometric-RV MCMC fit} \label{sec:fitting}
 
@@ -526,12 +522,12 @@ We adopt the following mass bins and object classes: $<3 \text{ M}_\odot$ (neutr
     \label{fig:lens-mass-relative-error-by-lens-mass}
 \end{figure*}
 
-\begin{figure*}
-    \centering
-    \includegraphics[height=0.4\textheight]{paper/figures/lens_mass_relative_error_by_period.pdf}
-    \caption{Median lens mass relative error as a function of the true lens mass. Cell values give the median $|\Delta M_\mathrm{lens}|/M_\mathrm{lens}$ in per cent for each fitted subset. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against fixed true lens-mass ranges.}
-    \label{fig:lens-mass-relative-error-by-period}
-\end{figure*}
+% \begin{figure*}
+%     \centering
+%     \includegraphics[height=0.4\textheight]{paper/figures/lens_mass_relative_error_by_period.pdf}
+%     \caption{Median lens mass relative error as a function of the true lens mass. Cell values give the median $|\Delta M_\mathrm{lens}|/M_\mathrm{lens}$ in per cent for each fitted subset. Rows separate observing baselines and columns separate cadences; within each panel, instrumental RV accuracy is plotted against fixed true lens-mass ranges.}
+%     \label{fig:lens-mass-relative-error-by-period}
+% \end{figure*}
 
 \begin{figure*}
     \centering
