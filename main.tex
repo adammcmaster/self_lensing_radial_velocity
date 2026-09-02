@@ -366,7 +366,22 @@ modelling stellar variability through GPs, see \cite{aigrain_gaussian_2023}.
 
 \subsection{Photometric MCMC fit} \label{sec:phot-fit}
 
-Each simulated photometric light curve is fitted via MCMC using a random-walk Metropolis-Hastings sampler implemtned with the BlackJAX package (128 walkers, 200 burn-in steps, 1,000 post-burn steps). For these fits it is assumed we know the stellar physical parameters exactly, along with the exact relative amplification (Section~\ref{sec:phot-sims}) and crossing time. In reality there will be uncertainty in these values, but determining them is a separate probem which is out of scope for the present work. Light curves are binned according to their crossing time to minimise computation time while preserving the shape of the self-lensing peak (\textbf{TODO: Insert table of bin sizes}).
+Each simulated photometric light curve is fitted via MCMC using a random-walk Metropolis-Hastings sampler implemtned with the BlackJAX package (128 walkers, 200 burn-in steps, 1,000 post-burn steps). For these fits it is assumed we know the stellar physical parameters exactly, along with the exact relative amplification (Section~\ref{sec:phot-sims}) and crossing time. In reality there will be uncertainty in these values, but determining them is a separate probem which is out of scope for the present work. Light curves are binned according to their crossing time to minimise computation time while preserving the shape of the self-lensing peak (Table~\ref{tab:photometric-binning}).
+
+\begin{table}
+    \centering
+    \caption{Photometric bin widths used in the MCMC fits. The native simulated cadence is 10 minutes.}
+    \label{tab:photometric-binning}
+    \begin{tabular}{ll}
+        \hline
+        Effective crossing time, $\tau_\mathrm{eff}$ & Photometric bin width \\
+        \hline
+        $\tau_\mathrm{eff} < 1$ h & 10 min (native cadence) \\
+        $1$ h $\leq \tau_\mathrm{eff} \leq 1$ d & 1 h \\
+        $\tau_\mathrm{eff} > 1$ d & 6 h \\
+        \hline
+    \end{tabular}
+\end{table}
 
 For computational efficiency, fits are run as batched, vectorised fits on a GPU. We fit only the fundamental physical parameters of the system,
 \begin{equation}
