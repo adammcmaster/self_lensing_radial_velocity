@@ -45,7 +45,7 @@ FIT_BURN = int(os.environ.get("SLRV_PREFIT_BURN", 200))
 # centre.  Keep enough resolution for each event, while allowing long events
 # to use less GPU memory.
 PREFIT_NATIVE_CADENCE_DAYS = 600.0 / 86400.0
-PREFIT_SHORT_CROSSING_TIME_DAYS = 1.0 / 24.0
+PREFIT_SHORT_CROSSING_TIME_DAYS = 4.0 / 24.0
 PREFIT_LONG_CROSSING_TIME_DAYS = 1.0
 FIT_DEVICE = os.environ.get("SLRV_PREFIT_DEVICE", os.environ.get("SLRV_FIT_DEVICE", "gpu:0"))
 FIT_LENSING_METHOD = os.environ.get("SLRV_PREFIT_LENSING_METHOD")

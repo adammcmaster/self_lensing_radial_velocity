@@ -18,6 +18,8 @@ import prefit
 class PrefitBinningTest(unittest.TestCase):
     def test_crossing_time_selects_requested_bin_widths(self):
         self.assertEqual(prefit.prefit_bin_width_days(0.5 / 24.0), 10.0 / 1440.0)
+        self.assertEqual(prefit.prefit_bin_width_days(2.0 / 24.0), 10.0 / 1440.0)
+        self.assertEqual(prefit.prefit_bin_width_days(4.0 / 24.0), 1.0 / 24.0)
         self.assertEqual(prefit.prefit_bin_width_days(0.5), 1.0 / 24.0)
         self.assertEqual(prefit.prefit_bin_width_days(2.0), 6.0 / 24.0)
 
