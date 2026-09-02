@@ -178,6 +178,11 @@ def attach_prefit_results(results):
 
 def attach_rv_even_spaced_results(results):
     """Join standalone RV-only fits without modifying joint-fit checkpoints."""
+    if "rv_id" not in results:
+        logger.warning(
+            "Joint-fit results have no rv_id; skipping standalone RV-only result join"
+        )
+        return results
     path = rv_even_spaced_result_path()
     if not path.exists():
         logger.warning("RV evenly spaced results are unavailable at %s", path)
