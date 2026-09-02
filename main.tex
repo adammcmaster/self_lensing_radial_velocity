@@ -366,7 +366,7 @@ modelling stellar variability through GPs, see \cite{aigrain_gaussian_2023}.
 
 \subsection{Photometric MCMC fit} \label{sec:phot-fit}
 
-Each simulated photometric light curve is fitted via MCMC using a random-walk Metropolis-Hastings sampler implemtned with the BlackJAX package (128 walkers, 200 burn-in steps, 1,000 post-burn steps). For these fits it is assumed we know the stellar physical parameters exactly, along with the exact relative amplification (Section~\ref{sec:phot-sims}) and crossing time. In reality there will be uncertainty in these values, but determining them is a separate probem which is out of scope for the present work. Light curves are binned according to their crossing time to minimise computation time while preserving the shape of the self-lensing peak (Table~\ref{tab:photometric-binning}).
+Each simulated photometric light curve is fitted via MCMC using a random-walk Metropolis-Hastings sampler implemented with the BlackJAX package (128 walkers, 200 burn-in steps, 1,000 post-burn steps). For these fits it is assumed we know the stellar physical parameters exactly, along with the exact relative amplification (Section~\ref{sec:phot-sims}) and crossing time. In reality there will be uncertainty in these values, but determining them is a separate problem which is out of scope for the present work. Light curves are binned according to their crossing time to minimise computation time while preserving the shape of the self-lensing peak (Table~\ref{tab:photometric-binning}).
 
 \begin{table}
     \centering
@@ -395,9 +395,7 @@ We use a uniform prior within the corresponding parameter limits in Table~\ref{t
 
 At the end of the MCMC run, the posterior parameter distribution is clustered using $k$-means clustering to derive a set of distinct solutions which could produce the simulated light curve (to account for degeneracies).
 
-\subsection{Radial velocity} \label{sec:rv-sims}
-
-\textbf{TODO: Update this}
+\subsection{Radial velocity calculation} \label{sec:rv-sims}
 
 The RV simulations use the same physical parameters and phase convention as the photometric simulations. Let $\mu_g=G(M_\mathrm{lens}+M_\star)$ be the standard gravitational parameter, and $h=[\mu_g a(1-e^2)]^{1/2}$ be the specific angular momentum of the relative orbit. The source-star barycentric radial and tangential orbital-velocity components are
 \begin{align}
@@ -422,30 +420,13 @@ The simulated line-of-sight radial velocity is then
 \end{equation}
 This reduces to the circular-orbit convention $v_r(t)\propto\sin\phi(t)$ when $e=0$, but for eccentric orbits the radial component means the RV at $t_0$ is not generally zero.
 
-We generate baseline RV curves which contain one RV measurement per day for five years from the start time. We sample the baseline RV curves to create more realistic RV observations, also adding Gaussian noise to simulate varying instrument accuracies and precisions. Each RV curve is resampled using every combination of the parameters in Table~\ref{tab:realistic_observing_grid}, giving $3 \times 3 \times 5 = 45$ realistic observing configurations per baseline simulation. We do not attempt to simulate fully realistic observing (with observing seasons, seeing, varying weather conditions, etc.) as we are mainly interested in measuring the effects of instrument selection, total length, and number of observations.
-
-\begin{table}
-    \centering
-    \caption{Observing parameters used when creating simulated RV observations.}
-    \label{tab:realistic_observing_grid}
-    \begin{tabular}{lll}
-        \hline
-        Parameter   & Description               & Values                    \\
-        \hline
-        Baseline    & RV length                 & 1, 3, 5 yr                \\
-        Cadence     & Time between observations & 1, 30, 300 d              \\
-        RV accuracy & Gaussian $\sigma$         & 0.1, 1, 10, 100, 1000 m/s \\
-        \hline
-    \end{tabular}
-\end{table}
-
-As well as the varying instrumental noise, fixed Gaussian noise ($\sigma = 10$ m/s) is added in every configuration to represent stellar noise. For simplicity, we do not include proper motion or heliocentric motion, as these would be corrected before fitting real observations.
+We add varying amounts of instrumental noise ($\sigma_\mathrm{RV} \in \{0.1, 1, 10, 100, 1000\}$ m/s), and an additional fixed Gaussian noise ($\sigma_\star = 10$ m/s) is added to represent stellar noise. For simplicity, we do not include proper motion or heliocentric motion, as these would be corrected before fitting real observations.
 
 \subsection{Targeted radial velocity scheduling} \label{sec:scheduling}
 
 % Mention that we do the prefit, detect multi-mode (degenerate) solutions, and account for that in scheduling. We use half of the available observations to deliberately distinguish modes based on their predicted RVs, then the rest of maximise phase coverage by minimising gaps.
 
-The simulated RV curves start at randomised times between 1 year and 10 years from the end of the photometry. This is to simulate a realistic delay in identifying candidates in the photometry and organising follow-up of those candidates. For this work we assume each observing campaign will last five years, and we trial varying numbers of RV observations, $3 \leq N_\mathrm{obs} \leq 10$.
+The simulated RV curves start at randomised times between 1 year and 10 years from the end of the photometry. This is to simulate a realistic delay in identifying candidates in the photometry and organising follow-up of those candidates. For this work we assume each observing campaign will last five years, and we trial varying numbers of RV observations, $3 \leq N_\mathrm{obs} \leq 10$. We do not attempt to simulate fully realistic observing (with observing seasons, seeing, varying weather conditions, etc.) as we are mainly interested in measuring the effects of instrument selection and number of observations.
 
 The distinct solutions derived in Section~\ref{sec:phot-fit} are used to compute a schedule for the radial velocity observations, in which observations are deliberately timed to distinguish between the solutions and maximise the information gained about the binary orbit. 
 
@@ -457,9 +438,7 @@ Any remaining observations are scheduled to minimise the gaps between observatio
 
 \subsection{Joint photometric-RV MCMC fit} \label{sec:fitting}
 
-\textbf{TODO: Update this}
-
-Each simulated pair of photometric light curves and RV curves is then fitted via MCMC using a random-walk Metropolis-Hastings sampler implemented with the BlackJAX package (128 walkers, and 200 burn-in steps). The photometry is clipped to the interval $t_0 \pm \tau_\mathrm{eff}$ (where $\tau_\mathrm{eff}$ is the effective Einstein crossing time defined in \cite{wiktorowicz_predicting_2021}) around the lensing peak and binned to 100 bins for computational efficiency. Before running the full joint fit (photometry and RV), a photometry-only pre-fit is run for each simulated light curve (1,000 steps) and the walker state from this is used as the initial walker state for the 45 joint fits (an additional 1,000 steps). An RV-only fit of 1,000 steps is also performed. The Metropolis-Hastings random-walk proposal scale is reduced based on the number of RV measurements, when RV data are present, or otherwise on the number of photometric points, to allow the walkers to efficiently explore the narrower posterior.
+Each simulated pair of photometric light curves and RV curves is then fitted via MCMC using the same setup as in Section~\ref{sec:phot-fit}, using the final walker state from the photometric fit as the initial state for the joint fit. Photometry is binned as per the first fit, while RV data are not binned. The Metropolis-Hastings random-walk proposal scale is reduced based on the number of RV measurements, when RV data are present, or otherwise on the number of photometric points, to allow the walkers to efficiently explore the narrower posterior where more data are present.
 
 For a trial parameter vector $\boldsymbol{\theta}$, let $v_\mathrm{mod}(t_k;\boldsymbol{\theta})$ be the model RV at the $k$th RV observation time, and let $N_\mathrm{RV}$ be the number of RV measurements. The RV contribution to the fit statistic is
 \begin{equation}
