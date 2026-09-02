@@ -6,7 +6,6 @@ import logging
 import multiprocessing
 import os
 import re
-import threading
 import time
 from collections import deque
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -22,7 +21,12 @@ os.environ.setdefault(
     "XLA_PYTHON_CLIENT_PREALLOCATE",
     os.environ.get("SLRV_JAX_PREALLOCATE", "false"),
 )
-if "SLRV_JAX_PLATFORMS" in os.environ:
+if os.environ.get("SLRV_FIT_CPU_SIDECAR") == "1":
+    # Checkpoint workers only merge and serialize pandas tables.  Keep them
+    # from creating a CUDA context alongside the MCMC parent process.
+    os.environ["JAX_PLATFORMS"] = "cpu"
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+elif "SLRV_JAX_PLATFORMS" in os.environ:
     os.environ.setdefault("JAX_PLATFORMS", os.environ["SLRV_JAX_PLATFORMS"])
 
 DEFAULT_JAX_COMPILATION_CACHE_DIR = (
@@ -195,14 +199,15 @@ CHECKPOINT_RESULTS = os.environ.get("SLRV_FIT_CHECKPOINT_RESULTS", "1").lower() 
     "yes",
     "on",
 )
-FIT_CHECKPOINT_INTERVAL = int(os.environ.get("SLRV_FIT_CHECKPOINT_INTERVAL", 45))
+FIT_CHECKPOINT_INTERVAL = int(os.environ.get("SLRV_FIT_CHECKPOINT_INTERVAL", 16384))
 MP_START_METHOD = os.environ.get("SLRV_MP_START_METHOD", "spawn")
 FIT_NSTEPS = int(os.environ.get("SLRV_FIT_NSTEPS", 1000))
 FIT_NWALKERS = int(os.environ.get("SLRV_FIT_NWALKERS", 128))
 FIT_BURN = int(os.environ.get("SLRV_FIT_BURN", 200))
 # This bounds the compiled MCMC scan even when progress output is disabled.
-# Smaller chunks substantially reduce first-use GPU compilation time.
-FIT_PROGRESS_CHUNK_SIZE = int(os.environ.get("SLRV_FIT_PROGRESS_CHUNK_SIZE", 25))
+# At cross-file batch sizes, the scan output is [chunk, fit, walker, parameter],
+# so a short chunk avoids multi-tens-of-GiB XLA temporaries.
+FIT_PROGRESS_CHUNK_SIZE = int(os.environ.get("SLRV_FIT_PROGRESS_CHUNK_SIZE", 10))
 FIT_E_MIN = os.environ.get("SLRV_FIT_E_MIN")
 FIT_E_MAX = os.environ.get("SLRV_FIT_E_MAX")
 FIT_DEVICE = os.environ.get("SLRV_FIT_DEVICE", default_fit_device())
@@ -213,13 +218,21 @@ FIT_MCMC_PROGRESS = os.environ.get("SLRV_FIT_MCMC_PROGRESS", "0").lower() in (
     "yes",
     "on",
 )
-FIT_BATCHED = os.environ.get("SLRV_RV_NO_PRIOR_FIT_BATCHED", "1").lower() in (
+FIT_BATCHED = os.environ.get(
+    "SLRV_RV_EVEN_SPACED_FIT_BATCHED",
+    os.environ.get("SLRV_RV_NO_PRIOR_FIT_BATCHED", "1"),
+).lower() in (
     "1",
     "true",
     "yes",
     "on",
 )
-FIT_BATCH_SIZE = optional_positive_int(os.environ.get("SLRV_FIT_BATCH_SIZE", 50))
+# The previous implementation grouped by FITS file, limiting a GPU batch to
+# 40 RV variants.  These synthetic even-grid curves need no FITS I/O, so use
+# cross-file batches that give the accelerator materially more parallel work.
+# 512 systems × 128 walkers is already 65,536 concurrent chains.  Larger
+# batches make the compiled MCMC scan memory-bound rather than faster.
+FIT_BATCH_SIZE = optional_positive_int(os.environ.get("SLRV_FIT_BATCH_SIZE", 512))
 FIT_PROPOSAL_SCALE_FRACTION = float(
     os.environ.get("SLRV_FIT_PROPOSAL_SCALE_FRACTION", 0.005)
 )
@@ -510,6 +523,14 @@ def grouped_rv_rows(table):
     return [list(group.iterrows()) for _, group in table.groupby("rv_path", sort=True)]
 
 
+def gpu_fit_batches(table):
+    """Pack independent RV variants across files into full GPU batches."""
+    rows = list(table.sort_values(["rv_path", "rv_id"]).iterrows())
+    if FIT_BATCH_SIZE is None:
+        return [rows]
+    return [rows[start : start + FIT_BATCH_SIZE] for start in range(0, len(rows), FIT_BATCH_SIZE)]
+
+
 def padded_series(series, fill_value=0.0, fill_from_first=False):
     max_len = max(len(values) for values in series)
     data = numpy.full((len(series), max_len), fill_value, dtype=float)
@@ -740,7 +761,6 @@ def run_rv_prior_batch(rows, curves):
         Mcomp=row_table["Mcomp"].to_numpy(dtype=float) * units.M_sun,
         Rcomp=row_table["Rcomp"].to_numpy(dtype=float) * units.R_sun,
         Teff=row_table["Teff"].to_numpy(dtype=float) * units.K,
-        d=row_table["d"].to_numpy(dtype=float) * units.kpc,
         false_alarm_probability=0.5,
         nsteps=FIT_NSTEPS,
         nwalkers=FIT_NWALKERS,
@@ -771,7 +791,9 @@ def fit_rv_file(rows):
     if not rows:
         return []
     path = rows[0][1]["rv_path"]
-    logger.info("Generating evenly spaced RV curves for %s", path)
+    logger.info(
+        "Generating %d evenly spaced RV curves (starting with %s)", len(rows), path
+    )
     curves = {str(ts["rv_id"]): evenly_spaced_curve(ts) for _, ts in rows}
     if FIT_BATCHED and not FIT_SAVE_SAMPLERS:
         results = []
@@ -929,65 +951,70 @@ def save_results(table):
     logger.info("Saved RV evenly spaced results atomically to %s", RV_EVEN_SPACED_RESULTS_PATH)
 
 
+def write_checkpoint(base_results, new_rows):
+    """CPU-sidecar entry point for merging and atomically writing a snapshot."""
+    save_results(merge_rv_even_spaced_results(base_results, new_rows))
+
+
 class AsyncCheckpointWriter:
     def __init__(self, base_results, enabled=True):
         self.base_results = base_results
         self.enabled = enabled
-        self.condition = threading.Condition()
         self.latest_rows = None
-        self.stop_requested = False
-        self.error = None
-        self.thread = None
+        self.pending_future = None
+        self.executor = None
+        self.previous_sidecar_flag = None
         if self.enabled:
-            self.thread = threading.Thread(
-                target=self._run,
-                name="rv-no-prior-checkpoint-writer",
-                daemon=True,
+            # Keep this flag set until shutdown: spawned workers import this
+            # module before they execute ``write_checkpoint``.
+            self.previous_sidecar_flag = os.environ.get("SLRV_FIT_CPU_SIDECAR")
+            os.environ["SLRV_FIT_CPU_SIDECAR"] = "1"
+            self.executor = ProcessPoolExecutor(
+                max_workers=1,
+                mp_context=multiprocessing.get_context("spawn"),
             )
-            self.thread.start()
 
     def submit(self, new_rows):
         if not self.enabled:
             return
-        with self.condition:
-            self.latest_rows = list(new_rows)
-            self.condition.notify()
+        self.latest_rows = list(new_rows)
+        self._start_latest_if_idle()
+
+    def _start_latest_if_idle(self):
+        if self.pending_future is not None:
+            if not self.pending_future.done():
+                return
+            self.pending_future.result()
+            self.pending_future = None
+        if self.latest_rows is not None:
+            rows = self.latest_rows
+            self.latest_rows = None
+            self.pending_future = self.executor.submit(
+                write_checkpoint, self.base_results, rows
+            )
 
     def check_error(self):
-        if self.error is not None:
-            raise RuntimeError("Background checkpoint writer failed") from self.error
+        self._start_latest_if_idle()
 
     def close(self, final_rows=None):
         if not self.enabled:
             if final_rows is not None:
-                save_results(merge_rv_even_spaced_results(self.base_results, final_rows))
+                write_checkpoint(self.base_results, final_rows)
             return
-        with self.condition:
-            if final_rows is not None:
-                self.latest_rows = list(final_rows)
-            self.stop_requested = True
-            self.condition.notify()
-        self.thread.join()
-        self.check_error()
-
-    def _run(self):
-        while True:
-            with self.condition:
-                while self.latest_rows is None and not self.stop_requested:
-                    self.condition.wait()
-                if self.latest_rows is None and self.stop_requested:
-                    return
-                rows = self.latest_rows
-                self.latest_rows = None
-            try:
-                save_results(merge_rv_even_spaced_results(self.base_results, rows))
-            except Exception as exc:
-                self.error = exc
-                logger.exception("Background checkpoint writer failed")
-                return
-            with self.condition:
-                if self.stop_requested and self.latest_rows is None:
-                    return
+        if final_rows is not None:
+            self.latest_rows = list(final_rows)
+        # Finish the current snapshot, then write the newest cumulative one.
+        if self.pending_future is not None:
+            self.pending_future.result()
+            self.pending_future = None
+        self._start_latest_if_idle()
+        if self.pending_future is not None:
+            self.pending_future.result()
+        self.executor.shutdown()
+        if self.previous_sidecar_flag is None:
+            del os.environ["SLRV_FIT_CPU_SIDECAR"]
+        else:
+            os.environ["SLRV_FIT_CPU_SIDECAR"] = self.previous_sidecar_flag
 
 
 @dataclass
@@ -1029,7 +1056,7 @@ if __name__ == "__main__":
     logger.info(
         "Settings: FIT_MAX_WORKERS=%d FIT_SAMPLE_SIZE=%s FIT_NSTEPS=%d "
         "FIT_NWALKERS=%d FIT_BURN=%d FIT_BATCH_SIZE=%s FIT_BATCHED=%s "
-        "FIT_PRELOAD_FILE_POOL_SIZE=%d FIT_PRELOAD_MAX_WORKERS=%d",
+        "FIT_CHECKPOINT_INTERVAL=%d checkpoint_writer=cpu-sidecar",
         FIT_MAX_WORKERS,
         FIT_SAMPLE_SIZE if FIT_SAMPLE_SIZE is not None else "all",
         FIT_NSTEPS,
@@ -1037,8 +1064,7 @@ if __name__ == "__main__":
         FIT_BURN,
         FIT_BATCH_SIZE if FIT_BATCH_SIZE is not None else "all",
         FIT_BATCHED,
-        FIT_PRELOAD_FILE_POOL_SIZE,
-        FIT_PRELOAD_MAX_WORKERS,
+        FIT_CHECKPOINT_INTERVAL,
     )
     logger.info("Fit eccentricity limits: %s", DEFAULT_LIMITS["e"])
     logger.info("Fit device setting: FIT_DEVICE=%s", FIT_DEVICE)
@@ -1074,7 +1100,7 @@ if __name__ == "__main__":
     else:
         rows_to_fit = sample_rv_path_groups(rows_to_fit, FIT_SAMPLE_SIZE)
 
-    jobs = grouped_rv_rows(rows_to_fit)
+    jobs = gpu_fit_batches(rows_to_fit)
     progress = FitProgress(new_rows=[])
     if FIT_MAX_WORKERS == 1:
         ACTIVE_SAMPLER_WRITER = SamplerStateWriter()
@@ -1083,7 +1109,8 @@ if __name__ == "__main__":
         enabled=CHECKPOINT_RESULTS,
     )
     try:
-        for group_results in preloaded_process_map_iter(
+        for group_results in process_map_iter(
+            fit_rv_file,
             jobs,
             total=len(jobs),
             desc="RV-only evenly spaced fits",
