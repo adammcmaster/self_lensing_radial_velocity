@@ -1508,22 +1508,34 @@ def plot_population_weighted_period_heatmaps(survey_counts, metrics, filename_pr
     nobss = numpy.sort(data["nobs"].unique())
     rv_values = numpy.sort(data["RV accuracy"].unique())
     period_ranges = ORBITAL_PERIOD_RANGE_LABELS
+    facet_rows, facet_columns, rows_per_baseline = truth_range_facet_geometry(
+        baselines, nobss
+    )
 
     for value_column, slug, colorbar_label, cmap, fmt, fixed_vmax in metrics:
         vmax = fixed_vmax or colorbar_vmax(100.0 * data[value_column])
         fig, axes = pyplot.subplots(
-            len(baselines),
-            len(nobss),
-            figsize=(8.2, 6.8),
+            facet_rows,
+            facet_columns,
+            # Keep the heatmap cells near the proportions of the original
+            # four-period by five-RV-accuracy panels as strategies are added.
+            # A single unwrapped Nobs row makes every cell a thin strip.
+            figsize=(
+                max(8.2, 3.0 * facet_columns + 1.6),
+                max(3.8, 2.1 * facet_rows + 1.8),
+            ),
             sharex=True,
             sharey=True,
             constrained_layout=True,
         )
-        axes = numpy.asarray(axes, dtype=object).reshape(len(baselines), len(nobss))
+        axes = numpy.asarray(axes, dtype=object).reshape(facet_rows, facet_columns)
         last_mesh = None
         for row_index, baseline in enumerate(baselines):
             for col_index, nobs in enumerate(nobss):
-                axis = axes[row_index, col_index]
+                facet_row, facet_column = truth_range_facet_index(
+                    row_index, col_index, facet_columns, rows_per_baseline
+                )
+                axis = axes[facet_row, facet_column]
                 subset = data[
                     (data["baseline"] == baseline) & (data["nobs"] == nobs)
                 ]
@@ -1546,21 +1558,17 @@ def plot_population_weighted_period_heatmaps(survey_counts, metrics, filename_pr
                     linecolor="white",
                 )
                 last_mesh = heatmap.collections[0]
-                if row_index == 0:
-                    axis.set_title(rf"$N_\mathrm{{obs}}$ {nobs:g}")
-                if col_index == 0:
+                axis.set_title(rf"$N_\mathrm{{obs}}$ {nobs:g}")
+                if facet_column == 0:
                     axis.set_ylabel(
                         f"Baseline {baseline / 365:g} yr\\n"
                         + r"RV accuracy [m s$^{-1}$]"
                     )
                 else:
                     axis.set_ylabel("")
-                if row_index == len(baselines) - 1:
-                    axis.set_xlabel("True orbital period range")
-                    axis.tick_params(axis="x", rotation=35)
-                else:
-                    axis.set_xlabel("")
-                    axis.tick_params(axis="x", labelbottom=False)
+                axis.set_xlabel("")
+                axis.tick_params(axis="x", rotation=35)
+        fig.supxlabel("True orbital period range")
         if last_mesh is not None:
             fig.colorbar(
                 last_mesh,
