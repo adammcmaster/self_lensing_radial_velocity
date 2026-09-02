@@ -1585,10 +1585,7 @@ def plot_population_weighted_binned_heatmaps(
                 last_mesh = heatmap.collections[0]
                 axis.set_title(rf"$N_\mathrm{{obs}}$ {nobs:g}")
                 if facet_column == 0:
-                    axis.set_ylabel(
-                        f"Baseline {baseline / 365:g} yr\\n"
-                        + r"RV accuracy [m s$^{-1}$]"
-                    )
+                    axis.set_ylabel(r"RV accuracy [m s$^{-1}$]")
                 else:
                     axis.set_ylabel("")
                 axis.set_xlabel("")
