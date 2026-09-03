@@ -909,7 +909,8 @@ def plot_prefit_improvement_by_n_rv(results):
         handles=legend_handles,
         loc="upper center",
         ncol=3,
-        bbox_to_anchor=(0.5, 1.04),
+        # Keep the shared legend clear of the three panel titles.
+        bbox_to_anchor=(0.5, 1.15),
         frameon=False,
     )
     for suffix in ("pdf", "png"):
