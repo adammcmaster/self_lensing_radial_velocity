@@ -159,15 +159,15 @@ The photometric simulations comprise realistic simulated TESS-like light curves 
     \label{tab:phot_sim_parameter_ranges}
     \begin{tabular}{lll}
         \hline
-        Parameter         & Description           & Range                      \\
+        Parameter         & Description           & Range                          \\
         \hline
-        $a$               & Semi-major axis       & 0.1--200 AU                \\
+        $a$               & Semi-major axis       & 0.1--200 AU                    \\
         $i$               & Orbital inclination   & $0.5\pi-10^{-4}$--$0.5\pi$ rad \\
-        $M_\mathrm{lens}$ & Lens mass             & 0.5--50 M$_\odot$          \\
-        $M_\star$         & Stellar mass          & 0.5--50 M$_\odot$          \\
-        $e$               & Eccentricity          & 0--0.999999                \\
-        $\omega$          & Periapsis phase angle & 0--$2\pi$                  \\
-        $d$               & Distance from Earth   & 0.1--100 kpc               \\
+        $M_\mathrm{lens}$ & Lens mass             & 0.5--50 M$_\odot$              \\
+        $M_\star$         & Stellar mass          & 0.5--50 M$_\odot$              \\
+        $e$               & Eccentricity          & 0--0.999999                    \\
+        $\omega$          & Periapsis phase angle & 0--$2\pi$                      \\
+        $d$               & Distance from Earth   & 0.1--100 kpc                   \\
         \hline
     \end{tabular}
 \end{table}
@@ -376,11 +376,11 @@ Each simulated photometric light curve is fitted via MCMC using a random-walk Me
     \label{tab:photometric-binning}
     \begin{tabular}{ll}
         \hline
-        Effective crossing time, $\tau_\mathrm{eff}$ & Photometric bin width \\
+        Effective crossing time, $\tau_\mathrm{eff}$ & Photometric bin width   \\
         \hline
-        $\tau_\mathrm{eff} < 4$ h & 10 min (native cadence) \\
-        $4$ h $\leq \tau_\mathrm{eff} \leq 1$ d & 1 h \\
-        $\tau_\mathrm{eff} > 1$ d & 6 h \\
+        $\tau_\mathrm{eff} < 4$ h                    & 10 min (native cadence) \\
+        $4$ h $\leq \tau_\mathrm{eff} \leq 1$ d      & 1 h                     \\
+        $\tau_\mathrm{eff} > 1$ d                    & 6 h                     \\
         \hline
     \end{tabular}
 \end{table}
@@ -562,12 +562,12 @@ RV accuracy also has a measurable effect on the median relative error, but this 
 
 \subsection{Photometry-only and RV-only vs joint fits and $N_\text{RV}$}
 
-The simulations are generated on the assumption that we photometrically detect a candidate self-lensing event and then follow up with RV measurements some time later. The joint fits use the targeted schedules described above. For completeness, we separately assess two RV-only fits on independently generated evenly spaced observations: one uses the known photometric peak time as a prior and the other leaves the RV phase free.
+The simulations are generated on the assumption that we photometrically detect a candidate self-lensing event and then follow up with RV measurements some time later. The joint photometry and RV fits use the photometric peak time and the targeted schedules described above. For comparison, the RV-only fits use independently generated, evenly spaced observations and fit the RV data in isolation, with a free orbital phase and no photometric information.
 
 \begin{figure*}
     \centering
     \includegraphics[height=0.4\textheight]{paper/figures/prefit_improvement_by_n_rv.pdf}
-    \caption{Comparison between the photometry-only pre-fit accuracy, evenly spaced RV-only fit accuracy (with and without the peak-time prior), and joint photometry plus RV fit accuracy. Separate panels show the fitted parameters. Points show the median relative error in each parameter as a function of the number of RV measurements, and shaded regions show the interquartile range.}
+    \caption{Comparison between the photometry-only pre-fit accuracy, RV-only fit accuracy, and joint photometry plus RV fit accuracy. The RV-only fits use an evenly spaced observing schedule and no photometric information; the photometry+RV fits use the photometric peak time and targeted RV schedule. Separate panels show the fitted parameters. Points show the median relative error in each parameter as a function of the number of RV measurements, and shaded regions show the interquartile range.}
     \label{fig:prefit-improvement-by-n-rv}
 \end{figure*}
 
@@ -576,7 +576,7 @@ Figure~\ref{fig:prefit-improvement-by-n-rv} shows the median improvement of fitt
 \begin{figure*}
     \centering
     \includegraphics[height=0.4\textheight]{paper/figures/prefit_improvement_by_lens_mass_range.pdf}
-    \caption{Comparison between photometry-only pre-fit accuracy, RV-only fit accuracy, and joint photometry plus RV fit accuracy, separated by true lens-mass range. Rows show fitted parameters and columns show true lens-mass ranges. Points show the median relative error as a function of the number of RV measurements, and shaded regions show the interquartile range.}
+    \caption{Comparison between photometry-only pre-fit accuracy, RV-only fit accuracy, and joint photometry plus RV fit accuracy, separated by true lens-mass range. RV-only fits use an evenly spaced observing schedule and no photometric information; photometry+RV fits use the photometric peak time and targeted RV schedule. Rows show fitted parameters and columns show true lens-mass ranges. Points show the median relative error as a function of the number of RV measurements, and shaded regions show the interquartile range.}
     \label{fig:prefit-improvement-by-lens-mass-range}
 \end{figure*}
 
@@ -585,7 +585,7 @@ Figure~\ref{fig:prefit-improvement-by-lens-mass-range} shows the median improvem
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/prefit_compact_object_class_by_lens_mass_range.pdf}
-    \caption{Compact-object class recovery for the photometry-only pre-fit, RV-only fit, and joint photometry plus RV fit, separated by true lens-mass range. A system is counted as correct when the fitted lens mass falls in the same broad compact-object class as the true mass, using $M_\mathrm{lens}<3\,M_\odot$ for white dwarf or neutron-star lenses, $3 \leq M_\mathrm{lens}/M_\odot < 5$ for the mass gap, and $M_\mathrm{lens}\geq5\,M_\odot$ for black-hole lenses. Points show the percentage of fitted systems in the correct class as a function of the number of RV measurements; the horizontal dotted line marks 80 per cent.}
+    \caption{Compact-object class recovery for the photometry-only pre-fit, RV-only fit, and joint photometry plus RV fit, separated by true lens-mass range. RV-only fits use an evenly spaced observing schedule and no photometric information; photometry+RV fits use the photometric peak time and targeted RV schedule. A system is counted as correct when the fitted lens mass falls in the same broad compact-object class as the true mass, using $M_\mathrm{lens}<3\,M_\odot$ for white dwarf or neutron-star lenses, $3 \leq M_\mathrm{lens}/M_\odot < 5$ for the mass gap, and $M_\mathrm{lens}\geq5\,M_\odot$ for black-hole lenses. Points show the percentage of fitted systems in the correct class as a function of the number of RV measurements; the horizontal dotted line marks 80 per cent.}
     \label{fig:prefit-compact-object-class-by-lens-mass-range}
 \end{figure*}
 

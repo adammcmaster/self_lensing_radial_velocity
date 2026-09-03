@@ -15,6 +15,7 @@ os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
 import numpy
 from numpy.testing import assert_allclose
+from astropy import units
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_PATH = PROJECT_ROOT / "src"
@@ -23,7 +24,10 @@ if str(SRC_PATH) not in sys.path:
 
 import rv_only_no_prior
 from selflensing.fitting import blackjax as upstream_blackjax
+from selflensing.fitting.likelihood import combined_chi2 as upstream_logprob
+from selflensing.lightcurves import radial_velocity_m_per_s
 from selflensing.models import DEFAULT_LIMITS
+from selflensing.models import SelfLensingSystem
 
 
 def load_rv_no_prior_script():
@@ -94,6 +98,60 @@ class RVOnlyNoPriorDriftTest(unittest.TestCase):
         for parameter in ("a", "i", "Macc", "e", "periapsis_phase"):
             self.assertIn(f'DEFAULT_LIMITS["{parameter}"]', source)
         self.assertEqual(rv_only_no_prior.RV_PHASE_LIMITS, (0.0, 2.0 * numpy.pi))
+
+    def test_local_rv_logprob_matches_upstream_at_equivalent_peak_epoch(self):
+        """The local phase parameter must reproduce upstream's fixed-epoch RV model."""
+        physical = numpy.asarray([1.0, numpy.pi / 2, 8.0, 0.2, 0.4])
+        mcomp = 1.0 * units.M_sun
+        rcomp = 1.0 * units.R_sun
+        system = SelfLensingSystem(
+            a=physical[0] * units.au,
+            i=physical[1] * units.rad,
+            Macc=physical[2] * units.M_sun,
+            Mcomp=mcomp,
+            Rcomp=rcomp,
+            e=physical[3],
+            periapsis_phase=physical[4] * units.rad,
+        )
+        reference_time = 2450000.0
+        peak_time = reference_time + 0.37 * system.porb.to_value(units.day)
+        phase = 2.0 * numpy.pi * (peak_time - reference_time) / system.porb.to_value(units.day)
+        times = reference_time + numpy.linspace(1.0, 60.0, 8)
+        model_params = numpy.asarray([*physical[:3], 1.0, 1.0, 5772.0, *physical[3:]])
+        observed_rv = numpy.asarray(
+            radial_velocity_m_per_s(times, model_params, peak_time), dtype=float
+        )
+        observed_rv_err = numpy.full_like(observed_rv, 10.0)
+
+        local = rv_only_no_prior.rv_no_prior_logprob(
+            numpy.append(physical, phase),
+            mcomp.to_value(units.kg),
+            rcomp.to_value(units.m),
+            1000.0,
+            times,
+            observed_rv,
+            observed_rv_err,
+            reference_time,
+            None,
+        )
+        upstream = upstream_logprob(
+            physical,
+            mcomp.to_value(units.kg),
+            rcomp.to_value(units.m),
+            None,
+            1000.0,
+            peak_time,
+            times,
+            observed_rv,
+            observed_rv_err,
+            None,
+            None,
+            None,
+            None,
+            numpy.asarray([]),
+            None,
+        )
+        assert_allclose(numpy.asarray(local), numpy.asarray(upstream), rtol=1e-6, atol=1e-6)
 
     def test_single_fit_keeps_upstream_sampler_control_surface(self):
         upstream_signature = inspect.signature(

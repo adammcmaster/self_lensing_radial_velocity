@@ -89,8 +89,7 @@ PARAMETERS = {
 PREFIT_COMPARISON_STAGE_STYLES = {
     "Photometry only": {"color": "#CC79A7", "marker": None, "linestyle": "--"},
     "Photometry + RV": {"color": "#0072B2", "marker": "o", "linestyle": "-"},
-    "RV (evenly spaced)": {"color": "#009E73", "marker": "s", "linestyle": "-."},
-    "RV (evenly spaced, no peak time prior)": {"color": "#D55E00", "marker": "^", "linestyle": ":"},
+    "RV only": {"color": "#D55E00", "marker": "^", "linestyle": ":"},
 }
 
 SURVEY_DETECTED_COUNTS = {
@@ -192,7 +191,7 @@ def attach_rv_even_spaced_results(results):
         raise KeyError("RV evenly spaced results table is missing rv_id")
     columns = ["rv_id", *[
         column for column in rv_results
-        if column.startswith(("rvprior_", "rvnoprior_"))
+        if column.startswith("rvnoprior_")
     ]]
     rv_results = rv_results.loc[:, columns]
     if rv_results["rv_id"].duplicated().any():
@@ -326,14 +325,11 @@ def prefit_comparison_parameters(results):
     parameters = {}
     for param, spec in PARAMETERS.items():
         prefit_column = f"prefit_{spec['fitted']}"
-        rvfit_column = f"rvprior_{spec['fitted']}"
-        rv_no_prior_column = f"rvnoprior_{spec['fitted']}"
+        rv_only_column = f"rvnoprior_{spec['fitted']}"
         if prefit_column in results.columns:
             parameters[param] = {**spec, "prefit": prefit_column}
-            if rvfit_column in results.columns:
-                parameters[param]["rvfit"] = rvfit_column
-            if rv_no_prior_column in results.columns:
-                parameters[param]["rvnoprior"] = rv_no_prior_column
+            if rv_only_column in results.columns:
+                parameters[param]["rvonly"] = rv_only_column
     if not parameters:
         raise KeyError(
             "Fitted results table has no photometry-only prefit columns. "
@@ -351,8 +347,7 @@ def prefit_joint_error_rows(results):
         for fit_stage, value_column in (
             ("Photometry only", spec["prefit"]),
             ("Photometry + RV", spec["fitted"]),
-            ("RV (evenly spaced)", spec.get("rvfit")),
-            ("RV (evenly spaced, no peak time prior)", spec.get("rvnoprior")),
+            ("RV only", spec.get("rvonly")),
         ):
             if value_column is None:
                 continue
@@ -406,10 +401,7 @@ def prefit_joint_error_rows(results):
 
 def warn_on_matching_joint_and_rv_only_columns(results, parameters):
     for param, spec in parameters.items():
-        for label, rv_column in (
-            ("RV evenly spaced", spec.get("rvfit")),
-            ("RV evenly spaced, no-peak-time", spec.get("rvnoprior")),
-        ):
+        for label, rv_column in (("RV only", spec.get("rvonly")),):
             if rv_column is None:
                 continue
             needed = [spec["fitted"], rv_column]
@@ -854,17 +846,15 @@ def plot_prefit_improvement_by_n_rv(results):
     # summary.to_csv(TABLE_DIR / "prefit_improvement_by_n_rv.csv", index=False)
 
     plot_params = [
-        param for param in ("Macc", "a", "Porb", "b") if param in set(summary["parameter"])
+        param for param in ("Macc", "a", "Porb") if param in set(summary["parameter"])
     ]
     if not plot_params:
         raise ValueError("No configured parameters are available for prefit comparison")
 
-    ncols = min(2, len(plot_params))
-    nrows = int(numpy.ceil(len(plot_params) / ncols))
     fig, axes = pyplot.subplots(
-        nrows,
-        ncols,
-        figsize=(7.2, 2.9 * nrows),
+        1,
+        len(plot_params),
+        figsize=(8.4, 2.9),
         sharex=True,
         constrained_layout=True,
     )
@@ -894,14 +884,12 @@ def plot_prefit_improvement_by_n_rv(results):
 
         label = param_data["parameter_label"].iloc[0]
         axis.set_title(label)
-        axis.set_xscale("log")
+        axis.set_xscale("linear")
         axis.set_yscale("log")
         axis.grid(True, which="both", axis="both", alpha=0.25)
         axis.set_ylabel("Relative error")
 
-    for axis in axes[len(plot_params):]:
-        axis.set_visible(False)
-    for axis in axes[-ncols:]:
+    for axis in axes:
         axis.set_xlabel(r"$N_\mathrm{RV}$")
 
     legend_handles = [
@@ -1016,7 +1004,7 @@ def plot_prefit_improvement_by_lens_mass_range(results):
                 axis.set_xlabel(r"$N_\mathrm{RV}$")
             else:
                 axis.set_xlabel("")
-            axis.set_xscale("log")
+            axis.set_xscale("linear")
             axis.set_yscale("log")
             axis.grid(True, which="both", axis="both", alpha=0.22)
 
@@ -1135,7 +1123,7 @@ def plot_prefit_improvement_by_nobs_and_baseline(results):
                     axis.set_xlabel(r"RV accuracy [m s$^{-1}$]")
                 else:
                     axis.set_xlabel("")
-                axis.set_xscale("log")
+                axis.set_xscale("linear")
                 axis.set_yscale("log")
                 axis.grid(True, which="both", axis="both", alpha=0.22)
 
@@ -1193,8 +1181,7 @@ def prefit_compact_object_class_rows(results):
     fit_stages = (
         ("Photometry only", mass_spec["prefit"]),
         ("Photometry + RV", mass_spec["fitted"]),
-        ("RV (evenly spaced)", mass_spec.get("rvfit")),
-        ("RV (evenly spaced, no peak time prior)", mass_spec.get("rvnoprior")),
+        ("RV only", mass_spec.get("rvonly")),
     )
     rows = []
     for fit_stage, value_column in fit_stages:
@@ -1378,7 +1365,7 @@ def plot_prefit_compact_object_class_by_lens_mass_range(results):
             )
 
         axis.set_title(mass_range_label)
-        axis.set_xscale("log")
+        axis.set_xscale("linear")
         axis.set_ylim(-3, 103)
         axis.axhline(
             100.0 * SUCCESS_THRESHOLD,

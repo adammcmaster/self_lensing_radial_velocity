@@ -1,4 +1,4 @@
-"""Fit evenly spaced RV simulations, with and without the peak-time prior."""
+"""Fit RV-only simulations on an independent evenly spaced schedule."""
 
 import argparse
 import hashlib
@@ -115,10 +115,6 @@ from rv_only_no_prior import (
     self_lensing_systems_from_batched_rv_fit_no_peak_prior_blackjax,
 )
 from schedule import evenly_spaced_rv_observations
-from selflensing.fitting import (
-    self_lensing_system_from_fit_blackjax,
-    self_lensing_systems_from_batched_fit_blackjax,
-)
 from selflensing.models import DEFAULT_LIMITS
 from selflensing.lightcurves import radial_velocity_m_per_s
 from spectrograph import Spectrograph
@@ -126,8 +122,7 @@ from utils import configure_logging
 
 logger = logging.getLogger(__name__)
 
-RV_NO_PRIOR_PREFIX = "rvnoprior"
-RV_PRIOR_PREFIX = "rvprior"
+RV_ONLY_PREFIX = "rvnoprior"
 FIT_RESULT_COLUMNS = (
     "fitted_a",
     "fitted_b",
@@ -139,15 +134,14 @@ FIT_RESULT_COLUMNS = (
     "fitted_porb",
     "fitted_tau_eff",
 )
-RV_NO_PRIOR_RESULT_COLUMNS = tuple(
-    f"{RV_NO_PRIOR_PREFIX}_{column}" for column in FIT_RESULT_COLUMNS
+RV_ONLY_RESULT_COLUMNS = tuple(
+    f"{RV_ONLY_PREFIX}_{column}" for column in FIT_RESULT_COLUMNS
 ) + (
-    f"{RV_NO_PRIOR_PREFIX}_fitted_rv_phase",
-    f"{RV_NO_PRIOR_PREFIX}_fitted_rv_reference_time",
-    f"{RV_NO_PRIOR_PREFIX}_fitted_peak_time",
+    f"{RV_ONLY_PREFIX}_fitted_rv_phase",
+    f"{RV_ONLY_PREFIX}_fitted_rv_reference_time",
+    f"{RV_ONLY_PREFIX}_fitted_peak_time",
 )
-RV_PRIOR_RESULT_COLUMNS = tuple(f"{RV_PRIOR_PREFIX}_{column}" for column in FIT_RESULT_COLUMNS)
-RV_NO_PRIOR_PARAMETER_NAMES = numpy.asarray(
+RV_ONLY_PARAMETER_NAMES = numpy.asarray(
     ["a", "i", "Macc", "e", "periapsis_phase", "rv_phase"],
     dtype=str,
 )
@@ -155,10 +149,7 @@ RV_NO_PRIOR_PARAMETER_NAMES = numpy.asarray(
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description=(
-            "Fit evenly spaced RV simulations both with the photometric "
-            "peak-time prior and with a free RV phase."
-        )
+        description="Fit evenly spaced RV simulations with a free RV phase."
     )
     parser.add_argument(
         "--clear-results",
@@ -353,7 +344,7 @@ def sampler_state_payload(ts, sampler, walker_state):
             if final_coords is not None
             else numpy.asarray([], dtype=float)
         ),
-        "parameter_names": RV_NO_PRIOR_PARAMETER_NAMES,
+        "parameter_names": RV_ONLY_PARAMETER_NAMES,
         "burn": numpy.asarray(FIT_BURN, dtype=int),
         "nsteps": numpy.asarray(FIT_NSTEPS, dtype=int),
         "nwalkers": numpy.asarray(FIT_NWALKERS, dtype=int),
@@ -434,7 +425,7 @@ def scalar_is_finite(value):
 def fit_columns_complete(row):
     return all(
         column in row and scalar_is_finite(row[column])
-        for column in (*RV_PRIOR_RESULT_COLUMNS, *RV_NO_PRIOR_RESULT_COLUMNS)
+        for column in RV_ONLY_RESULT_COLUMNS
     )
 
 
@@ -598,35 +589,20 @@ def batched_fit_inputs(rows, curves):
 def add_rv_no_prior_columns(row, fit_result):
     new_row = pandas.Series(row).copy()
     sls = fit_result.system
-    new_row[f"{RV_NO_PRIOR_PREFIX}_fitted_a"] = sls.a.value
-    new_row[f"{RV_NO_PRIOR_PREFIX}_fitted_b"] = sls.b.value
-    new_row[f"{RV_NO_PRIOR_PREFIX}_fitted_b_max"] = sls.b_max.value
-    new_row[f"{RV_NO_PRIOR_PREFIX}_fitted_i"] = sls.i.value
-    new_row[f"{RV_NO_PRIOR_PREFIX}_fitted_Macc"] = sls.Macc.value
-    new_row[f"{RV_NO_PRIOR_PREFIX}_fitted_e"] = sls.e.value
-    new_row[f"{RV_NO_PRIOR_PREFIX}_fitted_periapsis_phase"] = sls.periapsis_phase.value
-    new_row[f"{RV_NO_PRIOR_PREFIX}_fitted_porb"] = sls.porb.value
-    new_row[f"{RV_NO_PRIOR_PREFIX}_fitted_tau_eff"] = sls.tau_eff.value
-    new_row[f"{RV_NO_PRIOR_PREFIX}_fitted_rv_phase"] = fit_result.rv_phase
-    new_row[f"{RV_NO_PRIOR_PREFIX}_fitted_rv_reference_time"] = (
+    new_row[f"{RV_ONLY_PREFIX}_fitted_a"] = sls.a.value
+    new_row[f"{RV_ONLY_PREFIX}_fitted_b"] = sls.b.value
+    new_row[f"{RV_ONLY_PREFIX}_fitted_b_max"] = sls.b_max.value
+    new_row[f"{RV_ONLY_PREFIX}_fitted_i"] = sls.i.value
+    new_row[f"{RV_ONLY_PREFIX}_fitted_Macc"] = sls.Macc.value
+    new_row[f"{RV_ONLY_PREFIX}_fitted_e"] = sls.e.value
+    new_row[f"{RV_ONLY_PREFIX}_fitted_periapsis_phase"] = sls.periapsis_phase.value
+    new_row[f"{RV_ONLY_PREFIX}_fitted_porb"] = sls.porb.value
+    new_row[f"{RV_ONLY_PREFIX}_fitted_tau_eff"] = sls.tau_eff.value
+    new_row[f"{RV_ONLY_PREFIX}_fitted_rv_phase"] = fit_result.rv_phase
+    new_row[f"{RV_ONLY_PREFIX}_fitted_rv_reference_time"] = (
         fit_result.rv_reference_time
     )
-    new_row[f"{RV_NO_PRIOR_PREFIX}_fitted_peak_time"] = fit_result.rv_peak_time
-    return new_row
-
-
-def add_rv_prior_columns(row, system):
-    """Attach the RV-only posterior summary that uses the known peak epoch."""
-    new_row = pandas.Series(row).copy()
-    new_row[f"{RV_PRIOR_PREFIX}_fitted_a"] = system.a.value
-    new_row[f"{RV_PRIOR_PREFIX}_fitted_b"] = system.b.value
-    new_row[f"{RV_PRIOR_PREFIX}_fitted_b_max"] = system.b_max.value
-    new_row[f"{RV_PRIOR_PREFIX}_fitted_i"] = system.i.value
-    new_row[f"{RV_PRIOR_PREFIX}_fitted_Macc"] = system.Macc.value
-    new_row[f"{RV_PRIOR_PREFIX}_fitted_e"] = system.e.value
-    new_row[f"{RV_PRIOR_PREFIX}_fitted_periapsis_phase"] = system.periapsis_phase.value
-    new_row[f"{RV_PRIOR_PREFIX}_fitted_porb"] = system.porb.value
-    new_row[f"{RV_PRIOR_PREFIX}_fitted_tau_eff"] = system.tau_eff.value
+    new_row[f"{RV_ONLY_PREFIX}_fitted_peak_time"] = fit_result.rv_peak_time
     return new_row
 
 
@@ -675,34 +651,8 @@ def run_rv_no_prior_fit(args):
     if close_sampler_writer:
         sampler_writer.close()
     if sampler_state_path is not None:
-        new_row[f"{RV_NO_PRIOR_PREFIX}_fit_sampler_state_path"] = str(sampler_state_path)
+        new_row[f"{RV_ONLY_PREFIX}_fit_sampler_state_path"] = str(sampler_state_path)
     return new_row
-
-
-def run_rv_prior_fit(i, ts, curve):
-    """Run an RV-only fit constrained by the photometrically known peak time."""
-    system, _, _ = self_lensing_system_from_fit_blackjax(
-        rv_times=Time(curve["rv_times"], format="jd"),
-        observed_rv=curve["rv"] * units.m / units.s,
-        observed_rv_err=curve["rv_err"] * units.m / units.s,
-        peak_time=Time(ts["peak_time"], format="jd"),
-        Mcomp=ts["Mcomp"] * units.M_sun,
-        Rcomp=ts["Rcomp"] * units.R_sun,
-        Teff=ts["Teff"] * units.K,
-        nsteps=FIT_NSTEPS,
-        nwalkers=FIT_NWALKERS,
-        burn=FIT_BURN,
-        progress=FIT_MCMC_PROGRESS,
-        progress_desc=f"MCMC RV peak prior {short_id(ts.get('rv_id', None))}",
-        progress_chunk_size=FIT_PROGRESS_CHUNK_SIZE,
-        lensing_method=FIT_LENSING_METHOD,
-        device=FIT_DEVICE,
-        prefer_gpu=FIT_DEVICE == "auto",
-        proposal_scale_fraction=FIT_PROPOSAL_SCALE_FRACTION,
-        return_sampler=False,
-        return_walker_state=False,
-    )
-    return add_rv_prior_columns(ts, system)
 
 
 def run_rv_no_prior_batch(rows, curves):
@@ -749,35 +699,6 @@ def run_rv_no_prior_batch(rows, curves):
     ]
 
 
-def run_rv_prior_batch(rows, curves):
-    inputs = batched_fit_inputs(rows, curves)
-    row_table = pandas.DataFrame([ts for _, ts in rows])
-    systems, _, _ = self_lensing_systems_from_batched_fit_blackjax(
-        rv_times=Time(inputs["rv_times"], format="jd"),
-        observed_rv=inputs["observed_rv"] * units.m / units.s,
-        observed_rv_err=inputs["observed_rv_err"] * units.m / units.s,
-        rv_mask=inputs["rv_mask"],
-        peak_time=Time(row_table["peak_time"].to_numpy(dtype=float), format="jd"),
-        Mcomp=row_table["Mcomp"].to_numpy(dtype=float) * units.M_sun,
-        Rcomp=row_table["Rcomp"].to_numpy(dtype=float) * units.R_sun,
-        Teff=row_table["Teff"].to_numpy(dtype=float) * units.K,
-        false_alarm_probability=0.5,
-        nsteps=FIT_NSTEPS,
-        nwalkers=FIT_NWALKERS,
-        burn=FIT_BURN,
-        progress=FIT_MCMC_PROGRESS,
-        progress_desc=f"MCMC batched RV peak prior {short_id(rows[0][1].get('system_id', None))}",
-        progress_chunk_size=FIT_PROGRESS_CHUNK_SIZE,
-        lensing_method=FIT_LENSING_METHOD,
-        device=FIT_DEVICE,
-        prefer_gpu=FIT_DEVICE == "auto",
-        proposal_scale_fraction=FIT_PROPOSAL_SCALE_FRACTION,
-        return_sampler=False,
-        return_walker_state=False,
-    )
-    return [add_rv_prior_columns(row, system) for (_, row), system in zip(rows, systems)]
-
-
 def batched_row_chunks(rows):
     if FIT_BATCH_SIZE is None or FIT_BATCH_SIZE >= len(rows):
         yield rows
@@ -798,11 +719,7 @@ def fit_rv_file(rows):
     if FIT_BATCHED and not FIT_SAVE_SAMPLERS:
         results = []
         for batch_rows in batched_row_chunks(rows):
-            prior_rows = run_rv_prior_batch(batch_rows, curves)
-            no_prior_rows = run_rv_no_prior_batch(batch_rows, curves)
-            results.extend(
-                merge_rv_fit_rows(prior_rows, no_prior_rows)
-            )
+            results.extend(run_rv_no_prior_batch(batch_rows, curves))
         return results
     results = []
     for i, ts in tqdm(
@@ -813,9 +730,7 @@ def fit_rv_file(rows):
         dynamic_ncols=True,
     ):
         curve = curves[str(ts["rv_id"])]
-        prior_row = run_rv_prior_fit(i, ts, curve)
-        no_prior_row = run_rv_no_prior_fit((i, ts, curve))
-        results.extend(merge_rv_fit_rows([prior_row], [no_prior_row]))
+        results.append(run_rv_no_prior_fit((i, ts, curve)))
     return results
 
 
@@ -910,19 +825,6 @@ def process_map_iter(fn, iterable, total=None, desc=None, max_workers=None, chun
         )
 
 
-def merge_rv_fit_rows(prior_rows, no_prior_rows):
-    no_prior_by_key = {result_checkpoint_key(row): row for row in no_prior_rows}
-    merged_rows = []
-    for prior_row in prior_rows:
-        combined = pandas.Series(prior_row).copy()
-        no_prior_row = no_prior_by_key[result_checkpoint_key(prior_row)]
-        for column, value in no_prior_row.items():
-            if column.startswith(f"{RV_NO_PRIOR_PREFIX}_"):
-                combined[column] = value
-        merged_rows.append(combined)
-    return merged_rows
-
-
 def merge_rv_even_spaced_results(existing_results, new_rows):
     if not new_rows:
         return existing_results.copy()
@@ -938,7 +840,7 @@ def merge_rv_even_spaced_results(existing_results, new_rows):
             raise ValueError(f"Refusing to add new result row for unknown key {key}")
         target_index = index_by_key[key]
         for column, value in row.items():
-            if column.startswith((f"{RV_PRIOR_PREFIX}_", f"{RV_NO_PRIOR_PREFIX}_")):
+            if column.startswith(f"{RV_ONLY_PREFIX}_"):
                 merged.at[target_index, column] = value
     return merged
 
@@ -1041,7 +943,7 @@ def clear_rv_fit_columns(table):
     columns = [
         column
         for column in table.columns
-        if column.startswith((f"{RV_PRIOR_PREFIX}_", f"{RV_NO_PRIOR_PREFIX}_"))
+        if column.startswith(("rvprior_", f"{RV_ONLY_PREFIX}_"))
     ]
     if columns:
         logger.info("Dropping %d existing RV-only result column(s)", len(columns))
