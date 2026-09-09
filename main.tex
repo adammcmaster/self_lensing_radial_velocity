@@ -147,11 +147,12 @@ A second MCMC fit is then performed to sample the posterior distribution constra
 Finally, we map the fitted outcomes onto previous population synthesis results to translate the estimated recovery error rates onto the expected real population of detectable self-lensing systems (Section~\ref{sec:pop-synth}).
 
 \subsection{Self-lensing and photometric binary effects} \label{sec:phot-sims}
-We note that the photometric model described here is similar to the recently published COBALT-BLUE model (Dixon et al. in preparation) (\textbf{TODO: Update this citation before submission if possible}), but uses a simpler approximation to the full photometric forward model. Compared with COBALT-BLUE, our model adopts a local approximation to the eccentric self-lensing geometry and lower-order treatments of Doppler boosting and ellipsoidal variability, while adding the spectroscopic radial-velocity component to improve the recovery of lens mass and other physical parameters. We anticipate combining the two models in a future work.
+
+The photometric model used here is a modified version of COBALT-BLUE (Dixon et al. in preparation) (\textbf{TODO: Update this citation before submission if possible}), created while development of COBALT-BLUE was still in progress. Since this main focus of the present work is radial velocity scheduling and fitting, not the development of a full photometric forward model, we adopt simplified approximations to some aspects of the full model. Compared with COBALT-BLUE, our model adopts a local approximation to the eccentric self-lensing geometry and lower-order treatments of Doppler boosting and ellipsoidal variability, and we only consider linear limb darkening (Dixon et al. in preparation shows that linear limb darkening is sufficient for the present purposes). This work also adds a stellar noise model (Section~\ref{sec:gp}) and the spectroscopic radial-velocity component (Section~\ref{sec:rv-sims}) which are not included in COBALT-BLUE. A full mathematical description of the modified photometric model is given in Appendix~\ref{sec:phot-model}.
 
 Simulations comprise a sample of self-lensing system parameters which is physically complete but not physically realistic (i.e. parameters are not sampled according to the frequency they are expected to occur in nature). This allows us to determine the ranges of parameters which produce self-lensing effects, independent of how common or uncommon particular parameter ranges are expected to be.
 
-The photometric simulations comprise realistic simulated TESS-like light curves (including stellar noise generated with a Gaussian process, see Section~\ref{sec:gp}) for each self-lensing system. When generating the simulations, the parameter values were sampled uniformly between the limits given in Table~\ref{tab:phot_sim_parameter_ranges}, with the exception of semi-major axis ($a$), eccentricity ($e$), and lens mass ($M_\mathrm{lens}$), which are sampled on a log scale to increase the number of samples at smaller values (the light curve morphology changes roughly in proportion to the relative change in these values; e.g. a 5 AU change in semi-major axis has a much larger effect going from 1 AU to 6 AU than for 100 AU to 105 AU).
+The photometric simulations comprise realistic simulated TESS-like light curves for each self-lensing system. When generating the simulations, the parameter values were sampled uniformly between the limits given in Table~\ref{tab:phot_sim_parameter_ranges}, with the exception of semi-major axis ($a$), eccentricity ($e$), and lens mass ($M_\mathrm{lens}$), which are sampled on a log scale to increase the number of samples at smaller values (the light curve morphology changes roughly in proportion to the relative change in these values; e.g. a 5 AU change in semi-major axis has a much larger effect going from 1 AU to 6 AU than for 100 AU to 105 AU).
 
 \begin{table}
     \centering
@@ -174,111 +175,7 @@ The photometric simulations comprise realistic simulated TESS-like light curves 
 
 Three photometric effects are included when generating the light curves: self-lensing, ellipsoidal variations, and Doppler boosting. At small values of $a$ the light curve is dominated by ellipsoidal variations and Doppler boosting (though lensing is often visible too); at large $a$ lensing is dominant, with ellipsoidal variation and Doppler boosting tending to zero as $a$ increases \citep{sorabella_modeling_2022}.
 
-These effects all depend on the orbital phase at a given time during the simulation. The zero point for this is defined as the moment of maximum lensing magnification (i.e. the time of minimum projected separation between source and lens, $t_0$). The periapsis phase angle is defined in terms of this zero point; i.e. the phase angle at which periastron passage occurs, relative to the position at $t_0$. Note that this is different from the usual convention of measuring orbital phase relative to periastron passage and was chosen to simplify the computation of the lensing effect.
-
-The source-lens distance is calculated according to the phase angle at a given time, meaning the source-lens distance changes during the microlensing event according to the eccentricity. Strictly speaking, the Einstein ring radius should also change as a function of orbital phase, but this effect is expected to be small and so is not accounted for in the present work. Instead, the radius at $t_0$ is used for all calculations.
-
 All simulated light curves are 27 days long (the duration of a TESS sector). The peak time, $t_0$, is randomly selected to fall somewhere in the 27 day time window.
-
-We use the Einstein radius and impact-parameter convention of \cite{wiktorowicz_predicting_2021}, generalised from the circular-orbit case by replacing the orbital separation with the instantaneous Keplerian lens-source separation,
-\begin{equation}
-    R_\mathrm{E} = \left(\frac{4 G M_\mathrm{lens} r(t_0) \sin i}{c^2}\right)^{1/2},
-    \quad
-    b = \frac{a |\cos i|}{R_\mathrm{E}},
-    \quad
-    b_\mathrm{max} = 1 + \frac{R_\star}{R_\mathrm{E}},
-\end{equation}
-where $r(t_0)$ is the lens-source separation and $\omega$ is the phase angle of periapsis relative to $t_0$. For a circular orbit, $r(t_0)=a$ and this reduces to the expression used by \cite{wiktorowicz_predicting_2021}. We define the orbital phase relative to $t_0$ as the true orbital longitude, using the true anomaly $\nu(t)$,
-\begin{equation}
-    \phi(t) = \omega + \nu(t),
-\end{equation}
-where $\nu(t)$ is measured relative to periapsis. The true anomaly is obtained from Kepler's equation using the mean anomaly $\mathcal{M}$ and eccentric anomaly $E$,
-\begin{align}
-    \mathcal{M}(t) & = \mathcal{M}_0 + 2\pi\frac{t - t_0}{P_\mathrm{orb}}, \\
-    \mathcal{M}(t) & = E(t) - e\sin E(t),                                  \\
-    \nu(t)         & = 2\arctan2\left[
-        \sqrt{1+e}\sin\frac{E(t)}{2},
-        \sqrt{1-e}\cos\frac{E(t)}{2}
-        \right],                                                           \\
-    P_\mathrm{orb} & =
-    2\pi\left(\frac{a^3}{G(M_\mathrm{lens} + M_\star)}\right)^{1/2},
-\end{align}
-with $\mathcal{M}_0$ chosen such that $\phi(t_0)=0$. $\arctan2$ is the standard quadrant-aware inverse tangent. The true anomaly at the lensing peak is $\nu_0=-\omega$, so the corresponding eccentric anomaly and mean anomaly are
-\begin{align}
-    E_0           & = 2\arctan2\left[
-        \sqrt{1-e}\sin\frac{\nu_0}{2},
-        \sqrt{1+e}\cos\frac{\nu_0}{2}
-        \right],                        \\
-    \mathcal{M}_0 & = E_0 - e\sin E_0 .
-\end{align}
-For this orbital phase, the true orbital lens-source separation is
-\begin{equation}
-    r[\phi(t)] =
-    \frac{a(1 - e^2)}
-    {1 + e\cos[\phi(t) - \omega]}.
-\end{equation}
-The projected lens-source separation in Einstein-radius units is
-\begin{equation}
-    u(t) = \frac{1}{R_\mathrm{E}}
-    \left[
-        \left(r[\phi(t)] \sin\phi(t)\right)^2
-        + \left(b R_\mathrm{E}\right)^2
-        \right]^{1/2},
-\end{equation}
-where $u(t)$ is dimensionless. The self-lensing magnification is calculated with the integrated Witt--Mao finite-source formalism \citep{witt_can_1994}. The implementation evaluates the closed-form uniform-disc magnification,
-\begin{equation}
-    A_\mathrm{WM}(u, \rho_\star) =
-    \frac{
-        C_E E(m) + C_K K(m) + C_\Pi \Pi(n, m)
-    }{\pi},
-\end{equation}
-where $K$, $E$, and $\Pi$ are complete elliptic integrals of the first, second, and third kind. The coefficients $C_E$, $C_K$, and $C_\Pi$, and the elliptic-integral arguments $m$ and $n$, are functions only of the projected lens-source separation and $\rho_\star = R_\star / R_\mathrm{E}$. The disc-integrated magnification used in the simulated light curves is then evaluated by quadrature over a linearly limb-darkened stellar disc,
-\begin{align}
-    A_\mathrm{SL}(t) & =
-    \frac{
-        \int_0^1
-        A_\mathrm{WM}\left[u(t), \rho\rho_\star\right]
-        I(\mu)\,2\rho\,\mathrm{d}\rho
-    }{
-        \int_0^1 I(\mu)\,2\rho\,\mathrm{d}\rho
-    },
-    \nonumber                             \\
-    \mu              & = \sqrt{1-\rho^2},
-    \quad
-    I(\mu) = 1 - \gamma(1-\mu),
-\end{align}
-
-% \textbf{Eddington (grey) \citep{eddington1926}} \qquad
-%   & \frac{I(\mu)}{I(1)} = \frac{3}{5}\!\left(\mu + \frac{2}{3}\right),
-
-where $\gamma=0.6$ is the fixed linear limb-darkening coefficient.  This is the value corresponding to Eddington's grey atmosphere \citep{eddington1926}. It is a fiducial approximation; in analyses of individual candidates, the coefficient should instead be interpolated from atmosphere models using the measured stellar parameters.
-
-Calculation of ellipsoidal variations and Doppler boosting are adapted from \cite{sorabella_modeling_2022}, with the orbital separation and radial velocity generalised to the eccentric case. The ellipsoidal-variation term is
-\begin{align}
-    A_\mathrm{EV}(t) & =
-    -\beta
-    \frac{M_\mathrm{lens}}{M_\star}
-    \left(\frac{R_\star}{r[\phi(t)]}\right)^3
-    \sin^2 i \cos 2\phi(t),
-    \nonumber                                                           \\
-    \beta            & = 0.15\,\frac{(1 + g)(15 + \gamma)}{3 - \gamma},
-\end{align}
-where $\beta$ is the ellipsoidal-variation coefficient and $g=0.32$ is the gravity-darkening coefficient for a Sun-like star \citep{lucy_gravity-darkening_1967}.
-
-The Doppler-boosting term is
-\begin{equation}
-    A_\mathrm{DB}(t) =
-    (3 - \alpha)\frac{v_r(t)}{c},
-    \quad
-    \alpha =
-    \frac{\exp(x)(3 - x) - 3}{\exp(x) - 1},
-    \quad
-    x = \frac{h\nu_\mathrm{TESS}}{k_\mathrm{B}T_\mathrm{eff}},
-\end{equation}
-where $\nu_\mathrm{TESS}$ is the TESS-band effective frequency and $v_r(t)$ is the source radial velocity. The combined model flux is
-\begin{equation}
-    F(t) = F_0 A_\mathrm{SL}(t)\left[1 + A_\mathrm{EV}(t) + A_\mathrm{DB}(t)\right].
-\end{equation}
 
 \subsection{Stellar noise} \label{sec:gp}
 
@@ -674,16 +571,112 @@ The simulated light curve and radial velocity data, Python code, and \LaTeX sour
 
 %%%%%%%%%%%%%%%%% APPENDICES %%%%%%%%%%%%%%%%%%%%%
 
-% \appendix
+\appendix
 
-% \section{Expected recovered detections by survey}
-% \label{app:population-weighted-followup-counts}
+\section{Photometric model} \label{sec:phot-model}
+As with the full COBALT-BLUE model, we include three photometric effects: self-lensing, ellipsoidal variations, and Doppler boosting. These effects all depend on the orbital phase at a given time during the simulation. The zero point for this is defined as the moment of maximum lensing magnification (i.e. the time of minimum projected separation between source and lens, $t_0$). The periapsis phase angle is defined in terms of this zero point; i.e. the phase angle at which periastron passage occurs, relative to the position at $t_0$. Note that this is different from the convention used in COBALT-BLUE, which measures orbital phase relative to periastron passage.
 
-% \input{paper/tables/population_weighted_followup_counts_class}
+The source-lens distance is calculated according to the phase angle at a given time, meaning the source-lens distance changes during the microlensing event according to the eccentricity. Strictly speaking, the Einstein ring radius should also change as a function of orbital phase, but this effect is expected to be small and so is not accounted for in the present work. Instead, the radius at $t_0$ is used for all calculations.
 
-% \input{paper/tables/population_weighted_followup_counts_macc}
+We use the Einstein radius and impact-parameter convention of \cite{wiktorowicz_predicting_2021}, generalised from the circular-orbit case by replacing the orbital separation with the instantaneous Keplerian lens-source separation,
+\begin{equation}
+    R_\mathrm{E} = \left(\frac{4 G M_\mathrm{lens} r(t_0) \sin i}{c^2}\right)^{1/2},
+    \quad
+    b = \frac{a |\cos i|}{R_\mathrm{E}},
+    \quad
+    b_\mathrm{max} = 1 + \frac{R_\star}{R_\mathrm{E}},
+\end{equation}
+where $r(t_0)$ is the lens-source separation and $\omega$ is the phase angle of periapsis relative to $t_0$. For a circular orbit, $r(t_0)=a$ and this reduces to the expression used by \cite{wiktorowicz_predicting_2021}. We define the orbital phase relative to $t_0$ as the true orbital longitude, using the true anomaly $\nu(t)$,
+\begin{equation}
+    \phi(t) = \omega + \nu(t),
+\end{equation}
+where $\nu(t)$ is measured relative to periapsis. The true anomaly is obtained from Kepler's equation using the mean anomaly $\mathcal{M}$ and eccentric anomaly $E$,
+\begin{align}
+    \mathcal{M}(t) & = \mathcal{M}_0 + 2\pi\frac{t - t_0}{P_\mathrm{orb}}, \\
+    \mathcal{M}(t) & = E(t) - e\sin E(t),                                  \\
+    \nu(t)         & = 2\arctan2\left[
+        \sqrt{1+e}\sin\frac{E(t)}{2},
+        \sqrt{1-e}\cos\frac{E(t)}{2}
+        \right],                                                           \\
+    P_\mathrm{orb} & =
+    2\pi\left(\frac{a^3}{G(M_\mathrm{lens} + M_\star)}\right)^{1/2},
+\end{align}
+with $\mathcal{M}_0$ chosen such that $\phi(t_0)=0$. $\arctan2$ is the standard quadrant-aware inverse tangent. The true anomaly at the lensing peak is $\nu_0=-\omega$, so the corresponding eccentric anomaly and mean anomaly are
+\begin{align}
+    E_0           & = 2\arctan2\left[
+        \sqrt{1-e}\sin\frac{\nu_0}{2},
+        \sqrt{1+e}\cos\frac{\nu_0}{2}
+        \right],                        \\
+    \mathcal{M}_0 & = E_0 - e\sin E_0 .
+\end{align}
+For this orbital phase, the true orbital lens-source separation is
+\begin{equation}
+    r[\phi(t)] =
+    \frac{a(1 - e^2)}
+    {1 + e\cos[\phi(t) - \omega]}.
+\end{equation}
+The projected lens-source separation in Einstein-radius units is
+\begin{equation}
+    u(t) = \frac{1}{R_\mathrm{E}}
+    \left[
+        \left(r[\phi(t)] \sin\phi(t)\right)^2
+        + \left(b R_\mathrm{E}\right)^2
+        \right]^{1/2},
+\end{equation}
+where $u(t)$ is dimensionless. The self-lensing magnification is calculated with the integrated Witt--Mao finite-source formalism \citep{witt_can_1994}. The implementation evaluates the closed-form uniform-disc magnification,
+\begin{equation}
+    A_\mathrm{WM}(u, \rho_\star) =
+    \frac{
+        C_E E(m) + C_K K(m) + C_\Pi \Pi(n, m)
+    }{\pi},
+\end{equation}
+where $K$, $E$, and $\Pi$ are complete elliptic integrals of the first, second, and third kind. The coefficients $C_E$, $C_K$, and $C_\Pi$, and the elliptic-integral arguments $m$ and $n$, are functions only of the projected lens-source separation and $\rho_\star = R_\star / R_\mathrm{E}$. The disc-integrated magnification used in the simulated light curves is then evaluated by quadrature over a linearly limb-darkened stellar disc,
+\begin{align}
+    A_\mathrm{SL}(t) & =
+    \frac{
+        \int_0^1
+        A_\mathrm{WM}\left[u(t), \rho\rho_\star\right]
+        I(\mu)\,2\rho\,\mathrm{d}\rho
+    }{
+        \int_0^1 I(\mu)\,2\rho\,\mathrm{d}\rho
+    },
+    \nonumber                             \\
+    \mu              & = \sqrt{1-\rho^2},
+    \quad
+    I(\mu) = 1 - \gamma(1-\mu),
+\end{align}
 
-% \input{paper/tables/population_weighted_followup_counts_porb}
+% \textbf{Eddington (grey) \citep{eddington1926}} \qquad
+%   & \frac{I(\mu)}{I(1)} = \frac{3}{5}\!\left(\mu + \frac{2}{3}\right),
+
+where $\gamma=0.6$ is the fixed linear limb-darkening coefficient. This is the value corresponding to Eddington's grey atmosphere \citep{eddington1926}. It is a fiducial approximation; in analyses of individual candidates, the coefficient should instead be interpolated from atmosphere models using the measured stellar parameters.
+
+Calculation of ellipsoidal variations and Doppler boosting are adapted from \cite{sorabella_modeling_2022}, with the orbital separation and radial velocity generalised to the eccentric case. The ellipsoidal-variation term is
+\begin{align}
+    A_\mathrm{EV}(t) & =
+    -\beta
+    \frac{M_\mathrm{lens}}{M_\star}
+    \left(\frac{R_\star}{r[\phi(t)]}\right)^3
+    \sin^2 i \cos 2\phi(t),
+    \nonumber                                                           \\
+    \beta            & = 0.15\,\frac{(1 + g)(15 + \gamma)}{3 - \gamma},
+\end{align}
+where $\beta$ is the ellipsoidal-variation coefficient and $g=0.32$ is the gravity-darkening coefficient for a Sun-like star \citep{lucy_gravity-darkening_1967}.
+
+The Doppler-boosting term is
+\begin{equation}
+    A_\mathrm{DB}(t) =
+    (3 - \alpha)\frac{v_r(t)}{c},
+    \quad
+    \alpha =
+    \frac{\exp(x)(3 - x) - 3}{\exp(x) - 1},
+    \quad
+    x = \frac{h\nu_\mathrm{TESS}}{k_\mathrm{B}T_\mathrm{eff}},
+\end{equation}
+where $\nu_\mathrm{TESS}$ is the TESS-band effective frequency and $v_r(t)$ is the source radial velocity. The combined model flux is
+\begin{equation}
+    F(t) = F_0 A_\mathrm{SL}(t)\left[1 + A_\mathrm{EV}(t) + A_\mathrm{DB}(t)\right].
+\end{equation}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
