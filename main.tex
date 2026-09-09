@@ -247,7 +247,11 @@ where $K$, $E$, and $\Pi$ are complete elliptic integrals of the first, second, 
     \quad
     I(\mu) = 1 - \gamma(1-\mu),
 \end{align}
-where $\gamma=0.51$ is the fixed linear limb-darkening coefficient.  This is the least-squares TESS-band coefficient tabulated by \citet{claret_limb_2017} for a solar-metallicity dwarf with $T_\mathrm{eff}=5750\,\mathrm{K}$, $\log g=4.5$, and microturbulent velocity $2\,\mathrm{km\,s^{-1}}$.  It is a fiducial approximation; in analyses of individual candidates, the coefficient should instead be interpolated from atmosphere models using the measured stellar parameters.
+
+% \textbf{Eddington (grey) \citep{eddington1926}} \qquad
+%   & \frac{I(\mu)}{I(1)} = \frac{3}{5}\!\left(\mu + \frac{2}{3}\right),
+
+where $\gamma=0.6$ is the fixed linear limb-darkening coefficient.  This is the value corresponding to Eddington's grey atmosphere \citep{eddington1926}. It is a fiducial approximation; in analyses of individual candidates, the coefficient should instead be interpolated from atmosphere models using the measured stellar parameters.
 
 Calculation of ellipsoidal variations and Doppler boosting are adapted from \cite{sorabella_modeling_2022}, with the orbital separation and radial velocity generalised to the eccentric case. The ellipsoidal-variation term is
 \begin{align}
