@@ -175,6 +175,8 @@ The photometric simulations comprise realistic simulated TESS-like light curves 
 
 Three photometric effects are included when generating the light curves: self-lensing, ellipsoidal variations, and Doppler boosting. At small values of $a$ the light curve is dominated by ellipsoidal variations and Doppler boosting (though lensing is often visible too); at large $a$ lensing is dominant, with ellipsoidal variation and Doppler boosting tending to zero as $a$ increases \citep{sorabella_modeling_2022}.
 
+These effects all depend on the orbital phase at a given time during the simulation. The zero point for this is defined as the moment of maximum lensing magnification (i.e. the time of minimum projected separation between source and lens, $t_0$). The periapsis phase angle, $\omega$, is defined in terms of this zero point; i.e. the phase angle at which periastron passage occurs, relative to the position at $t_0$. Note that this is different from the convention used in COBALT-BLUE, which measures orbital phase relative to periastron passage.
+
 All simulated light curves are 27 days long (the duration of a TESS sector). The peak time, $t_0$, is randomly selected to fall somewhere in the 27 day time window.
 
 \subsection{Stellar noise} \label{sec:gp}
@@ -269,7 +271,7 @@ modelling stellar variability through GPs, see \cite{aigrain_gaussian_2023}.
 
 \subsection{Photometric MCMC fit} \label{sec:phot-fit}
 
-Each simulated photometric light curve is fitted via MCMC using a random-walk Metropolis-Hastings sampler implemented with the BlackJAX package (128 walkers, 1,000 total steps, including 200 burn-in steps). For these fits it is assumed we know the stellar physical parameters exactly, along with the relative amplification (Section~\ref{sec:phot-sims}) and crossing time. In reality there will be uncertainty in these values, but determining them is a separate problem which is out of scope for the present work. Light curves are binned according to their crossing time to minimise computation time while preserving the shape of the self-lensing peak (Table~\ref{tab:photometric-binning}). A limited number of bin widths was chosen for computational efficiency, as fits are run as vectorised batches on a GPU, requiring all the light curves in a batch to have the same length. 
+Each simulated photometric light curve is fitted via MCMC using a random-walk Metropolis-Hastings sampler implemented with the BlackJAX package (128 walkers, 1,000 total steps, including 200 burn-in steps). For these fits it is assumed we know the stellar physical parameters exactly, along with the relative amplification (Appendix~\ref{sec:phot-model}) and effective crossing time, $\tau_\mathrm{eff}$ \citep{wiktorowicz_predicting_2021}. In reality there will be uncertainty in these values, but determining them is a separate problem which is out of scope for the present work. Light curves are binned according to their crossing time to minimise computation time while preserving the shape of the self-lensing peak (Table~\ref{tab:photometric-binning}). A limited number of bin widths was chosen for computational efficiency, as fits are run as vectorised batches on a GPU, requiring all the light curves in a batch to have the same length.
 
 \begin{table}
     \centering
@@ -290,17 +292,23 @@ We fit only the fundamental physical parameters of the system,
 \begin{equation}
     \boldsymbol{\theta} = (a, i, M_\mathrm{lens}, e, \omega),
 \end{equation}
-with the stellar mass, stellar radius, effective temperature, distance, and lensing-peak time held fixed at their simulated values. Orbital period, impact parameter, maximum possible impact parameter, and effective lensing-event duration are derived from the fitted physical parameters rather than fitted directly.
+with the stellar mass, stellar radius, effective temperature, distance, and lensing-peak time held fixed at their simulated values. Orbital period, $P_\mathrm{orb}$, impact parameter, maximum possible impact parameter, and effective lensing-event duration are derived from the fitted physical parameters rather than fitted directly. The orbital-period calculation is given in Appendix~\ref{sec:phot-model}.
 
-Walkers are initialised using an estimated parameter distribution calculated from $\tau_\mathrm{eff}$ and $A_\mathrm{SL}$. Similar to Figure~\ref{fig:self-lensing-observable-space}, parameters are calculated in the region around the observed values, and then these are clustered by the parameters in $\boldsymbol{\theta}$ using $k$-means clustering to find distinct groupings of estimated parameters. The central point of each cluster is used to choose initial walker positions. This ensures the random walk thoroughly explores the area of the parameter space with the highest likelihood given the known amplification and crossing time, without constraining it from exploring beyond those regions.
+Walkers are initialised using an estimated parameter distribution calculated from $\tau_\mathrm{eff}$ and $A_\mathrm{SL}$ (Appendix~\ref{sec:phot-model}). Similar to Figure~\ref{fig:self-lensing-observable-space}, parameters are calculated in the region around the observed values, and then these are clustered by the parameters in $\boldsymbol{\theta}$ using $k$-means clustering to find distinct groupings of estimated parameters. The central point of each cluster is used to choose initial walker positions. This ensures the random walk thoroughly explores the area of the parameter space with the highest likelihood given the known amplification and crossing time, without constraining it from exploring beyond those regions.
 
-We use a uniform prior within the corresponding parameter limits in Table~\ref{tab:phot_sim_parameter_ranges}, with negative infinity probability outside these limits. We also require trial systems to satisfy the self-lensing geometry condition $b \leq b_\mathrm{max}$.
+We use a uniform prior within the corresponding parameter limits in Table~\ref{tab:phot_sim_parameter_ranges}, with negative infinity probability outside these limits. We also require trial systems to satisfy the self-lensing geometry condition $b \leq b_\mathrm{max}$, where $b$ is the impact parameter in units of the Einstein radius and $b_\mathrm{max}$ is its maximum value for self-lensing. Their expressions are given in Appendix~\ref{sec:phot-model}.
 
 At the end of the MCMC run, the posterior parameter distribution is clustered using $k$-means clustering to derive a set of distinct solutions which could produce the simulated light curve (to account for degeneracies).
 
 \subsection{Radial velocity calculation} \label{sec:rv-sims}
 
-The RV simulations use the same physical parameters and phase convention as the photometric simulations. Let $\mu_g=G(M_\mathrm{lens}+M_\star)$ be the standard gravitational parameter, and $h=[\mu_g a(1-e^2)]^{1/2}$ be the specific angular momentum of the relative orbit. The source-star barycentric radial and tangential orbital-velocity components are
+The RV simulations use the same physical parameters and phase convention as the photometric simulations (Section~\ref{sec:phot-sims}). We define the orbital phase relative to $t_0$ as the true orbital longitude, using the true anomaly $\nu(t)$,
+\begin{equation}
+    \phi(t) = \omega + \nu(t),
+\end{equation}
+where $\nu(t)$ is measured relative to periapsis. The phase satisfies $\phi(t_0)=0$, and the true anomaly is calculated from Kepler's equation as described in Appendix~\ref{sec:phot-model}.
+
+Let $\mu_g=G(M_\mathrm{lens}+M_\star)$ be the standard gravitational parameter, and $h=[\mu_g a(1-e^2)]^{1/2}$ be the specific angular momentum of the relative orbit. The source-star barycentric radial and tangential orbital-velocity components are
 \begin{align}
     v_{\mathrm{rad},\star}(t) & =
     \frac{M_\mathrm{lens}}{M_\mathrm{lens}+M_\star}
@@ -574,7 +582,7 @@ The simulated light curve and radial velocity data, Python code, and \LaTeX sour
 \appendix
 
 \section{Photometric model} \label{sec:phot-model}
-As with the full COBALT-BLUE model, we include three photometric effects: self-lensing, ellipsoidal variations, and Doppler boosting. These effects all depend on the orbital phase at a given time during the simulation. The zero point for this is defined as the moment of maximum lensing magnification (i.e. the time of minimum projected separation between source and lens, $t_0$). The periapsis phase angle is defined in terms of this zero point; i.e. the phase angle at which periastron passage occurs, relative to the position at $t_0$. Note that this is different from the convention used in COBALT-BLUE, which measures orbital phase relative to periastron passage.
+As with the full COBALT-BLUE model, we include three photometric effects: self-lensing, ellipsoidal variations, and Doppler boosting. We use the orbital phase convention described in Section~\ref{sec:phot-sims}, with the phase and true anomaly defined in Section~\ref{sec:rv-sims}.
 
 The source-lens distance is calculated according to the phase angle at a given time, meaning the source-lens distance changes during the microlensing event according to the eccentricity. Strictly speaking, the Einstein ring radius should also change as a function of orbital phase, but this effect is expected to be small and so is not accounted for in the present work. Instead, the radius at $t_0$ is used for all calculations.
 
@@ -586,11 +594,7 @@ We use the Einstein radius and impact-parameter convention of \cite{wiktorowicz_
     \quad
     b_\mathrm{max} = 1 + \frac{R_\star}{R_\mathrm{E}},
 \end{equation}
-where $r(t_0)$ is the lens-source separation and $\omega$ is the phase angle of periapsis relative to $t_0$. For a circular orbit, $r(t_0)=a$ and this reduces to the expression used by \cite{wiktorowicz_predicting_2021}. We define the orbital phase relative to $t_0$ as the true orbital longitude, using the true anomaly $\nu(t)$,
-\begin{equation}
-    \phi(t) = \omega + \nu(t),
-\end{equation}
-where $\nu(t)$ is measured relative to periapsis. The true anomaly is obtained from Kepler's equation using the mean anomaly $\mathcal{M}$ and eccentric anomaly $E$,
+where $r(t_0)$ is the lens-source separation at the lensing peak. For a circular orbit, $r(t_0)=a$ and this reduces to the expression used by \cite{wiktorowicz_predicting_2021}. The true anomaly is obtained from Kepler's equation using the mean anomaly $\mathcal{M}$ and eccentric anomaly $E$,
 \begin{align}
     \mathcal{M}(t) & = \mathcal{M}_0 + 2\pi\frac{t - t_0}{P_\mathrm{orb}}, \\
     \mathcal{M}(t) & = E(t) - e\sin E(t),                                  \\
