@@ -239,16 +239,24 @@ The granulation characteristic frequency is taken to be proportional to this val
 \end{equation}
 The kernel hyperparameters are stored as $\log_{10}\nu$ in Hz and converted to angular frequency internally when constructing the SHO kernels.
 
-Kernel amplitudes are set in count-rate units by scaling the fractional stellar-variability amplitudes with the source's expected TESS count rate. If
-$N_\mathrm{TESS}$ is the expected number of detected source counts per cadence, the standard
-deviation of GP component $q$ is initialised as
+To calculate the source brightness, we approximate the stellar spectrum as a blackbody with the radius and effective temperature derived above. The spectral flux density at Earth is
+\begin{equation}
+    F_\lambda = \pi B_\lambda(T_\mathrm{eff})\left(\frac{R_\star}{d}\right)^2,
+\end{equation}
+where $B_\lambda$ is the Planck function, $\lambda$ is wavelength, and $d$ is the source distance. We integrate the corresponding photon flux over the TESS bandpass, weighted by the instrumental response and detector quantum efficiency. Dividing this integral by the same integral for an AB zero-magnitude reference spectrum ($f_\nu=3631$ Jy) gives the ratio used to calculate the apparent TESS-band magnitude, $m_\mathrm{TESS}$, via $-2.5\log_{10}$ of that ratio. We then convert this magnitude to the expected detected source counts per cadence,
+\begin{equation}
+    N_\mathrm{TESS} = \frac{\Delta t}{1\,\mathrm{s}}\,10^{-0.4(m_\mathrm{TESS}-20.44)},
+\end{equation}
+using the instrumental magnitude zeropoint of 20.44 for a count rate of one electron per second and the simulated cadence $\Delta t=600$ s.
+
+Kernel amplitudes are set in counts per cadence by scaling the fractional stellar-variability amplitudes with $N_\mathrm{TESS}$. The standard deviation of GP component $q$ is initialised as
 \begin{equation}
     \sigma_q = f_q N_\mathrm{TESS},
 \end{equation}
 % TODO: The current generator uses the geometric midpoint of each stated ppm band, rather than drawing an amplitude within the band; update the text below if this remains the intended implementation.
 where $f_q$ is a representative fractional variability amplitude. In the simulations we use broad ppm-level bands for these fractional amplitudes, with granulation initialised between 50--300 ppm and asteroseismic variability between 100--1000 ppm.
 
-The same apparent-magnitude calculation is also used to set the TESS white-noise level. The TESS-band source magnitude, $m_\mathrm{TESS}$, is converted to $N_\mathrm{TESS}$, and an empirical TESS noise model provides a fractional per-cadence uncertainty $\eta(m_\mathrm{TESS})$. For the GP covariance matrix $\Sigma_{ij}$ and the Kronecker delta $\delta_{ij}$, this gives a TESS white-noise standard deviation $\sigma_\mathrm{TESS}$ and diagonal covariance contribution
+The same apparent magnitude is also used to set the TESS white-noise level. We linearly interpolate an empirical TESS noise model at $m_\mathrm{TESS}$ to obtain a fractional per-cadence uncertainty $\eta(m_\mathrm{TESS})$. For the GP covariance matrix $\Sigma_{ij}$ and the Kronecker delta $\delta_{ij}$, this gives a TESS white-noise standard deviation $\sigma_\mathrm{TESS}$ and diagonal covariance contribution
 \begin{equation}
     \sigma_\mathrm{TESS} = \eta(m_\mathrm{TESS})N_\mathrm{TESS},
     \qquad
