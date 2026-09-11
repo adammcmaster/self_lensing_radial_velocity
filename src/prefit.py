@@ -213,6 +213,7 @@ def _metadata_from_photometry_path(path):
         "Rcomp": float(header["RSTAR"]),
         "Teff": float(header["TEFF"]),
         "i": float(header["I"]),
+        "d": float(header["D"]),
         "peak_time": float(header["PEAK_T"]),
     }
 
