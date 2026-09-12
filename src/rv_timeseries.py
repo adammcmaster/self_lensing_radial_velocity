@@ -85,6 +85,7 @@ PHOTOMETRY_SHARED_COLUMNS = (
     "Teff",
     "b",
     "i",
+    "d",
     "peak_time",
 )
 
@@ -492,6 +493,7 @@ def metadata_row_from_params(
         "Teff": photometry["Teff"],
         "b": photometry.get("b", numpy.nan),
         "i": photometry["i"],
+        "d": photometry["d"],
         "peak_time": photometry["peak_time"],
         "RV accuracy": rv_accuracy,
         "nobs": nobs,
@@ -518,6 +520,7 @@ def _metadata_header(row, rv_err):
         # text; readers can convert the dimensionless value back to float.
         "B": str(float(row["b"])),
         "I": float(row["i"]),
+        "D": float(row["d"]),
         "PEAK_T": float(row["peak_time"]),
         "RV_ACC": float(row["RV accuracy"]),
         "NOBS": int(row["nobs"]),
