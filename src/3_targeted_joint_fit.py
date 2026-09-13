@@ -104,6 +104,11 @@ from selflensing.fitting import (
     self_lensing_systems_from_batched_fit_blackjax,
 )
 
+from blackjax_memory import install_blackjax_memory_bounds
+
+FIT_WALKERS_PER_CHUNK = int(os.environ.get("SLRV_FIT_WALKERS_PER_CHUNK", "16"))
+install_blackjax_memory_bounds(FIT_WALKERS_PER_CHUNK)
+
 from selflensing.models import DEFAULT_LIMITS, SelfLensingSystem
 
 from fitting import PREFIT_RESULTS_PATH, SAMPLER_STATE_PATH, TIMESERIES_TABLE_PATH
@@ -1872,6 +1877,7 @@ if __name__ == "__main__":
         FIT_MCMC_CHUNKING,
     )
     logger.info("Fit device setting: FIT_DEVICE=%s", FIT_DEVICE)
+    logger.info("Likelihood walkers per chunk: %d", FIT_WALKERS_PER_CHUNK)
     logger.info("Fit lensing method: FIT_LENSING_METHOD=%s", FIT_LENSING_METHOD)
     logger.info(
         "Batched joint-fit settings: FIT_BATCHED_JOINT=%s "
