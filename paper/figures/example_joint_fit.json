@@ -1,0 +1,39 @@
+{
+  "simulation_id": "simulation_000050",
+  "period_days": 21857.95930749986,
+  "crossing_time_days": 6.849512962524343,
+  "baseline_days": 26.993055555503815,
+  "finite_samples": 102400,
+  "best_parameters": {
+    "a": 49.53678918760026,
+    "i": 1.5707046919958263,
+    "Macc": 19.387896980509613,
+    "e": 0.6675960633501923,
+    "periapsis_phase": 3.1812666686729463
+  },
+  "best_log_prob": -632.9058842390782,
+  "chi_squared": 621.6954713269806,
+  "fitted_points": 108,
+  "posterior_quality": "production_random_walk",
+  "device": "cpu",
+  "acceptance_fraction": 0.053125,
+  "fit_setup": "stage3_joint_v1",
+  "proposal_scale_fraction": 0.005,
+  "photometry_shading": false,
+  "rv_shading": false,
+  "truth_parameters": {
+    "a": 49.32268807612155,
+    "i": 1.5707404417759674,
+    "Macc": 18.292467213884912,
+    "e": 0.6196470260413989,
+    "periapsis_phase": 3.1902621765639845
+  },
+  "steps": 1000,
+  "burn": 200,
+  "seed": 0,
+  "walkers": 128,
+  "rv_id": "aa01ef25-6408-57dd-8cad-f586be999985",
+  "nobs": 10,
+  "rv_accuracy_m_per_s": 10.0,
+  "rv_chi_squared": 11.210414114544216
+}

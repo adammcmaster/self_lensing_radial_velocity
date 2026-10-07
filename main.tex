@@ -143,6 +143,13 @@ We begin by describing our methods for generating and fitting our simulated data
 
 \section{Methods} \label{sec:methods}
 
+\begin{figure*}
+    \centering
+    \includegraphics[width=\textwidth]{paper/figures/example_joint_fit.pdf}
+    \caption{Example joint photometric--RV MCMC fit to a simulated self-lensing event. The simulated system has $M_\mathrm{lens}=18.29\,M_\odot$, $M_\star=15.21\,M_\odot$, $R_\star=8.83\,R_\odot$, $T_\mathrm{eff}=21032$ K, and distance $d=16.62$ kpc. Its orbital parameters are $a=49.32$ au, $e=0.620$, $i=89.99680^\circ$, and $\omega=182.79^\circ$, with $P_\mathrm{orb}=21858$ d and effective crossing time $\tau_\mathrm{eff}=6.85$ d. Left: the simulated photometry in 6-h bins and ten targeted RV measurements with instrumental accuracy $\sigma_\mathrm{ins}=10$ m s$^{-1}$, each with residuals beneath. The solid curves show the sample with the highest posterior value. Right: marginal distributions and joint 68 and 95 per cent contours from the post-burn-in joint-fit samples; red solid lines and square markers indicate the simulated true values, while green dashed lines and circular markers indicate the highest-posterior model. Inclination is shown as the angular departure from an edge-on orbit.}
+    \label{fig:example-joint-fit}
+\end{figure*}
+
 We investigate the relationship between the number and precision of RV measurements and the relative error in recovered physical parameters as a function of lens mass, compact object type, and orbital period. We evaluate parameter accuracy using the median relative error, and separately consider recovery of broad compact-object class (i.e. distinguishing black holes from other compact objects even if the fitted mass remains imprecise).
 
 When considering the recovery of compact object class, we adopt the following mass bins and object classes: $M_\mathrm{lens}<3\,M_\odot$ (white dwarfs or neutron stars); $3 \leq M_\mathrm{lens}/M_\odot < 5$ (lower mass gap); $5 \leq M_\mathrm{lens}/M_\odot < 20$ (lower mass black holes); $20 \leq M_\mathrm{lens}/M_\odot < 50$ (higher mass black holes). We separate the black hole mass ranges to assess how lens mass affects class recovery. A class is counted as recovered when the fitted lens mass falls in the same bin as the true lens mass.
@@ -192,7 +199,7 @@ The peak amplitude and effective crossing time loosely correlate with $M_\mathrm
 
 These effects all depend on the orbital phase at a given time during the simulation. The zero point for this is defined as the moment of maximum lensing magnification (i.e. the time of minimum projected separation between source and lens, $t_0$). The periapsis phase angle, $\omega$, is defined in terms of this zero point; i.e. the phase angle at which periastron passage occurs, relative to the position at $t_0$. Note that this is different from the convention used in COBALT-BLUE, which measures orbital phase relative to periastron passage.
 
-All simulated light curves are 27 days long (the duration of a TESS sector). The peak time, $t_0$, is randomly selected to fall somewhere in the 27 day time window.
+All simulated light curves are 27 days long (the duration of a TESS sector). The peak time, $t_0$, is randomly selected to fall somewhere in the 27 day time window. An example light curve for a simnulated self-lensing event can be seen in the top-left panel of Figure~\ref{fig:example-joint-fit}.
 
 \subsection{Stellar noise} \label{sec:gp}
 
@@ -362,9 +369,9 @@ This reduces to the circular-orbit convention $v_r(t)\propto\sin\phi(t)$ when $e
 
 We add varying amounts of instrumental noise ($\sigma_\mathrm{ins} \in \{0.1, 1, 10, 100, 1000\}$ m/s), and an additional fixed Gaussian noise ($\sigma_\star = 10$ m/s) is added to represent stellar noise. For simplicity, we do not include proper motion or heliocentric motion, as these would be corrected before fitting real observations.
 
-\subsection{Targeted radial velocity scheduling} \label{sec:scheduling}
+An example of the radial velocity measurements for a simulated self-lensing system can be seen in the bottom-left panel of Figure~\ref{fig:example-joint-fit}.
 
-% Mention that we do the prefit, detect multi-mode (degenerate) solutions, and account for that in scheduling. We use half of the available observations to deliberately distinguish modes based on their predicted RVs, then the rest of maximise phase coverage by minimising gaps.
+\subsection{Targeted radial velocity scheduling} \label{sec:scheduling}
 
 The simulated RV curves start at randomised times between 1 year and 10 years from the end of the photometry. This is to simulate a realistic delay in identifying candidates in the photometry and organising follow-up of those candidates. For this work we assume each observing campaign will last five years, and we trial varying numbers of RV observations, $3 \leq N_\mathrm{obs} \leq 10$. We do not attempt to simulate fully realistic observing (with observing seasons, seeing, varying weather conditions, etc.) as we are mainly interested in measuring the effects of instrument selection and number of observations.
 
@@ -375,6 +382,8 @@ First, in the event that the photometric fit only found one plausible solution, 
 If there are multiple plausible photometric MCMC solutions, the predicted RV values for each of them over the observing campaign are calculated, and the difference in RV values for each pair of solutions is calculated (each ``solution" is a cluster of posterior samples, so the separation is actually the squared difference between the mean RVs of each cluster, normalised by the error). The final set of observation times is chosen by iteratively selecting the times which maximise the minimum separation between solutions, for a minimum of three observations and a maximum of $\lceil N_\mathrm{obs}/2 \rceil$.
 
 Any remaining observations are scheduled to minimise the gaps between observations. For a circular orbit, this is equivalent to limiting the gaps in orbital phase between observations, maximising the orbital phase coverage (within the constraint of the length of the observing campaign), and minimising the variances in fitted model parameters later derived from the observations \citep{koen_how_2024}.
+
+The bottom-left panel of Figure~\ref{fig:example-joint-fit} shows the scheduled RV measurements for a simulated self-lensing system. There are ten RV observations in total, unevenly spaced so as to effectively distinguish between solutions.
 
 \subsection{Joint photometric-RV MCMC fit} \label{sec:fitting}
 
@@ -406,6 +415,8 @@ The quantity sampled by the MCMC is then the sum of these terms plus the paramet
     Q_\mathrm{LC}(\boldsymbol{\theta}).
 \end{equation}
 The reported fitted parameters are posterior summaries rather than single maximum-posterior samples: after burn-in, we retain the 256 samples with the highest finite posterior values for each fit and take the mean of the fitted parameters, using a circular mean for the periapsis phase angle.
+
+An example joint photometric-RV fit is shown in Figure~\ref{fig:example-joint-fit}. The corner plot in the right hand panel shows that the true solution is well described by the posterior distribution with the highest posterior model being close to the true values for $a$, $M_\mathrm{lens}$, $e$, and $\omega$, with only $i$ fitting to an incorrect value.
 
 \subsection{Predicting recovery of real self-lensing systems} \label{sec:pop-synth}
 
@@ -487,8 +498,6 @@ We note that the survey-specific detection yields we use here come from Table~2 
 We evaluate the fits based on their ability to reproduce the true simulated parameters, with particular interest in lens mass and orbital period. The following subsections evaluate the fitting results in terms of the median relative error in lens mass and orbital period. We also evaluate recovery of the correct compact-object class regardless of the accuracy of the fitted mass, considering if we can distinguish black holes from white dwarfs and neutron stars, as this distinction affects planning for further follow-up observations. We then evaluate the efficacy of fitting photometry alone versus fitting RV alone or jointly fitting photometry and RV, assessing how the number of RV measurements affects the relative error. Finally we use these results to emulate recovery rates for the synthesised population from \cite{wiktorowicz_predicting_2021}, to estimate the relative errors in parameters for the real population of self-lensing systems.
 
 It is worth noting that these results represent an ideal best case scenario for obtaining follow-up observations. We aim to assess a representative range of observing schedules, rather than rigorously simulating realistic observations. We do not account for observing seasons, we assume every target is always observable, we do not simulate weather or bad seeing, and we assume only a simple model of noise in the RV measurements (varying amounts of Gaussian noise to simulate spectrograph accuracy, ranging from sub-metre per second accuracy up to kilometre per second accuracy, to represent the range of spectrograph facilities currently available), plus a fixed 10 m/s Gaussian stellar noise. We also assume the exact time of the lensing peak ($t_0$) and the properties of the stellar companion (mass, radius, effective temperature, and distance from Earth) are known with no uncertainty; in practice these would all be subject to some amount of uncertainty.
-
-% \input{paper/tables/sample_summary}
 
 \subsection{Lens mass relative error}
 
