@@ -145,9 +145,11 @@ We begin by describing our methods for generating and fitting our simulated data
 
 We investigate the relationship between the number and precision of RV measurements and the relative error in recovered physical parameters as a function of lens mass, compact object type, and orbital period. We evaluate parameter accuracy using the median relative error, and separately consider recovery of broad compact-object class (i.e. distinguishing black holes from other compact objects even if the fitted mass remains imprecise).
 
+When considering the recovery of compact object class, we adopt the following mass bins and object classes: $M_\mathrm{lens}<3\,M_\odot$ (white dwarfs or neutron stars); $3 \leq M_\mathrm{lens}/M_\odot < 5$ (lower mass gap); $5 \leq M_\mathrm{lens}/M_\odot < 20$ (lower mass black holes); $20 \leq M_\mathrm{lens}/M_\odot < 50$ (higher mass black holes). We separate the black hole mass ranges to assess how lens mass affects class recovery. A class is counted as recovered when the fitted lens mass falls in the same bin as the true lens mass.
+
 Photometric detection of self-lensing signals is not the focus of the present work. Here we assume all of the simulated photometric lensing events have been detected and their precise timing has been determined. A robust method for carrying out such detections will be presented in a future work, including evaluation against self-lensing signals injected into real light curves. For now we focus only on the recovery of the physical properties of self-lensing systems which have already been detected, and how the RV observing strategy affects this.
 
-As the basis of this work, we have generated a library of self-lensing photometric simulations covering a range of physical parameters, filtered to include only the simulated light curves which contain visible lensing, where the peak amplitude is larger than the photometric noise. We also exclude systems overflowing their Roche lobe and any systems where lensing is not geometrically possible. These simulations are described in Section~\ref{sec:phot-sims}. 
+As the basis of this work, we have generated a library of self-lensing photometric simulations covering a range of physical parameters, filtered to include only the simulated light curves which contain visible lensing, where the peak amplitude is larger than the photometric noise. We also exclude systems overflowing their Roche lobe and any systems where lensing is not geometrically possible. These simulations are described in Section~\ref{sec:phot-sims}.
 
 An MCMC fit is then performed against the simulated photometry, to sample the posterior distribution of the self-lensing physical parameters and find distinct physical solutions for each light curve. We assume the stellar properties, mass, radius, effective temperature, and distance from Earth, are known. The set of distinct solutions is then used to compute an RV observing schedule using a variable number of observations (between three and ten observations) over a fixed five-year campaign, such that each schedule is optimised to distinguish between the photometric solutions.
 
@@ -171,15 +173,15 @@ The photometric simulations comprise realistic simulated TESS-like light curves 
     \label{tab:phot_sim_parameter_ranges}
     \begin{tabular}{llll}
         \hline
-        Parameter         & Description           & Range                & Spacing \\
+        Parameter         & Description           & Range                & Spacing     \\
         \hline
         $a$               & Semi-major axis       & 0.1--200 AU          & Logarithmic \\
-        $i$               & Orbital inclination   & 89.99--90.00$^\circ$ & Linear \\
+        $i$               & Orbital inclination   & 89.99--90.00$^\circ$ & Linear      \\
         $M_\mathrm{lens}$ & Lens mass             & 0.5--50 M$_\odot$    & Logarithmic \\
-        $M_\star$         & Stellar mass          & 0.5--50 M$_\odot$    & Linear \\
+        $M_\star$         & Stellar mass          & 0.5--50 M$_\odot$    & Linear      \\
         $e$               & Eccentricity          & 0--0.999999          & Logarithmic \\
-        $\omega$          & Periapsis phase angle & 0--360$^\circ$       & Linear \\
-        $d$               & Distance from Earth   & 0.1--100 kpc         & Linear \\
+        $\omega$          & Periapsis phase angle & 0--360$^\circ$       & Linear      \\
+        $d$               & Distance from Earth   & 0.1--100 kpc         & Linear      \\
         \hline
     \end{tabular}
 \end{table}
@@ -407,11 +409,15 @@ The reported fitted parameters are posterior summaries rather than single maximu
 
 \subsection{Predicting recovery of real self-lensing systems} \label{sec:pop-synth}
 
-In order to assess how the RV observing strategy would affect the recovery of the physical parameters of a physically realistic sample of self-lensing systems, we seek to combine our estimates of the recoverability of the physical properties of self-lensing systems with the detectability estimates of \cite{wiktorowicz_predicting_2021}. While the present work deliberately assess a sample which is \textit{not} physically realistic, \cite{wiktorowicz_predicting_2021} uses population synthesis to generate a physically plausible distribution of physical properties, as the basis for simulating the total number of detectable systems observed by each photometric survey.
+In order to assess how the RV observing strategy would affect the recovery of the physical parameters of a physically realistic sample of self-lensing systems, we seek to combine our estimates of the recoverability of the physical properties of self-lensing systems with the detectability estimates of \cite{wiktorowicz_predicting_2021}. While the present work deliberately assesses a sample which is \textit{not} physically realistic, \cite{wiktorowicz_predicting_2021} uses population synthesis to generate a physically plausible distribution of physical properties, as the basis for simulating the total number of detectable systems observed by each photometric survey.
 
 In the present work, we do not simulate a physically representative distribution of parameters, because our primary aim is to explore the ability to recover those parameters regardless of how common a given configuration will be. In other words, we want to simulate very rare configurations as thoroughly as more common ones. We are also concerned only with characterisation of lenses/recovery of physical parameters via spectroscopic RV measurements after detection in photometry, while \cite{wiktorowicz_predicting_2021} investigates photometric detectability.
 
-Still, it is useful to derive from our simulations an estimate of how well we can recover the properties of a more realistic sample of self-lensing systems. To this end we build a nearest-neighbour emulator ($k=25$) to map the population synthesis results onto the fitting/recovery results for our radial velocity simulations. For each population-synthesis system and each RV simulation we define a scaled feature vector
+Still, it is useful to derive from our simulations an estimate of how well we can recover the properties of a more realistic sample of self-lensing systems. To this end we build a nearest-neighbour emulator ($k=25$) to map the population synthesis results onto the fitting/recovery results for our radial velocity simulations.
+
+We select population-synthesis entries marked as detectable and draw a sample of 10,000 entries with replacement, with selection probabilities proportional to their population-synthesis weights. This incorporates the relative frequencies represented by those weights into the sampled population, so each sampled entry contributes equally to the final statistics.
+
+The emulator estimates the recovery probability for each population-synthesis system from the fitted outcomes of nearby systems in our simulation library. Here $i$ indexes our simulations and $j$ indexes the population-synthesis systems. We assign one scaled feature vector to each individual system in either sample, using its true physical parameters:
 \begin{equation}
     \mathbf{x} =
     \left(
@@ -419,29 +425,39 @@ Still, it is useful to derive from our simulations an estimate of how well we ca
     \frac{\log_{10} P_\mathrm{orb} - \mu_P}{s_P},
     \frac{e - \mu_e}{s_e},
     \frac{b - \mu_b}{s_b}
-    \right),
+    \right).
 \end{equation}
-where the centring constants $\mu$ are medians and the scale factors $s$ are the 16th--84th percentile ranges, giving a robust measure of the central spread of each coordinate for each respective parameter. Coordinates are normalised by centring and scaling, to prevent the nearest-neighbour search from being dominated by those with the largest numerical spread. For a population-synthesis system $j$, the emulator identifies the set $\mathcal{N}_k(j)$ of the $k$ nearest RV simulations in this scaled space and assigns inverse-distance weights
+For each of the four coordinates, the centring constant $\mu$ is the median and the scale factor $s$ is the difference between the 84th and 16th percentiles, calculated from the combined simulation library and detected population-synthesis sample. For mass and period, these statistics are calculated after taking the logarithm. The same constants are applied to every system in both samples. This transformation shifts the origin and rescales each axis, placing both samples in a common dimensionless coordinate system and preventing parameters with larger numerical spreads from dominating the neighbour search.
+
+For a population-synthesis system $j$, we calculate the Euclidean distance to each simulation $i$,
+\begin{equation}
+    d_{ij} = \lVert\mathbf{x}^{\mathrm{sim}}_i - \mathbf{x}^{\mathrm{pop}}_j\rVert.
+\end{equation}
+Thus, a vector describes an individual system, while a distance describes a pair of systems; the common centring constants cancel when taking the difference. We select the $k=25$ simulations with the smallest distances. The indices of the closest simulations form the set $\mathcal{N}_k(j)$, which can differ for each population-synthesis system. We assign these neighbours inverse-distance weights,
 \begin{equation}
     w_{ij} =
     \frac{(d_{ij} + \epsilon)^{-1}}
     {\sum_{\ell \in \mathcal{N}_k(j)} (d_{\ell j} + \epsilon)^{-1}},
     \quad i \in \mathcal{N}_k(j),
 \end{equation}
-where $d_{ij} = \lVert\mathbf{x}_i - \mathbf{x}_j\rVert$ and $\epsilon = 10^{-12}$ is a small numerical constant to avoid division by zero. For each observing strategy and recovery metric, the emulated recovery probability is then
-\begin{equation}
-    \hat{p}_{j} =
-    \frac{\sum_{i \in \mathcal{N}_k(j)} v_i w_{ij} q_i}
-    {\sum_{i \in \mathcal{N}_k(j)} v_i w_{ij}},
-    \qquad
-    C_j = \sum_{i \in \mathcal{N}_k(j)} v_i w_{ij},
-\end{equation}
-where $q_i$ is the measured RV outcome and $v_i$ indicates whether that neighbouring simulation has a valid fit for the relevant strategy. The associated coverage $C_j$ is therefore the fraction of the neighbour weight supported by valid fitted simulations. We emulate the detected-population outcomes in this way: correct compact-object class, lens-mass recovery, and orbital-period recovery. The final fractions for the detected population-synthesis sample are obtained by averaging these emulated probabilities using the population weights $W_j$,
-\begin{equation}
-    \bar{p} = \frac{\sum_j W_j \hat{p}_j}{\sum_j W_j}.
-\end{equation}
+where $\epsilon = 10^{-12}$ avoids division by zero, and the weights sum to unity over the selected neighbours. For each observing strategy (specified by observing baseline, number of RV measurements, and RV accuracy), let $q_i$ denote the compact-object class recovery outcome of simulation $i$. We set $q_i=1$ if the fitted compact-object class matches the true class and $q_i=0$ otherwise.
 
-We adopt the following mass bins and object classes: $<3 \text{ M}_\odot$ (neutron stars); $3-5 \text{ M}_\odot$ (lower mass gap); $5-20 \text{ M}_\odot$ (lower mass black holes); $20-50 \text{ M}_\odot$ (higher mass black holes; separated from the lower mass to assess how black hole mass affects recovery).
+The emulated class recovery probability for population-synthesis system $j$ is the weighted mean of its neighbours' class recovery outcomes,
+\begin{equation}
+    \hat{p}_{j} = \sum_{i \in \mathcal{N}_k(j)} w_{ij} q_i.
+\end{equation}
+The final class recovery fraction is the arithmetic mean of these emulated probabilities over the sampled population,
+\begin{equation}
+    \bar{p} = \frac{1}{N_\mathrm{pop}} \sum_{j=1}^{N_\mathrm{pop}} \hat{p}_j,
+\end{equation}
+where $N_\mathrm{pop}$ is the number of sampled population-synthesis entries.
+
+We also emulate the relative error in lens mass. For simulation $i$ and the specified observing strategy, we define the relative error in fitted lens mass as $r_i=|M_{\mathrm{lens},i}^{\mathrm{fit}}-M_{\mathrm{lens},i}^{\mathrm{true}}|/M_{\mathrm{lens},i}^{\mathrm{true}}$. We then interpolate these errors using the same neighbour weights,
+\begin{equation}
+    \hat{r}_j =
+    \sum_{i \in \mathcal{N}_k(j)} w_{ij} r_i.
+\end{equation}
+The reported median relative error is the median of the $\hat{r}_j$ values for sampled entries within each true lens-mass bin.
 
 We note that the survey-specific detection yields we use here come from Table~2 in \cite{wiktorowicz_predicting_2021}, which is an optimistic upper limit including events for which only one photometric detection is made (i.e. one photometric point in the light curve falls within the lensing event). In reality, detections would require multiple photometric points to estimate $t_0$ and $\tau_\mathrm{eff}$.
 
@@ -523,7 +539,7 @@ Figure~\ref{fig:prefit-improvement-by-lens-mass-range} shows the median improvem
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/prefit_compact_object_class_by_lens_mass_range.pdf}
-    \caption{Compact-object class recovery for the photometry-only pre-fit, RV-only fit, and joint photometry plus RV fit, separated by true lens-mass range. RV-only fits use an evenly spaced observing schedule and no photometric information; photometry+RV fits use the photometric peak time and targeted RV schedule. A system is counted as correct when the fitted lens mass falls in the same broad compact-object class as the true mass, using $M_\mathrm{lens}<3\,M_\odot$ for white dwarf or neutron-star lenses, $3 \leq M_\mathrm{lens}/M_\odot < 5$ for the mass gap, and $M_\mathrm{lens}\geq5\,M_\odot$ for black-hole lenses. Points show the percentage of fitted systems in the correct class as a function of the number of RV measurements; the horizontal dotted line marks 80 per cent.}
+    \caption{Compact-object class recovery for the photometry-only pre-fit, RV-only fit, and joint photometry plus RV fit, separated by true lens-mass range. RV-only fits use an evenly spaced observing schedule and no photometric information; photometry+RV fits use the photometric peak time and targeted RV schedule. A system is counted as correct when the fitted lens mass falls in the same broad compact-object class as the true mass, using $M_\mathrm{lens}<3\,M_\odot$ for white dwarf or neutron-star lenses, $3 \leq M_\mathrm{lens}/M_\odot < 5$ for the mass gap, $5 \leq M_\mathrm{lens}/M_\odot < 20$ for lower-mass black holes, and $20 \leq M_\mathrm{lens}/M_\odot < 50$ for higher-mass black holes. Points show the percentage of fitted systems in the correct class as a function of the number of RV measurements; the horizontal dotted line marks 80 per cent.}
     \label{fig:prefit-compact-object-class-by-lens-mass-range}
 \end{figure*}
 
