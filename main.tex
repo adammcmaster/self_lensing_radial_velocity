@@ -139,7 +139,9 @@ In this work, we consider the question of how many spectroscopic RV measurements
 
 We will show that it is possible to accurately model very long period self-lensing binaries with a handful of RV measurements, even when periodicity can not be observed. In many cases, photometric-only fits can come close to determining the properties, removing the need for many RV measurements to retrieve the parameters accurately.
 
-\section{Methods}
+We begin by describing our methods for generating and fitting our simulated data in Section~\ref{sec:methods}, present and discuss the fitting results in Section~\ref{sec:results}, and conclude in Section~\ref{sec:conclusions}.
+
+\section{Methods} \label{sec:methods}
 
 We investigate the relationship between the number and precision of RV measurements and the relative error in recovered physical parameters as a function of lens mass, compact object type, and orbital period. We evaluate parameter accuracy using the median relative error, and separately consider recovery of broad compact-object class (i.e. distinguishing black holes from other compact objects even if the fitted mass remains imprecise).
 
@@ -167,22 +169,24 @@ The photometric simulations comprise realistic simulated TESS-like light curves 
     \centering
     \caption{Parameter ranges used to generate the photometric simulation library.}
     \label{tab:phot_sim_parameter_ranges}
-    \begin{tabular}{lll}
+    \begin{tabular}{llll}
         \hline
-        Parameter         & Description           & Range                          \\
+        Parameter         & Description           & Range                & Spacing \\
         \hline
-        $a$               & Semi-major axis       & 0.1--200 AU                    \\
-        $i$               & Orbital inclination   & $(0.5\pi-10^{-4})$--$0.5\pi$ rad \\
-        $M_\mathrm{lens}$ & Lens mass             & 0.5--50 M$_\odot$              \\
-        $M_\star$         & Stellar mass          & 0.5--50 M$_\odot$              \\
-        $e$               & Eccentricity          & 0--0.999999                    \\
-        $\omega$          & Periapsis phase angle & 0--$2\pi$                      \\
-        $d$               & Distance from Earth   & 0.1--100 kpc                   \\
+        $a$               & Semi-major axis       & 0.1--200 AU          & Logarithmic \\
+        $i$               & Orbital inclination   & 89.99--90.00$^\circ$ & Linear \\
+        $M_\mathrm{lens}$ & Lens mass             & 0.5--50 M$_\odot$    & Logarithmic \\
+        $M_\star$         & Stellar mass          & 0.5--50 M$_\odot$    & Linear \\
+        $e$               & Eccentricity          & 0--0.999999          & Logarithmic \\
+        $\omega$          & Periapsis phase angle & 0--360$^\circ$       & Linear \\
+        $d$               & Distance from Earth   & 0.1--100 kpc         & Linear \\
         \hline
     \end{tabular}
 \end{table}
 
 Three photometric effects are included when generating the light curves: self-lensing, ellipsoidal variations, and Doppler boosting. At small values of $a$ the light curve is dominated by ellipsoidal variations and Doppler boosting (though lensing is often visible too); at large $a$ lensing is dominant, with ellipsoidal variation and Doppler boosting tending to zero as $a$ increases \citep{sorabella_modeling_2022}.
+
+The peak amplitude and effective crossing time loosely correlate with $M_\mathrm{lens}$, $P_\mathrm{orb}$, and $i$ (Figure~\ref{fig:self-lensing-observable-space}). Since the amplitude and self-lensing event duration are directly measurable from the light curve, this can in principle allow the physical properties of the lens to be estimated. However, there is scatter in the relationship between these properties, since multiple lens configurations can produce similar amplifications and crossing times. Care must therefore be taken to account for this degeneracy when using these relationships (see discussion of MCMC chain initialisation in Section~\ref{sec:phot-fit}).
 
 These effects all depend on the orbital phase at a given time during the simulation. The zero point for this is defined as the moment of maximum lensing magnification (i.e. the time of minimum projected separation between source and lens, $t_0$). The periapsis phase angle, $\omega$, is defined in terms of this zero point; i.e. the phase angle at which periastron passage occurs, relative to the position at $t_0$. Note that this is different from the convention used in COBALT-BLUE, which measures orbital phase relative to periastron passage.
 
@@ -206,7 +210,7 @@ $\tau_\mathrm{gran}$, for a source star of mass $M_\star$ and radius $R_\star$, 
     \propto \left(\frac{R_\star^2}{M_\star}\right).
 \end{equation}
 
-This model captures the temporal decorrelation the granulation component light curve over time, appropriate for granulation, where surface features evolve on a finite timescale and exhibit only short-range temporal correlations \citep{aigrain_gaussian_2023}. This model has also been tested and applied in previous GP transit studies \citep{brewer_gaussian_2009,nicholson_quasi-periodic_2022}. Overall, the DRW kernel effectively models granulation noise without requiring high model complexity or prior knowledge of the star’s convective dynamics.
+This model captures the temporal decorrelation of the granulation component light curve over time, appropriate for granulation, where surface features evolve on a finite timescale and exhibit only short-range temporal correlations \citep{aigrain_gaussian_2023}. This model has also been tested and applied in previous GP transit studies \citep{brewer_gaussian_2009,nicholson_quasi-periodic_2022}. Overall, the DRW kernel effectively models granulation noise without requiring high model complexity or prior knowledge of the star’s convective dynamics.
 
 % TODO: The current generator fixes the asteroseismic SHO quality factor at Q=5; update the text below if this fixed choice is retained for the final analysis.
 Asteroseismic oscillations are caused by the propagation of sound waves through the star's outer convective zone. \citep{kjeldsen_amplitudes_1995,chaplin_asteroseismology_2013}. These occur on the timescales of minutes to tens of hours, placing them directly into the observing window of light curves from instruments such as TESS. Again, we choose a damped harmonic oscillator kernel, but this time with a free quality factor to allow for the presence of a periodic component \citep{brewer_gaussian_2009,foreman-mackey_exoplanet_2021}. The frequency of the primary mode, given by the $\nu_\mathrm{seis}$ hyper-parameter, is proportional to the source-star surface gravity, $g_\star$, and the effective temperature, $T_\mathrm{eff}$, and therefore depends
@@ -290,9 +294,9 @@ modelling stellar variability through GPs, see \cite{aigrain_gaussian_2023}.
 
 \subsection{Photometric MCMC fit} \label{sec:phot-fit}
 
-Each simulated photometric light curve is fitted via MCMC using a random-walk Metropolis-Hastings sampler implemented with the BlackJAX package (128 walkers, 1,000 total steps, including 200 burn-in steps). More modern MCMC samplers, such as Hamiltonian Monte Carlo, may be more effective or more efficient, but this requires a fully differentiable model. Our photometric model is differentiable in principle, however the current implementation around edges/parameter boundaries would result in discontinuous gradients in practice, potentially negatively affecting such samplers. This could be addressed in future work.
+Each simulated photometric light curve is fitted via MCMC using a random-walk Metropolis-Hastings sampler implemented with the BlackJAX package (128 chains, 1,000 total steps, including 200 burn-in steps). More modern MCMC samplers, such as Hamiltonian Monte Carlo, may be more effective or more efficient, but this requires a fully differentiable model. Our photometric model is differentiable in principle, however the current implementation around edges/parameter boundaries would result in discontinuous gradients in practice, potentially negatively affecting such samplers. This could be addressed in future work.
 
-For these fits it is assumed we know the stellar physical parameters exactly, along with the relative amplification (Appendix~\ref{sec:phot-model}) and effective crossing time, $\tau_\mathrm{eff}$ \citep{wiktorowicz_predicting_2021}. In reality there will be uncertainty in these values, but determining them is a separate problem which is out of scope for the present work. The photometric fit therefore represents an idealised best-case scenario for recovery of the physical properties from the photometry, eliminating the effects of the uncertainties in stellar models and allowing us to assess the RV observing schedule in isolation.
+For these fits it is assumed we know the stellar physical parameters exactly, along with the relative lensing amplification (Appendix~\ref{sec:phot-model}) and effective crossing time, $\tau_\mathrm{eff}$ \citep{wiktorowicz_predicting_2021}. In reality there will be uncertainty in these values, but determining them is a separate problem which is out of scope for the present work. The photometric fit therefore represents an idealised best-case scenario for recovery of the physical properties from the photometry, eliminating the effects of the uncertainties in stellar models and allowing us to assess the RV observing schedule in isolation.
 
 Light curves are binned according to their crossing time to minimise computation time while preserving the shape of the self-lensing peak (Table~\ref{tab:photometric-binning}). A limited number of bin widths was chosen for computational efficiency, as fits are run as vectorised batches on a GPU, requiring all the light curves in a batch to have the same length.
 
@@ -317,7 +321,7 @@ We fit only the fundamental physical parameters of the system,
 \end{equation}
 with the stellar mass, stellar radius, effective temperature, distance, and lensing-peak time held fixed at their simulated values. Orbital period, $P_\mathrm{orb}$, impact parameter, maximum possible impact parameter, and effective lensing-event duration are derived from the fitted physical parameters rather than fitted directly. The orbital-period calculation is given in Appendix~\ref{sec:phot-model}.
 
-Walkers are initialised using an estimated parameter distribution calculated from $\tau_\mathrm{eff}$ and $A_\mathrm{SL}$ (Appendix~\ref{sec:phot-model}). Similar to Figure~\ref{fig:self-lensing-observable-space}, parameters are calculated in the region around the observed values, and then these are clustered by the parameters in $\boldsymbol{\theta}$ using $k$-means clustering to find distinct groupings of estimated parameters. The central point of each cluster is used to choose initial walker positions. This ensures the random walk thoroughly explores the area of the parameter space with the highest likelihood given the known amplification and crossing time, without constraining it from exploring beyond those regions.
+Sampler chains are initialised using an estimated parameter distribution calculated from $\tau_\mathrm{eff}$ and $A_\mathrm{SL}$ (Appendix~\ref{sec:phot-model}). Similar to Figure~\ref{fig:self-lensing-observable-space}, parameters are calculated in the region around the observed values, and then these are clustered by the parameters in $\boldsymbol{\theta}$ using $k$-means clustering to find distinct groupings of estimated parameters. The central point of each cluster is used to initialise the sampler chains. This ensures the random walk thoroughly explores the area of the parameter space with the highest likelihood given the known amplification and crossing time, without constraining it from exploring beyond those regions.
 
 We use a uniform prior within the corresponding parameter limits in Table~\ref{tab:phot_sim_parameter_ranges}, with negative infinity probability outside these limits. We also require trial systems to satisfy the self-lensing geometry condition $b \leq b_\mathrm{max}$, where $b$ is the impact parameter in units of the Einstein radius and $b_\mathrm{max}$ is its maximum value for self-lensing. Their expressions are given in Appendix~\ref{sec:phot-model}.
 
@@ -372,7 +376,7 @@ Any remaining observations are scheduled to minimise the gaps between observatio
 
 \subsection{Joint photometric-RV MCMC fit} \label{sec:fitting}
 
-Each simulated pair of photometric light curves and RV curves is then fitted via MCMC using the same setup as in Section~\ref{sec:phot-fit}, using the final walker state from the photometric fit as the initial state for the joint fit. Photometry is binned as per the first fit, while RV data are not binned. The Metropolis-Hastings random-walk proposal scale is reduced based on the number of RV measurements, when RV data are present, or otherwise on the number of photometric points, to allow the walkers to efficiently explore the narrower posterior where more data are present.
+Each simulated pair of photometric light curves and RV curves is then fitted via MCMC using the same setup as in Section~\ref{sec:phot-fit}, using the final chain state from the photometric fit as the initial state for the joint fit. Photometry is binned as per the first fit, while RV data are not binned. The Metropolis-Hastings random-walk proposal scale is reduced based on the number of RV measurements, when RV data are present, or otherwise on the number of photometric points, to allow the sampler to efficiently explore the narrower posterior where more data are present.
 
 For a trial parameter vector $\boldsymbol{\theta}$, let $v_\mathrm{mod}(t_k;\boldsymbol{\theta})$ be the model RV at the $k$th RV observation time, and let $N_\mathrm{RV}$ be the number of RV measurements. The RV contribution to the fit statistic is
 \begin{equation}
@@ -441,7 +445,7 @@ We adopt the following mass bins and object classes: $<3 \text{ M}_\odot$ (neutr
 
 We note that the survey-specific detection yields we use here come from Table~2 in \cite{wiktorowicz_predicting_2021}, which is an optimistic upper limit including events for which only one photometric detection is made (i.e. one photometric point in the light curve falls within the lensing event). In reality, detections would require multiple photometric points to estimate $t_0$ and $\tau_\mathrm{eff}$.
 
-\section{Results and discussion}
+\section{Results and discussion} \label{sec:results}
 
 \begin{figure*}
     \centering
@@ -472,12 +476,12 @@ It is worth noting that these results represent an ideal best case scenario for 
 
 \subsection{Lens mass relative error}
 
-Figure~\ref{fig:lens-mass-relative-error-by-lens-mass} shows that higher lens masses generally have lower median relative errors. The number of observations has only a modest effect on the recovery of lens mass. For lower lens masses, the RV accuracy ($\sigma_\mathrm{ins}$) is an important factor, with $\sigma_\mathrm{ins} = 100 \text{ m s}^{-1}$ and $1 \text{ km s}^{-1}$ accuracies producing substantially worse results. Interestingly, better RV accuracy does not always result in better recovery of lens mass; for lens masses $> 5 \text{ M}_\odot$, $\sigma_\mathrm{ins} = 100 \text{ m s}^{-1}$ is better, while for the lowest mass lenses 10 m~s$^{-1}$ is best. The presumptive explanation for this is that a $\sigma_\mathrm{ins}$ smaller than the simulated stellar noise can confound the fitting procedure. Future work could incorporate a GP-based noise model into the RV likelihood function to improve recovery further.
+Figure~\ref{fig:lens-mass-relative-error-by-lens-mass} shows that after performing joint photometric/RV fitting, the results for higher lens masses generally have lower median relative errors. The number of observations has only a modest effect on the recovery of lens mass. For lower lens masses, the RV accuracy ($\sigma_\mathrm{ins}$) is an important factor, with $\sigma_\mathrm{ins} = 100 \text{ m s}^{-1}$ and $1 \text{ km s}^{-1}$ accuracies producing substantially worse results. Interestingly, better RV accuracy does not always result in better recovery of lens mass; for lens masses $> 5 \text{ M}_\odot$, $\sigma_\mathrm{ins} = 100 \text{ m s}^{-1}$ is better, while for the lowest mass lenses 10 m~s$^{-1}$ is best. The presumptive explanation for this is that a $\sigma_\mathrm{ins}$ smaller than the simulated stellar noise can confound the fitting procedure. Future work could incorporate a GP-based noise model into the RV likelihood function to improve recovery further.
 
 \subsection{Recovering object class}
 While the ultimate goal of our observing campaign will be to accurately measure the lens mass and other physical properties of the population of self-lensing systems, we anticipate having to grapple with many orders of magnitude more false positives than true self-lensing systems. This situation will therefore require an informed, systematic way of triaging and prioritising targets for follow-up. The volume of false positives is anticipated to be so large that we will want to obtain as few observations of each target as possible in order to characterise what type of compact object the lens is (or, indeed, whether each target is even a self-lensing system to begin with). In the present work we assume every target is \textit{some} kind of self-lensing system, but even with that assumption, some classes of object will be more astrophysically interesting than others, and some will require more or fewer observations in order to confirm. It is therefore informative to know whether we can accurately predict the \textit{class} of the lens, even in cases where we can not accurately predict the mass. Being able to do so will allow us to allocate resources accordingly when we plan follow-up observations.
 
-Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass} shows how well the object class is recovered as a function of the number of observations. A system with a fitted mass over 5 M$_\odot$ can often be identified as a black hole even when its fitted mass has a large error. This can inform our priorities when planning observations; e.g. we can choose to obtain additional observations of targets with fitted masses that fall in the 3--5 M$_\odot$ the mass gap, or we can treat higher mass systems as confirmed with fewer observations. We find that the number of observations have only a small effect on the recovery of the object class, while RV accuracy is more important for lower mass systems but not for high mass systems. This suggests a staged observing strategy would be appropriate, where lower accuracy observations are first obtained for all targets, with higher accuracy observations reserved for those which seem to be lower mass.
+Figure~\ref{fig:lens-mass-class-recovery-by-lens-mass} shows how well the object class is recovered as a function of the number of observations when performing a joint photometric/RV fit. A system with a fitted mass over 5 M$_\odot$ can often be identified as a black hole even when its fitted mass has a large error. This can inform our priorities when planning observations; e.g. we can choose to obtain additional observations of targets with fitted masses that fall in the 3--5 M$_\odot$ the mass gap, or we can treat higher mass systems as confirmed with fewer observations. We find that the number of observations have only a small effect on the recovery of the object class, while RV accuracy is more important for lower mass systems but not for high mass systems. This suggests a staged observing strategy would be appropriate, where lower accuracy observations are first obtained for all targets, with higher accuracy observations reserved for those which seem to be lower mass.
 
 \subsection{Orbital period relative error}
 
@@ -565,7 +569,7 @@ These results follow the same trends as the unscaled results, showing that the u
 % Flush pending two-column figures, then reset the text column after float pages.
 \clearpage
 \clearpage
-\section{Conclusions}
+\section{Conclusions} \label{sec:conclusions}
 Previous works have shown that self-lensing systems can be confirmed from photometry alone, or with a combination of photometry and radial velocity measurements, by the discovery of five relatively short period white dwarf lenses. We show it is possible to characterise lenses across the full compact object mass range, including for very long orbital periods where only one self-lensing event is detectable.
 
 We have presented a proof-of-concept for a method of scheduling a small number of RV follow-up observations of self-lensing candidates with previously-observed photometric lensing signals. We show that with only a small number of RV measurements it is possible to determine the broad compact object class in many cases and to measure the lens mass to an acceptable relative error. This can then inform prioritisation of further observations, if needed. With this in mind, our recommendation for following up on photometrically-detected self-lensing candidates is a staged follow-up strategy, where all candidates are observed a small number of times to determine which ones are truly binaries and what the lens class is in those cases. A second stage of follow-up observations can then concentrate on the true binaries to ascertain the lens mass to a higher precision.
@@ -622,7 +626,7 @@ We use the Einstein radius and impact-parameter convention of \cite{wiktorowicz_
     \quad
     b_\mathrm{max} = 1 + \frac{R_\star}{R_\mathrm{E}},
 \end{equation}
-where $r(t_0)$ is the lens-source separation at the lensing peak. For a circular orbit, $r(t_0)=a$ and this reduces to the expression used by \cite{wiktorowicz_predicting_2021}. The true anomaly is obtained from Kepler's equation using the mean anomaly $\mathcal{M}$ and eccentric anomaly $E$,
+where $r(t_0)$ is the lens-source separation at the lensing peak. For a circular orbit, $r(t_0)=a$ and this reduces to the expression used by \cite{wiktorowicz_predicting_2021}. The true anomaly, $\nu(t)$, is obtained from Kepler's equation using the mean anomaly $\mathcal{M}(t)$ and eccentric anomaly $E(t)$,
 \begin{align}
     \mathcal{M}(t) & = \mathcal{M}_0 + 2\pi\frac{t - t_0}{P_\mathrm{orb}}, \\
     \mathcal{M}(t) & = E(t) - e\sin E(t),                                  \\
@@ -707,8 +711,9 @@ The Doppler-boosting term is
 \end{equation}
 where $\nu_\mathrm{TESS}$ is the TESS-band effective frequency and $v_r(t)$ is the source radial velocity. The combined model flux is
 \begin{equation}
-    F(t) = F_0 A_\mathrm{SL}(t)\left[1 + A_\mathrm{EV}(t) + A_\mathrm{DB}(t)\right].
+    F(t) = F_0 A_\mathrm{SL}(t)\left[1 + A_\mathrm{EV}(t) + A_\mathrm{DB}(t)\right],
 \end{equation}
+which makes the simplifying assumption that the ellipsoidal variations and Doppler boosting are of small amplitude.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
