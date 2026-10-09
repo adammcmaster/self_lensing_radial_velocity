@@ -2059,7 +2059,7 @@ wheels = [
 [[package]]
 name = "selflensing"
 version = "0.0.1"
-source = { git = "ssh://git@github.com/COBALT-lensing/py-self-lensing.git#1e8fca7de60b260958bd6840934bcd9ff3279225" }
+source = { git = "ssh://git@github.com/COBALT-lensing/py-self-lensing.git#5d3a3b55bebab7d323c731d4d9940de27db5a2f5" }
 dependencies = [
     { name = "astropy" },
     { name = "blackjax" },

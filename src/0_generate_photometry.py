@@ -27,7 +27,6 @@ from selflensing.batch import (
     batched_light_curve_jit,
     batched_gp_light_curve_jit,
 )
-from selflensing.gp import TESSGP
 from selflensing.gp import FluxFinderSensitivity as flux_finder
 from selflensing.gp.PhysicalRelations import effective_temperature_K, stellar_radius_Rsun
 from selflensing.gp import PhysicalRelations as physical_relations
@@ -164,8 +163,8 @@ def system_from_rows(parameter_rows, index):
     )
 
 
-def make_tess_gp_input_generator():
-    """Build a cached, batched equivalent of ``TESSGP(..., kernel_type='GS')``.
+def make_tess_gp_input_generator(rng=None, *, noise_sampler=None):
+    """Build batched GS inputs with independently sampled stellar noise.
 
     ``TESSGP`` is convenient for individual systems but calls
     ``conv_mass_to_mag`` for each one.  That function reloads the instrument
@@ -173,10 +172,11 @@ def make_tess_gp_input_generator():
     retain one ``FluxModel`` and vectorise the small amount of TESS-GP setup.
     The returned values retain TESSGP's count-space conventions exactly.
     """
+    rng = numpy.random.default_rng() if rng is None else rng
     flux_model = flux_finder.FluxModel()
 
     @jax.jit
-    def _generate(masses, distances):
+    def _generate(masses, distances, noise_draws):
         magnitudes, fractional_noise = jax.vmap(flux_model.mass_to_mag)(masses, distances)
         log_count_baselines = jnp.log10(
             flux_finder.counts_per_cadence_from_mag(
@@ -187,21 +187,18 @@ def make_tess_gp_input_generator():
         log_granulation_frequency = jnp.log10(
             jax.vmap(physical_relations.granulation_frequency_relation)(masses)
         )
-        log_granulation_sigma = jax.vmap(
-            lambda log_mu: gp_priors.expected_log_sigma(log_mu, "G")
-        )(log_count_baselines)
+        # Draws are in linear ppm; only convert after sampling.
+        log_granulation_sigma = log_count_baselines + jnp.log10(noise_draws[:, 0] / 1e6)
         log_seismic_frequency = jnp.log10(
             jax.vmap(physical_relations.asteroseismic_frequency_relation)(masses)
         )
-        log_seismic_sigma = jax.vmap(
-            lambda log_mu: gp_priors.expected_log_sigma(log_mu, "S")
-        )(log_count_baselines)
+        log_seismic_sigma = log_count_baselines + jnp.log10(noise_draws[:, 2] / 1e6)
         parameters = jnp.stack(
             [
                 log_granulation_frequency,
                 log_granulation_sigma,
                 log_seismic_frequency,
-                jnp.full_like(log_count_baselines, TESSGP.Q_s),
+                noise_draws[:, 1],
                 log_seismic_sigma,
             ],
             axis=1,
@@ -211,12 +208,33 @@ def make_tess_gp_input_generator():
     def generate(parameter_rows):
         masses = jnp.asarray(parameter_rows["Mcomp"])
         distances = jnp.asarray(parameter_rows["d"])
-        return tuple(numpy.asarray(value) for value in jax.device_get(_generate(masses, distances)))
+        # A custom sampler may use measured component amplitudes or star-specific
+        # priors. It receives the physical rows and returns [G ppm, Q, S ppm].
+        if noise_sampler is None:
+            size = len(masses)
+            granulation_ppm = 1e6 * 10.0 ** numpy.asarray(
+                gp_priors.sample_log_sigma(0.0, "G", rng, size=size)
+            )
+            quality = gp_priors.sample_quality_factor(rng, size=size)
+            seismic_ppm = 1e6 * 10.0 ** numpy.asarray(
+                gp_priors.sample_log_sigma(0.0, "S", rng, size=size)
+            )
+            draws = numpy.column_stack((granulation_ppm, quality, seismic_ppm))
+        else:
+            draws = numpy.asarray(noise_sampler(rng, parameter_rows), dtype=float)
+        if (
+            draws.shape != (len(masses), 3)
+            or not numpy.all(numpy.isfinite(draws))
+            or numpy.any(draws <= 0)
+        ):
+            raise ValueError("Noise sampler must return positive finite [G ppm, Q, S ppm] rows")
+        values = _generate(masses, distances, jnp.asarray(draws))
+        return tuple(numpy.asarray(value) for value in jax.device_get(values))
 
     return generate
 
 
-def _header_values(system, source_amplification, peak_time):
+def _header_values(system, source_amplification, peak_time, gp_parameters, count_baseline):
     return {
         "A": float(system.a.value),
         "I": float(system.i.value),
@@ -234,6 +252,10 @@ def _header_values(system, source_amplification, peak_time):
         "AMP_SL": float(source_amplification),
         "SIMVER": "2.0",
         "GPKERNEL": GP_KERNEL_TYPE,
+        "GPPRIOR": "sampled-v1",
+        "GPPPMG": float(1e6 * 10.0 ** gp_parameters[1] / count_baseline),
+        "GPQS": float(gp_parameters[3]),
+        "GPPPMS": float(1e6 * 10.0 ** gp_parameters[4] / count_baseline),
     }
 
 
@@ -257,12 +279,20 @@ def write_lightcurve(path, times, flux, flux_err, header_values):
 
 
 def existing_simulation_indices(path):
+    from astropy.io import fits
+
     indices = set()
     for candidate in path.glob("simulation_*.fits.gz"):
         try:
-            indices.add(int(candidate.name.removeprefix("simulation_").removesuffix(".fits.gz")))
+            index = int(candidate.name.removeprefix("simulation_").removesuffix(".fits.gz"))
         except ValueError:
             continue
+        if fits.getheader(candidate, 1).get("GPPRIOR") != "sampled-v1":
+            raise RuntimeError(
+                f"{candidate} uses the previous stellar-noise prescription. "
+                "Archive the old library before regenerating photometry and downstream fits."
+            )
+        indices.add(index)
     return indices
 
 
@@ -291,8 +321,8 @@ def main():
     absolute_times = PHOTOMETRY_PEAK_JD + relative_times
     device = next(device for device in jax.devices() if device.platform == "gpu")
     device_relative_times = jax.device_put(jnp.asarray(relative_times), device)
-    tess_gp_inputs = make_tess_gp_input_generator()
     rng = numpy.random.default_rng(PHOTOMETRY_RANDOM_SEED)
+    tess_gp_inputs = make_tess_gp_input_generator(rng)
     output_index = 0
     attempts = 0
     timings = {
@@ -418,6 +448,8 @@ def main():
                                         system,
                                         amplitude,
                                         PHOTOMETRY_PEAK_JD + peak_offset,
+                                        gp_params[index],
+                                        count_baselines[index],
                                     ),
                                 )
                             )

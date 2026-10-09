@@ -223,9 +223,8 @@ $\tau_\mathrm{gran}$, for a source star of mass $M_\star$ and radius $R_\star$, 
 
 This model captures the temporal decorrelation of the granulation component light curve over time, appropriate for granulation, where surface features evolve on a finite timescale and exhibit only short-range temporal correlations \citep{aigrain_gaussian_2023}. This model has also been tested and applied in previous GP transit studies \citep{brewer_gaussian_2009,nicholson_quasi-periodic_2022}. Overall, the DRW kernel effectively models granulation noise without requiring high model complexity or prior knowledge of the star’s convective dynamics.
 
-% TODO: The current generator fixes the asteroseismic SHO quality factor at Q=5; update the text below if this fixed choice is retained for the final analysis.
 Asteroseismic oscillations are caused by the propagation of sound waves through the star's outer convective zone. \citep{kjeldsen_amplitudes_1995,chaplin_asteroseismology_2013}. These occur on the timescales of minutes to tens of hours, placing them directly into the observing window of light curves from instruments such as TESS. Again, we choose a damped harmonic oscillator kernel, but this time with a free quality factor to allow for the presence of a periodic component \citep{brewer_gaussian_2009,foreman-mackey_exoplanet_2021}. The frequency of the primary mode, given by the $\nu_\mathrm{seis}$ hyper-parameter, is proportional to the source-star surface gravity, $g_\star$, and the effective temperature, $T_\mathrm{eff}$, and therefore depends
-on the stellar properties of the simulated system.
+on the stellar properties of the simulated system. We draw the oscillation quality factor independently for each simulated star from a broad log-uniform prior, $Q\in[100,10^4]$, chosen to represent coherent p modes.
 
 \begin{equation}
     \nu_\mathrm{seis} \propto \frac{g_\star}{\sqrt{T_\mathrm{eff}}}
@@ -279,8 +278,7 @@ Kernel amplitudes are set in counts per cadence by scaling the fractional stella
 \begin{equation}
     \sigma_q = f_q N_\mathrm{TESS},
 \end{equation}
-% TODO: The current generator uses the geometric midpoint of each stated ppm band, rather than drawing an amplitude within the band; update the text below if this remains the intended implementation.
-where $f_q$ is a representative fractional variability amplitude. In the simulations we use broad ppm-level bands for these fractional amplitudes, with granulation initialised between 50--300 ppm and asteroseismic variability between 100--1000 ppm.
+where $f_q$ is a fractional variability amplitude. We draw these amplitudes independently for each component and each simulated star from uniform distributions spanning 50--300 ppm for granulation and 100--1000 ppm for asteroseismic variability.
 
 The same apparent magnitude is also used to set the TESS white-noise level. We linearly interpolate an empirical TESS noise model at $m_\mathrm{TESS}$ to obtain a fractional per-cadence uncertainty $\eta(m_\mathrm{TESS})$. For the GP covariance matrix $\Sigma_{ij}$ and the Kronecker delta $\delta_{ij}$, this gives a TESS white-noise standard deviation $\sigma_\mathrm{TESS}$ and diagonal covariance contribution
 \begin{equation}
