@@ -1250,7 +1250,7 @@ def plot_self_lensing_observable_space():
     crossing_time_hr = estimates["crossing_time_hr"]
     orbital_period_yr = estimates["orbital_period_yr"]
     lens_mass = estimates["lens_mass_msun"]
-    inclination = estimates["inclination_rad"]
+    inclination = numpy.rad2deg(estimates["inclination_rad"])
     valid = estimates["valid"]
 
     summary = pandas.DataFrame(
@@ -1282,7 +1282,7 @@ def plot_self_lensing_observable_space():
                 vmax=numpy.nanmax(orbital_period_yr[valid]),
             ),
         ),
-        (r"$i$ [rad]", inclination[valid], None),
+        (r"$i$ [deg]", inclination[valid], None),
     ]
 
     fig, axes = pyplot.subplots(
