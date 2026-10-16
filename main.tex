@@ -289,16 +289,8 @@ The same apparent magnitude is also used to set the TESS white-noise level. We l
 \end{equation}
 This term is fixed by the simulated source brightness rather than fitted as an additional free GP jitter parameter.
 
-% Commented out because this part is not actually used here; we don't use the GP for fitting in this paper
-% Such proportionality illustrates the importance of modelling the noise and signal
-% simultaneously, as the hyper-parameters of the kernel are directly related to the
-% deterministic parameters of the mean function. Fitting the two together removes
-% degeneracies while preventing unphysical solutions.
-
 The variability caused by magnetic effects has also been included in prior studies \citep{haywood_planets_2014,luger_starry_process_2021,foreman-mackey_exoplanet_2021}, as has the movement of star spots about the rotational axis of the star. However, such variations are often overpowered by more global variations, such as asteroseismic modes for distant stars, where surface structure cannot be resolved. We therefore assume that the jitter term is sufficient to account for magnetic contributions to the underlying stellar noise.
-% Commented out because we don't actually do this here
-%The GP can also account for additional small uncorrelated fluctuations through its jitter
-%term, specifically those unaccounted for in instrument noise. 
+
 For a detailed review on modelling stellar variability through GPs, see \cite{aigrain_gaussian_2023}.
 
 \subsection{Photometric MCMC fit} \label{sec:phot-fit}
@@ -481,13 +473,6 @@ We note that the survey-specific detection yields we use here come from Table~2 
     \label{fig:lens-mass-relative-error-by-lens-mass}
 \end{figure*}
 
-% \begin{figure*}
-%     \centering
-%     \includegraphics[height=0.4\textheight]{paper/figures/lens_mass_relative_error_by_period.pdf}
-%     \caption{Median lens mass relative error as a function of the true lens mass. Cell values give the median $|\Delta M_\mathrm{lens}|/M_\mathrm{lens}$ in per cent for each fitted subset and observing strategy.}
-%     \label{fig:lens-mass-relative-error-by-period}
-% \end{figure*}
-
 \begin{figure*}
     \centering
     \includegraphics[width=\textwidth]{paper/figures/lens_mass_class_recovery_by_lens_mass.pdf}
@@ -577,19 +562,6 @@ Figure~\ref{fig:population-weighted-rv-followup-heatmaps-relative-error-macc} sh
 
 These results follow the same trends as the unscaled results, showing that the unscaled results are informative about the potential for recovering the properties of the real population, even though the underlying parameter distribution is not physically representative.
 
-% \begin{figure*}
-%     \centering
-%     \includegraphics[width=\textwidth]{paper/figures/population_weighted_rv_followup_heatmaps_relative_error_porb.pdf}
-%     \caption{Median orbital period relative error for the detectable population from the population synthesis sample. Cell values give the median emulated $|\Delta P_\mathrm{orb}|/P_\mathrm{orb}$ in per cent for each observing strategy and instrumental RV accuracy. Columns within each panel give bins in true orbital period; the results are aggregated over lens mass.}
-%     \label{fig:population-weighted-rv-followup-heatmaps-relative-error-porb}
-% \end{figure*}
-
-% Figure~\ref{fig:population-weighted-rv-followup-heatmaps-relative-error-porb} shows the recovery rates for orbital period. The recovery rate ranges from 36.2--81.5\%, with a mean of 66.8\%. As with the other parameters, the number and timing of observations affect recovery, with RV accuracy having a smaller effect.
-
-% Table~\ref{tab:population-weighted-followup-counts-summary} shows a summary of the results of applying these recovery rates to the survey-specific photometric detection yields given by \cite{wiktorowicz_predicting_2021} (i.e. it shows the number of photometrically detectable systems in each survey for which each parameter can be accurately measured after RV follow-up). Full values are given in Tables \ref{tab:population-weighted-followup-counts-class}, \ref{tab:population-weighted-followup-counts-macc}, and \ref{tab:population-weighted-followup-counts-porb}. Note that the recovery rate is the same regardless of survey, as this is based on the RV follow-up observations; differences in recovered population sizes reflects the different numbers of photometrically-detectable systems in each survey.
-
-% \input{paper/tables/population_weighted_followup_counts_summary}
-
 % Flush pending two-column figures, then reset the text column after float pages.
 \clearpage
 \clearpage
@@ -612,7 +584,7 @@ This work was supported by the Science \& Technology Facilities Council [Grant R
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section*{Data Availability}
 
-The simulated light curve and radial velocity data, Python code, and \LaTeX~source for this paper are available on GitHub (\href{https://github.com/adammcmaster/self_lensing_radial_velocity}{\texttt{adammcmaster/self\_lensing\_radial\_velocity}}) and Zenodo (\textbf{TODO: Add citation}).
+The Python code and \LaTeX~source for this paper are available on GitHub (\href{https://github.com/adammcmaster/self_lensing_radial_velocity}{\texttt{adammcmaster/self\_lensing\_radial\_velocity}}), including scripts for generating all simulated data.
 
 %%%%%%%%%%%%%%%%%%%% REFERENCES %%%%%%%%%%%%%%%%%%
 
